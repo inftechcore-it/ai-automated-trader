@@ -380,7 +380,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 **Your Name**
 - GitHub: [inftechcore-it](https://github.com/inftechcore-it)
-- Mail: [your-mail](shaikshahid570@gmail.com)
+- Mail: [shaikhh](shaikshahid570@gmail.com)
 
 ---
 
