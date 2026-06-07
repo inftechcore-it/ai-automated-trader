@@ -379,7 +379,7 @@ This project is licensed under the [MIT License](LICENSE).
 ## 👤 Author
 
 **Your Name**
-- GitHub: [@your-username](https://github.com/inftechcore-it)
+- GitHub: [inftechcore-it](https://github.com/inftechcore-it)
 - Mail: [your-mail](shaikshahid570@gmail.com)
 
 ---
