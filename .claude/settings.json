@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:upstox.com)",
+      "WebFetch(domain:api.upstox.com)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(cat C:/Users/shahidshaikh/.claude/usage-data/session-meta/*.json 2>/dev/null | grep -o '\"input_tokens\":[0-9]*\\\\|\"output_tokens\":[0-9]*' | head -50)",
+      "Read(//c/Users/shahidshaikh/.claude/usage-data/session-meta/**)"
+    ]
+  }
+}

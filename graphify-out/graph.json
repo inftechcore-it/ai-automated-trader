@@ -1,0 +1,1045 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "crypto_exchanges_group",
+        "label": "Crypto Exchange Integrations",
+        "nodes": [
+          "ai_bdm_readme_exchange_adapter",
+          "ai_bdm_readme_binance_exchange",
+          "ai_bdm_readme_kraken_exchange",
+          "ai_bdm_readme_coinbase_exchange"
+        ],
+        "relation": "implement",
+        "confidence": "EXTRACTED",
+        "confidence_score": 1.0,
+        "source_file": "README.md"
+      },
+      {
+        "id": "ai_provider_alternatives",
+        "label": "AI Provider Options",
+        "nodes": [
+          "ai_bdm_readme_ai_analysis_engine",
+          "ai_bdm_readme_openai_integration",
+          "ai_bdm_readme_anthropic_integration"
+        ],
+        "relation": "participate_in",
+        "confidence": "EXTRACTED",
+        "confidence_score": 1.0,
+        "source_file": "README.md"
+      },
+      {
+        "id": "trading_mode_flow",
+        "label": "Trading Execution Flow",
+        "nodes": [
+          "ai_bdm_readme_paper_trading",
+          "ai_bdm_readme_live_trading",
+          "ai_bdm_readme_exchange_adapter",
+          "ai_bdm_readme_realtime_market_data"
+        ],
+        "relation": "participate_in",
+        "confidence": "INFERRED",
+        "confidence_score": 0.85,
+        "source_file": "README.md"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "query",
+      "file_type": "code",
+      "source_file": "backend/config/db.js",
+      "source_location": "L11",
+      "_origin": "ast",
+      "id": "config_db_query",
+      "community": 10,
+      "norm_label": "query"
+    },
+    {
+      "label": "transaction",
+      "file_type": "code",
+      "source_file": "backend/config/db.js",
+      "source_location": "L16",
+      "_origin": "ast",
+      "id": "config_db_transaction",
+      "community": 11,
+      "norm_label": "transaction"
+    },
+    {
+      "label": "analyze",
+      "file_type": "code",
+      "source_file": "backend/controllers/aiController.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "controllers_aicontroller_analyze",
+      "community": 12,
+      "norm_label": "analyze"
+    },
+    {
+      "label": "history",
+      "file_type": "code",
+      "source_file": "backend/controllers/aiController.js",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "controllers_aicontroller_history",
+      "community": 13,
+      "norm_label": "history"
+    },
+    {
+      "label": "register",
+      "file_type": "code",
+      "source_file": "backend/controllers/authController.js",
+      "source_location": "L15",
+      "_origin": "ast",
+      "id": "controllers_authcontroller_register",
+      "community": 16,
+      "norm_label": "register"
+    },
+    {
+      "label": "login",
+      "file_type": "code",
+      "source_file": "backend/controllers/authController.js",
+      "source_location": "L37",
+      "_origin": "ast",
+      "id": "controllers_authcontroller_login",
+      "community": 14,
+      "norm_label": "login"
+    },
+    {
+      "label": "me",
+      "file_type": "code",
+      "source_file": "backend/controllers/authController.js",
+      "source_location": "L48",
+      "_origin": "ast",
+      "id": "controllers_authcontroller_me",
+      "community": 15,
+      "norm_label": "me"
+    },
+    {
+      "label": "supported",
+      "file_type": "code",
+      "source_file": "backend/controllers/exchangeController.js",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "controllers_exchangecontroller_supported",
+      "community": 20,
+      "norm_label": "supported"
+    },
+    {
+      "label": "connectExchange",
+      "file_type": "code",
+      "source_file": "backend/controllers/exchangeController.js",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "controllers_exchangecontroller_connectexchange",
+      "community": 18,
+      "norm_label": "connectexchange"
+    },
+    {
+      "label": "connected",
+      "file_type": "code",
+      "source_file": "backend/controllers/exchangeController.js",
+      "source_location": "L27",
+      "_origin": "ast",
+      "id": "controllers_exchangecontroller_connected",
+      "community": 17,
+      "norm_label": "connected"
+    },
+    {
+      "label": "updateExchange",
+      "file_type": "code",
+      "source_file": "backend/controllers/exchangeController.js",
+      "source_location": "L36",
+      "_origin": "ast",
+      "id": "controllers_exchangecontroller_updateexchange",
+      "community": 21,
+      "norm_label": "updateexchange"
+    },
+    {
+      "label": "disconnect",
+      "file_type": "code",
+      "source_file": "backend/controllers/exchangeController.js",
+      "source_location": "L46",
+      "_origin": "ast",
+      "id": "controllers_exchangecontroller_disconnect",
+      "community": 19,
+      "norm_label": "disconnect"
+    },
+    {
+      "label": "quote",
+      "file_type": "code",
+      "source_file": "backend/controllers/marketController.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "controllers_marketcontroller_quote",
+      "community": 23,
+      "norm_label": "quote"
+    },
+    {
+      "label": "history",
+      "file_type": "code",
+      "source_file": "backend/controllers/marketController.js",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "controllers_marketcontroller_history",
+      "community": 22,
+      "norm_label": "history"
+    },
+    {
+      "label": "search",
+      "file_type": "code",
+      "source_file": "backend/controllers/marketController.js",
+      "source_location": "L14",
+      "_origin": "ast",
+      "id": "controllers_marketcontroller_search",
+      "community": 24,
+      "norm_label": "search"
+    },
+    {
+      "label": "placeOrder",
+      "file_type": "code",
+      "source_file": "backend/controllers/orderController.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "controllers_ordercontroller_placeorder",
+      "community": 27,
+      "norm_label": "placeorder"
+    },
+    {
+      "label": "listOrders",
+      "file_type": "code",
+      "source_file": "backend/controllers/orderController.js",
+      "source_location": "L21",
+      "_origin": "ast",
+      "id": "controllers_ordercontroller_listorders",
+      "community": 26,
+      "norm_label": "listorders"
+    },
+    {
+      "label": "getOrder",
+      "file_type": "code",
+      "source_file": "backend/controllers/orderController.js",
+      "source_location": "L29",
+      "_origin": "ast",
+      "id": "controllers_ordercontroller_getorder",
+      "community": 25,
+      "norm_label": "getorder"
+    },
+    {
+      "label": "listPortfolio",
+      "file_type": "code",
+      "source_file": "backend/controllers/portfolioController.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "controllers_portfoliocontroller_listportfolio",
+      "community": 28,
+      "norm_label": "listportfolio"
+    },
+    {
+      "label": "startSession",
+      "file_type": "code",
+      "source_file": "backend/controllers/sessionController.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "controllers_sessioncontroller_startsession",
+      "community": 31,
+      "norm_label": "startsession"
+    },
+    {
+      "label": "setSessionStatus",
+      "file_type": "code",
+      "source_file": "backend/controllers/sessionController.js",
+      "source_location": "L20",
+      "_origin": "ast",
+      "id": "controllers_sessioncontroller_setsessionstatus",
+      "community": 30,
+      "norm_label": "setsessionstatus"
+    },
+    {
+      "label": "listSessions",
+      "file_type": "code",
+      "source_file": "backend/controllers/sessionController.js",
+      "source_location": "L30",
+      "_origin": "ast",
+      "id": "controllers_sessioncontroller_listsessions",
+      "community": 29,
+      "norm_label": "listsessions"
+    },
+    {
+      "label": "listWatchlist",
+      "file_type": "code",
+      "source_file": "backend/controllers/watchlistController.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "controllers_watchlistcontroller_listwatchlist",
+      "community": 34,
+      "norm_label": "listwatchlist"
+    },
+    {
+      "label": "addWatchlistItem",
+      "file_type": "code",
+      "source_file": "backend/controllers/watchlistController.js",
+      "source_location": "L11",
+      "_origin": "ast",
+      "id": "controllers_watchlistcontroller_addwatchlistitem",
+      "community": 32,
+      "norm_label": "addwatchlistitem"
+    },
+    {
+      "label": "deleteWatchlistItem",
+      "file_type": "code",
+      "source_file": "backend/controllers/watchlistController.js",
+      "source_location": "L20",
+      "_origin": "ast",
+      "id": "controllers_watchlistcontroller_deletewatchlistitem",
+      "community": 33,
+      "norm_label": "deletewatchlistitem"
+    },
+    {
+      "label": "requireAuth",
+      "file_type": "code",
+      "source_file": "backend/middlewares/auth.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "middlewares_auth_requireauth",
+      "community": 35,
+      "norm_label": "requireauth"
+    },
+    {
+      "label": "notFound",
+      "file_type": "code",
+      "source_file": "backend/middlewares/errorHandler.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "middlewares_errorhandler_notfound",
+      "community": 37,
+      "norm_label": "notfound"
+    },
+    {
+      "label": "errorHandler",
+      "file_type": "code",
+      "source_file": "backend/middlewares/errorHandler.js",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "middlewares_errorhandler_errorhandler",
+      "community": 36,
+      "norm_label": "errorhandler"
+    },
+    {
+      "label": "validate",
+      "file_type": "code",
+      "source_file": "backend/middlewares/validate.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "middlewares_validate_validate",
+      "community": 38,
+      "norm_label": "validate"
+    },
+    {
+      "label": "analyzeMarket",
+      "file_type": "code",
+      "source_file": "backend/services/aiService.js",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "services_aiservice_analyzemarket",
+      "community": 49,
+      "norm_label": "analyzemarket"
+    },
+    {
+      "label": "getQuote",
+      "file_type": "code",
+      "source_file": "backend/services/exchangeService.js",
+      "source_location": "L25",
+      "_origin": "ast",
+      "id": "services_exchangeservice_getquote",
+      "community": 51,
+      "norm_label": "getquote"
+    },
+    {
+      "label": "getHistory",
+      "file_type": "code",
+      "source_file": "backend/services/exchangeService.js",
+      "source_location": "L43",
+      "_origin": "ast",
+      "id": "services_exchangeservice_gethistory",
+      "community": 50,
+      "norm_label": "gethistory"
+    },
+    {
+      "label": "searchSymbols",
+      "file_type": "code",
+      "source_file": "backend/services/exchangeService.js",
+      "source_location": "L60",
+      "_origin": "ast",
+      "id": "services_exchangeservice_searchsymbols",
+      "community": 53,
+      "norm_label": "searchsymbols"
+    },
+    {
+      "label": "placeLiveOrder",
+      "file_type": "code",
+      "source_file": "backend/services/exchangeService.js",
+      "source_location": "L75",
+      "_origin": "ast",
+      "id": "services_exchangeservice_placeliveorder",
+      "community": 52,
+      "norm_label": "placeliveorder"
+    },
+    {
+      "label": "placeOrder",
+      "file_type": "code",
+      "source_file": "backend/services/tradeExecutor.js",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "services_tradeexecutor_placeorder",
+      "community": 54,
+      "norm_label": "placeorder"
+    },
+    {
+      "label": "registerMarketSocket",
+      "file_type": "code",
+      "source_file": "backend/sockets/marketSocket.js",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "sockets_marketsocket_registermarketsocket",
+      "community": 55,
+      "norm_label": "registermarketsocket"
+    },
+    {
+      "label": "ok",
+      "file_type": "code",
+      "source_file": "backend/utils/apiResponse.js",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "utils_apiresponse_ok",
+      "community": 61,
+      "norm_label": "ok"
+    },
+    {
+      "label": "fail",
+      "file_type": "code",
+      "source_file": "backend/utils/apiResponse.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "utils_apiresponse_fail",
+      "community": 60,
+      "norm_label": "fail"
+    },
+    {
+      "label": "encrypt",
+      "file_type": "code",
+      "source_file": "backend/utils/encryption.js",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "utils_encryption_encrypt",
+      "community": 63,
+      "norm_label": "encrypt"
+    },
+    {
+      "label": "decrypt",
+      "file_type": "code",
+      "source_file": "backend/utils/encryption.js",
+      "source_location": "L18",
+      "_origin": "ast",
+      "id": "utils_encryption_decrypt",
+      "community": 62,
+      "norm_label": "decrypt"
+    },
+    {
+      "label": "App",
+      "file_type": "code",
+      "source_file": "frontend/src/App.jsx",
+      "source_location": "L21",
+      "_origin": "ast",
+      "id": "src_app_app",
+      "community": 57,
+      "norm_label": "app"
+    },
+    {
+      "label": "errorMessage",
+      "file_type": "code",
+      "source_file": "frontend/src/api.js",
+      "source_location": "L13",
+      "_origin": "ast",
+      "id": "src_api_errormessage",
+      "community": 56,
+      "norm_label": "errormessage"
+    },
+    {
+      "label": "AuthProvider",
+      "file_type": "code",
+      "source_file": "frontend/src/auth.jsx",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "src_auth_authprovider",
+      "community": 58,
+      "norm_label": "authprovider"
+    },
+    {
+      "label": "useAuth",
+      "file_type": "code",
+      "source_file": "frontend/src/auth.jsx",
+      "source_location": "L40",
+      "_origin": "ast",
+      "id": "src_auth_useauth",
+      "community": 59,
+      "norm_label": "useauth"
+    },
+    {
+      "label": "AuthShell",
+      "file_type": "code",
+      "source_file": "frontend/src/components/AuthShell.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "components_authshell_authshell",
+      "community": 4,
+      "norm_label": "authshell"
+    },
+    {
+      "label": "Badge",
+      "file_type": "code",
+      "source_file": "frontend/src/components/Badge.jsx",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "components_badge_badge",
+      "community": 5,
+      "norm_label": "badge"
+    },
+    {
+      "label": "Card",
+      "file_type": "code",
+      "source_file": "frontend/src/components/Card.jsx",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "components_card_card",
+      "community": 6,
+      "norm_label": "card"
+    },
+    {
+      "label": "InfoLabel",
+      "file_type": "code",
+      "source_file": "frontend/src/components/InfoLabel.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "components_infolabel_infolabel",
+      "community": 7,
+      "norm_label": "infolabel"
+    },
+    {
+      "label": "Layout",
+      "file_type": "code",
+      "source_file": "frontend/src/components/Layout.jsx",
+      "source_location": "L16",
+      "_origin": "ast",
+      "id": "components_layout_layout",
+      "community": 8,
+      "norm_label": "layout"
+    },
+    {
+      "label": "PriceTicker",
+      "file_type": "code",
+      "source_file": "frontend/src/components/PriceTicker.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "components_priceticker_priceticker",
+      "community": 9,
+      "norm_label": "priceticker"
+    },
+    {
+      "label": "AiAnalysis",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/AiAnalysis.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "pages_aianalysis_aianalysis",
+      "community": 39,
+      "norm_label": "aianalysis"
+    },
+    {
+      "label": "Dashboard",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Dashboard.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_dashboard_dashboard",
+      "community": 40,
+      "norm_label": "dashboard"
+    },
+    {
+      "label": "Exchanges",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Exchanges.jsx",
+      "source_location": "L11",
+      "_origin": "ast",
+      "id": "pages_exchanges_exchanges",
+      "community": 41,
+      "norm_label": "exchanges"
+    },
+    {
+      "label": "Login",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Login.jsx",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "pages_login_login",
+      "community": 42,
+      "norm_label": "login"
+    },
+    {
+      "label": "Orders",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Orders.jsx",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "pages_orders_orders",
+      "community": 43,
+      "norm_label": "orders"
+    },
+    {
+      "label": "Portfolio",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Portfolio.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_portfolio_portfolio",
+      "community": 44,
+      "norm_label": "portfolio"
+    },
+    {
+      "label": "Register",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Register.jsx",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "pages_register_register",
+      "community": 45,
+      "norm_label": "register"
+    },
+    {
+      "label": "Settings",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Settings.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "pages_settings_settings",
+      "community": 46,
+      "norm_label": "settings"
+    },
+    {
+      "label": "Trading",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Trading.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_trading_trading",
+      "community": 47,
+      "norm_label": "trading"
+    },
+    {
+      "label": "Watchlist",
+      "file_type": "code",
+      "source_file": "frontend/src/pages/Watchlist.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_watchlist_watchlist",
+      "community": 48,
+      "norm_label": "watchlist"
+    },
+    {
+      "label": "AutoTrader Pro",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "inftechcore-it",
+      "contributor": null,
+      "id": "ai_bdm_readme_autotrader_pro",
+      "community": 0,
+      "norm_label": "autotrader pro"
+    },
+    {
+      "label": "Paper Trading Mode",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_paper_trading",
+      "community": 0,
+      "norm_label": "paper trading mode"
+    },
+    {
+      "label": "Live Trading Mode",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_live_trading",
+      "community": 0,
+      "norm_label": "live trading mode"
+    },
+    {
+      "label": "AI Analysis Engine",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_ai_analysis_engine",
+      "community": 1,
+      "norm_label": "ai analysis engine"
+    },
+    {
+      "label": "Technical Indicators",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "RSI, MACD, Bollinger Bands, EMA 50/200, Volume Trend computed locally from OHLCV data before LLM prediction",
+      "id": "ai_bdm_readme_technical_indicators",
+      "community": 1,
+      "norm_label": "technical indicators"
+    },
+    {
+      "label": "Exchange Adapter",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Unified exchange adapter pattern allows supporting multiple exchanges (Binance, Kraken, Coinbase, stock APIs) through a single service interface",
+      "id": "ai_bdm_readme_exchange_adapter",
+      "community": 2,
+      "norm_label": "exchange adapter"
+    },
+    {
+      "label": "Real-Time Market Data",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_realtime_market_data",
+      "community": 3,
+      "norm_label": "real-time market data"
+    },
+    {
+      "label": "Security Model",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Defense in depth: bcryptjs password hashing (12 rounds), AES-256 API key encryption, JWT auth with 24h expiry, rate limiting on auth endpoints, API keys never returned to client",
+      "id": "ai_bdm_readme_security_model",
+      "community": 0,
+      "norm_label": "security model"
+    },
+    {
+      "label": "Binance Exchange",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_binance_exchange",
+      "community": 2,
+      "norm_label": "binance exchange"
+    },
+    {
+      "label": "Kraken Exchange",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_kraken_exchange",
+      "community": 2,
+      "norm_label": "kraken exchange"
+    },
+    {
+      "label": "Coinbase Exchange",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_coinbase_exchange",
+      "community": 2,
+      "norm_label": "coinbase exchange"
+    },
+    {
+      "label": "OpenAI GPT-4 Integration",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_openai_integration",
+      "community": 1,
+      "norm_label": "openai gpt-4 integration"
+    },
+    {
+      "label": "Anthropic Claude Integration",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_anthropic_integration",
+      "community": 1,
+      "norm_label": "anthropic claude integration"
+    },
+    {
+      "label": "Socket.io Real-Time Events",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "ai_bdm_readme_socketio_events",
+      "community": 3,
+      "norm_label": "socket.io real-time events"
+    },
+    {
+      "label": "Trading System UI Entry",
+      "file_type": "code",
+      "source_file": "frontend/index.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "frontend_index_trading_system_ui",
+      "community": 0,
+      "norm_label": "trading system ui entry"
+    }
+  ],
+  "links": [
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_autotrader_pro",
+      "target": "ai_bdm_readme_ai_analysis_engine"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_autotrader_pro",
+      "target": "ai_bdm_readme_live_trading"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_autotrader_pro",
+      "target": "ai_bdm_readme_paper_trading"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_autotrader_pro",
+      "target": "ai_bdm_readme_realtime_market_data"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_autotrader_pro",
+      "target": "ai_bdm_readme_security_model"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "frontend/index.html",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "frontend_index_trading_system_ui",
+      "target": "ai_bdm_readme_autotrader_pro"
+    },
+    {
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_paper_trading",
+      "target": "ai_bdm_readme_live_trading"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_ai_analysis_engine",
+      "target": "ai_bdm_readme_anthropic_integration"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_ai_analysis_engine",
+      "target": "ai_bdm_readme_openai_integration"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_ai_analysis_engine",
+      "target": "ai_bdm_readme_technical_indicators"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_exchange_adapter",
+      "target": "ai_bdm_readme_binance_exchange"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_exchange_adapter",
+      "target": "ai_bdm_readme_coinbase_exchange"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_exchange_adapter",
+      "target": "ai_bdm_readme_kraken_exchange"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_realtime_market_data",
+      "target": "ai_bdm_readme_socketio_events"
+    },
+    {
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "ai_bdm_readme_openai_integration",
+      "target": "ai_bdm_readme_anthropic_integration"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "crypto_exchanges_group",
+      "label": "Crypto Exchange Integrations",
+      "nodes": [
+        "ai_bdm_readme_exchange_adapter",
+        "ai_bdm_readme_binance_exchange",
+        "ai_bdm_readme_kraken_exchange",
+        "ai_bdm_readme_coinbase_exchange"
+      ],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "id": "ai_provider_alternatives",
+      "label": "AI Provider Options",
+      "nodes": [
+        "ai_bdm_readme_ai_analysis_engine",
+        "ai_bdm_readme_openai_integration",
+        "ai_bdm_readme_anthropic_integration"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "id": "trading_mode_flow",
+      "label": "Trading Execution Flow",
+      "nodes": [
+        "ai_bdm_readme_paper_trading",
+        "ai_bdm_readme_live_trading",
+        "ai_bdm_readme_exchange_adapter",
+        "ai_bdm_readme_realtime_market_data"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "README.md"
+    }
+  ],
+  "built_at_commit": "e3653daa239bdef3a7f9e3d2578939c0d5a3c31e"
+}

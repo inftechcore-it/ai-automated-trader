@@ -2,12 +2,24 @@ import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { requireAuth } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
-import { connectExchange, connected, disconnect, supported, updateExchange } from '../controllers/exchangeController.js';
+import {
+  connectExchange,
+  connected,
+  disconnect,
+  supported,
+  updateExchange,
+  verify,
+  balances,
+  allBalances
+} from '../controllers/exchangeController.js';
 
 const router = Router();
 
 router.get('/supported', requireAuth, supported);
 router.get('/connected', requireAuth, connected);
+router.get('/balances', requireAuth, allBalances);
+router.get('/:id/balances', requireAuth, param('id').isInt(), validate, balances);
+router.get('/:id/verify', requireAuth, param('id').isInt(), validate, verify);
 router.post(
   '/connect',
   requireAuth,

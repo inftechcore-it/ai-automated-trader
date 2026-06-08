@@ -6,11 +6,12 @@ export async function quote(req, res) {
 }
 
 export async function history(req, res) {
+  const { symbol, exchange, interval = '1h', limit = '100' } = req.query;
   return ok(res, {
-    candles: await getHistory(req.query.symbol, req.query.exchange, req.query.interval)
+    candles: await getHistory(symbol, exchange, interval, Number(limit))
   });
 }
 
 export async function search(req, res) {
-  return ok(res, { symbols: searchSymbols(req.query.q || '') });
+  return ok(res, { symbols: await searchSymbols(req.query.q || '', req.query.exchange) });
 }

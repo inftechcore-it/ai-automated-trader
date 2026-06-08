@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS exchange_connections (
   api_key_encrypted TEXT NOT NULL,
   api_secret_encrypted TEXT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_verified TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_exchange_connections_user
     FOREIGN KEY (user_id) REFERENCES users(id)

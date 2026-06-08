@@ -1,0 +1,302 @@
+{
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\.claude\\settings.local.json": {
+    "mtime": 1780855708.9878085,
+    "ast_hash": "ea3e0929d3c5aac07d5247601a03d0d1",
+    "semantic_hash": "ea3e0929d3c5aac07d5247601a03d0d1"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\.vscode\\extensions.json": {
+    "mtime": 1780485278.4795103,
+    "ast_hash": "630b54d036f7e7995913e38fc51400ac",
+    "semantic_hash": "630b54d036f7e7995913e38fc51400ac"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\config\\db.js": {
+    "mtime": 1780571507.4199233,
+    "ast_hash": "97a1e65f7e1d77a2feba5f070afcd3fd",
+    "semantic_hash": "97a1e65f7e1d77a2feba5f070afcd3fd"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\config\\env.js": {
+    "mtime": 1780596870.8081896,
+    "ast_hash": "0fadf64965b55f7f0a215717fe25b4ad",
+    "semantic_hash": "0fadf64965b55f7f0a215717fe25b4ad"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\aiController.js": {
+    "mtime": 1780571647.5244062,
+    "ast_hash": "1e89f7fc82588aa1995efe6ca1f7405a",
+    "semantic_hash": "1e89f7fc82588aa1995efe6ca1f7405a"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\authController.js": {
+    "mtime": 1780571646.0337672,
+    "ast_hash": "f036cf3fbda30c36a8742f8fb248f83a",
+    "semantic_hash": "f036cf3fbda30c36a8742f8fb248f83a"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\exchangeController.js": {
+    "mtime": 1780571646.3623204,
+    "ast_hash": "a3d2fee27fbe913f6d372a53593f4936",
+    "semantic_hash": "a3d2fee27fbe913f6d372a53593f4936"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\marketController.js": {
+    "mtime": 1780571647.3444023,
+    "ast_hash": "a426d3035fac2f8d807b11b2e5a33747",
+    "semantic_hash": "a426d3035fac2f8d807b11b2e5a33747"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\orderController.js": {
+    "mtime": 1780571646.7394996,
+    "ast_hash": "5ce50a921137c49d315fa4e8fb2752fb",
+    "semantic_hash": "5ce50a921137c49d315fa4e8fb2752fb"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\portfolioController.js": {
+    "mtime": 1780571647.0098436,
+    "ast_hash": "2e56e9e55c9d3d249c417bf3c7a1069e",
+    "semantic_hash": "2e56e9e55c9d3d249c417bf3c7a1069e"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\sessionController.js": {
+    "mtime": 1780571646.5446239,
+    "ast_hash": "98198d70195f3e6002dd5b59a54c34e2",
+    "semantic_hash": "98198d70195f3e6002dd5b59a54c34e2"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\controllers\\watchlistController.js": {
+    "mtime": 1780571647.178277,
+    "ast_hash": "2d7775145b1377cdace2ed87c50c1d01",
+    "semantic_hash": "2d7775145b1377cdace2ed87c50c1d01"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\middlewares\\auth.js": {
+    "mtime": 1780571508.810661,
+    "ast_hash": "0cc5f2fc65549ad21d29db87ef61c97d",
+    "semantic_hash": "0cc5f2fc65549ad21d29db87ef61c97d"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\middlewares\\errorHandler.js": {
+    "mtime": 1780571508.6459708,
+    "ast_hash": "71a95f1d8bf15fece901ef3329b3ad30",
+    "semantic_hash": "71a95f1d8bf15fece901ef3329b3ad30"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\middlewares\\validate.js": {
+    "mtime": 1780571508.9635758,
+    "ast_hash": "e643dadb38b9d9edcd6eba13fbf62d18",
+    "semantic_hash": "e643dadb38b9d9edcd6eba13fbf62d18"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\package.json": {
+    "mtime": 1780571503.719391,
+    "ast_hash": "bebc1959fc3cb3bf02e5b22cdea291be",
+    "semantic_hash": "bebc1959fc3cb3bf02e5b22cdea291be"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\aiRoutes.js": {
+    "mtime": 1780571718.206804,
+    "ast_hash": "f27679de89b43f1f25a0fe08552272e4",
+    "semantic_hash": "f27679de89b43f1f25a0fe08552272e4"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\authRoutes.js": {
+    "mtime": 1780571710.1033301,
+    "ast_hash": "440fbe3d70fc0a1c710d3ae16969f59e",
+    "semantic_hash": "440fbe3d70fc0a1c710d3ae16969f59e"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\exchangeRoutes.js": {
+    "mtime": 1780571712.154219,
+    "ast_hash": "9da883ffab960d1fd83e3c24fc3aad93",
+    "semantic_hash": "9da883ffab960d1fd83e3c24fc3aad93"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\marketRoutes.js": {
+    "mtime": 1780571717.6756554,
+    "ast_hash": "6da22982ae4d42952e16149a0e74b777",
+    "semantic_hash": "6da22982ae4d42952e16149a0e74b777"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\orderRoutes.js": {
+    "mtime": 1780571715.5646813,
+    "ast_hash": "57d292d70271f5b27ddfc09f8b6b254f",
+    "semantic_hash": "57d292d70271f5b27ddfc09f8b6b254f"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\portfolioRoutes.js": {
+    "mtime": 1780571716.6998153,
+    "ast_hash": "a657b526281df9a2112762b731d86451",
+    "semantic_hash": "a657b526281df9a2112762b731d86451"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\sessionRoutes.js": {
+    "mtime": 1780571713.7352676,
+    "ast_hash": "25bcebbb4c1e5e531390c174208699e6",
+    "semantic_hash": "25bcebbb4c1e5e531390c174208699e6"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\routes\\watchlistRoutes.js": {
+    "mtime": 1780571717.2014594,
+    "ast_hash": "a919d7084e067182ce916a47fa106fdd",
+    "semantic_hash": "a919d7084e067182ce916a47fa106fdd"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\server.js": {
+    "mtime": 1780589963.2851262,
+    "ast_hash": "c227264515ae74fe804f9091b4235085",
+    "semantic_hash": "c227264515ae74fe804f9091b4235085"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\services\\aiService.js": {
+    "mtime": 1780571576.816177,
+    "ast_hash": "8b76f8f71be7f17fd50f56c1bbb4d972",
+    "semantic_hash": "8b76f8f71be7f17fd50f56c1bbb4d972"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\services\\exchangeService.js": {
+    "mtime": 1780571576.0142915,
+    "ast_hash": "e815380b1edc91f3caefdb83bd0c816e",
+    "semantic_hash": "e815380b1edc91f3caefdb83bd0c816e"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\services\\marketService.js": {
+    "mtime": 1780571577.1098948,
+    "ast_hash": "1506307c3e9b3a96a4fe6d5d57c01356",
+    "semantic_hash": "1506307c3e9b3a96a4fe6d5d57c01356"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\services\\tradeExecutor.js": {
+    "mtime": 1780571576.3984978,
+    "ast_hash": "72f856fec5a8afd4e7a305d55d45b4e7",
+    "semantic_hash": "72f856fec5a8afd4e7a305d55d45b4e7"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\sockets\\marketSocket.js": {
+    "mtime": 1780571719.2455573,
+    "ast_hash": "c3b853e19bdda3f966a4c1f41d1f12a5",
+    "semantic_hash": "c3b853e19bdda3f966a4c1f41d1f12a5"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\utils\\apiResponse.js": {
+    "mtime": 1780571507.886099,
+    "ast_hash": "5280539ffc25a7dbd5dfb315957444a5",
+    "semantic_hash": "5280539ffc25a7dbd5dfb315957444a5"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\utils\\encryption.js": {
+    "mtime": 1780571508.0558827,
+    "ast_hash": "9a216feca982a6a82ba494bf995a59b2",
+    "semantic_hash": "9a216feca982a6a82ba494bf995a59b2"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\backend\\utils\\logger.js": {
+    "mtime": 1780571508.3659878,
+    "ast_hash": "ca7085fa891392dc88997ecea28647cd",
+    "semantic_hash": "ca7085fa891392dc88997ecea28647cd"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\db\\schema.sql": {
+    "mtime": 1780571454.9244776,
+    "ast_hash": "34933b6a6c6058635b9ec7eb805775a1",
+    "semantic_hash": "34933b6a6c6058635b9ec7eb805775a1"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\db\\seed.sql": {
+    "mtime": 1780589963.5521045,
+    "ast_hash": "5980718927641666621d8cb7a03d5e49",
+    "semantic_hash": "5980718927641666621d8cb7a03d5e49"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\package.json": {
+    "mtime": 1780571788.595287,
+    "ast_hash": "807f93dd6670aa7b78000a374dcaadca",
+    "semantic_hash": "807f93dd6670aa7b78000a374dcaadca"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\App.jsx": {
+    "mtime": 1780571791.8342216,
+    "ast_hash": "4aeda82765013ab4d9318cc248ca18cb",
+    "semantic_hash": "4aeda82765013ab4d9318cc248ca18cb"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\api.js": {
+    "mtime": 1780571791.1047516,
+    "ast_hash": "58455defa528361270e96394319f1ee4",
+    "semantic_hash": "58455defa528361270e96394319f1ee4"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\auth.jsx": {
+    "mtime": 1780571791.679721,
+    "ast_hash": "4c122f9d7dadd37c20be7c6476f43a09",
+    "semantic_hash": "4c122f9d7dadd37c20be7c6476f43a09"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\AuthShell.jsx": {
+    "mtime": 1780571827.768669,
+    "ast_hash": "66461debe6dd76cbb7127b1685db94ee",
+    "semantic_hash": "66461debe6dd76cbb7127b1685db94ee"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\Badge.jsx": {
+    "mtime": 1780571827.285774,
+    "ast_hash": "8163d12f6f10cc94c3b19c85acbc4b40",
+    "semantic_hash": "8163d12f6f10cc94c3b19c85acbc4b40"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\Card.jsx": {
+    "mtime": 1780571827.1221437,
+    "ast_hash": "b09f35c87003be47a8459b3a2859e9c9",
+    "semantic_hash": "b09f35c87003be47a8459b3a2859e9c9"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\InfoLabel.jsx": {
+    "mtime": 1780571827.5912945,
+    "ast_hash": "e997626c74bc1ba699d066bb7c83abb2",
+    "semantic_hash": "e997626c74bc1ba699d066bb7c83abb2"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\Layout.jsx": {
+    "mtime": 1780571826.7167501,
+    "ast_hash": "b21a8897ec2eb952ed8c4836d720fa05",
+    "semantic_hash": "b21a8897ec2eb952ed8c4836d720fa05"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\components\\PriceTicker.jsx": {
+    "mtime": 1780571827.438353,
+    "ast_hash": "1be97979afaae51085e156034f876375",
+    "semantic_hash": "1be97979afaae51085e156034f876375"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\data\\demo.js": {
+    "mtime": 1780571791.522604,
+    "ast_hash": "fe7cfcf30a03a1feba47b5e641321a7b",
+    "semantic_hash": "fe7cfcf30a03a1feba47b5e641321a7b"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\main.jsx": {
+    "mtime": 1780571790.9509726,
+    "ast_hash": "bdd0f71e540d8706fd1aa43bc1001d16",
+    "semantic_hash": "bdd0f71e540d8706fd1aa43bc1001d16"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\AiAnalysis.jsx": {
+    "mtime": 1780572008.1880758,
+    "ast_hash": "0905f582893828140f3542ea8d68c9ae",
+    "semantic_hash": "0905f582893828140f3542ea8d68c9ae"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Dashboard.jsx": {
+    "mtime": 1780574106.0560577,
+    "ast_hash": "0e66e1b89c96719e401d9a3c2b52e61c",
+    "semantic_hash": "0e66e1b89c96719e401d9a3c2b52e61c"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Exchanges.jsx": {
+    "mtime": 1780574143.1181521,
+    "ast_hash": "47ea3e9e2e2df68abfc8dde70e7459be",
+    "semantic_hash": "47ea3e9e2e2df68abfc8dde70e7459be"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Login.jsx": {
+    "mtime": 1780571875.9046533,
+    "ast_hash": "edd2a14ad076aad187947eb12320e034",
+    "semantic_hash": "edd2a14ad076aad187947eb12320e034"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Orders.jsx": {
+    "mtime": 1780574106.3683872,
+    "ast_hash": "f6b3d4a69b4eafbf3fa9c505f4fe17c5",
+    "semantic_hash": "f6b3d4a69b4eafbf3fa9c505f4fe17c5"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Portfolio.jsx": {
+    "mtime": 1780574106.2367046,
+    "ast_hash": "6810d4e91c3c462c422dd97468a2cb4a",
+    "semantic_hash": "6810d4e91c3c462c422dd97468a2cb4a"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Register.jsx": {
+    "mtime": 1780571876.1242723,
+    "ast_hash": "2dd3d2359a64e997559fca5974df46ec",
+    "semantic_hash": "2dd3d2359a64e997559fca5974df46ec"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Settings.jsx": {
+    "mtime": 1780572008.3338964,
+    "ast_hash": "3b1895b2fa7d6dbf6f6608e1ca83f3b8",
+    "semantic_hash": "3b1895b2fa7d6dbf6f6608e1ca83f3b8"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Trading.jsx": {
+    "mtime": 1780574142.947339,
+    "ast_hash": "9826c23eed26949c7cfce40abb4a519c",
+    "semantic_hash": "9826c23eed26949c7cfce40abb4a519c"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\src\\pages\\Watchlist.jsx": {
+    "mtime": 1780574106.4845178,
+    "ast_hash": "c4b18328ea482da585146bd5c714d13d",
+    "semantic_hash": "c4b18328ea482da585146bd5c714d13d"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\vite.config.js": {
+    "mtime": 1780571790.4940166,
+    "ast_hash": "9a7631d0272cbfedfa5fd48279e693f2",
+    "semantic_hash": "9a7631d0272cbfedfa5fd48279e693f2"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\README.md": {
+    "mtime": 1780844338.016431,
+    "ast_hash": "55542926000886ae4e8e17fba8b66433",
+    "semantic_hash": "55542926000886ae4e8e17fba8b66433"
+  },
+  "C:\\Users\\shahidshaikh\\POCs\\AI-BDM\\frontend\\index.html": {
+    "mtime": 1780571789.2089698,
+    "ast_hash": "ffbacb03b333b4f9b06ca542259102f0",
+    "semantic_hash": "ffbacb03b333b4f9b06ca542259102f0"
+  }
+}

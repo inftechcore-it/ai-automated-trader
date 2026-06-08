@@ -1,75 +1,176 @@
-import axios from 'axios';
-import { env } from '../config/env.js';
+import * as binanceAdapter from './adapters/binanceAdapter.js';
+import * as krakenAdapter from './adapters/krakenAdapter.js';
+import * as alphaVantageAdapter from './adapters/alphaVantageAdapter.js';
+import * as upstoxAdapter from './adapters/upstoxAdapter.js';
+import * as demoAdapter from './adapters/demoAdapter.js';
+import * as cache from './cache.js';
 
-export const supportedExchanges = [
-  { name: 'Binance', type: 'crypto', description: 'Crypto spot market data and trading' },
-  { name: 'Kraken', type: 'crypto', description: 'Crypto market data and trading' },
-  { name: 'Coinbase', type: 'crypto', description: 'Crypto brokerage market data' },
-  { name: 'NASDAQ', type: 'stock', description: 'US technology-heavy stock exchange' },
-  { name: 'NYSE', type: 'stock', description: 'US stock exchange' },
-  { name: 'NSE', type: 'stock', description: 'National Stock Exchange of India' },
-  { name: 'BSE', type: 'stock', description: 'Bombay Stock Exchange' }
-];
+export function getSupportedExchanges() {
+  return [
+    { name: 'Binance', type: 'crypto', description: 'Crypto spot market data and trading', live: true },
+    { name: 'Kraken', type: 'crypto', description: 'Crypto market data and trading', live: true },
+    { name: 'Coinbase', type: 'crypto', description: 'Crypto brokerage market data', live: false },
+    { name: 'NASDAQ', type: 'stock', description: 'US technology-heavy stock exchange', live: alphaVantageAdapter.isConfigured() },
+    { name: 'NYSE', type: 'stock', description: 'US stock exchange', live: alphaVantageAdapter.isConfigured() },
+    { name: 'NSE', type: 'stock', description: 'National Stock Exchange of India', live: upstoxAdapter.isConfigured(), upstoxAuth: upstoxAdapter.isAuthenticated() },
+    { name: 'BSE', type: 'stock', description: 'Bombay Stock Exchange', live: upstoxAdapter.isConfigured(), upstoxAuth: upstoxAdapter.isAuthenticated() }
+  ];
+}
 
-const demoQuotes = {
-  'BTC/USDT': { price: 68250.12, change: 820.31, changePercent: 1.22 },
-  'ETH/USDT': { price: 3560.44, change: -42.18, changePercent: -1.17 },
-  AAPL: { price: 211.34, change: 2.1, changePercent: 1.0 },
-  INFY: { price: 1498.5, change: 13.25, changePercent: 0.89 }
-};
+export const supportedExchanges = getSupportedExchanges();
 
-function normalizeSymbol(symbol) {
-  return symbol.replace('/', '').toUpperCase();
+function getAdapter(exchange, symbol) {
+  const exLower = exchange?.toLowerCase();
+
+  if (exLower === 'binance' && binanceAdapter.supportsSymbol(symbol)) {
+    return binanceAdapter;
+  }
+  if (exLower === 'kraken' && krakenAdapter.supportsSymbol(symbol)) {
+    return krakenAdapter;
+  }
+  // Indian exchanges - prefer Upstox if authenticated
+  if (['nse', 'bse'].includes(exLower)) {
+    if (upstoxAdapter.isAuthenticated()) {
+      return upstoxAdapter;
+    }
+    if (alphaVantageAdapter.isConfigured()) {
+      return alphaVantageAdapter;
+    }
+    return demoAdapter;
+  }
+  // US exchanges
+  if (['nasdaq', 'nyse'].includes(exLower) && alphaVantageAdapter.isConfigured()) {
+    return alphaVantageAdapter;
+  }
+
+  return demoAdapter;
 }
 
 export async function getQuote(symbol, exchange = 'Binance') {
-  if (exchange.toLowerCase() === 'binance' && symbol.includes('/')) {
-    const url = `${env.exchanges.binanceBaseUrl}/api/v3/ticker/24hr`;
-    const { data } = await axios.get(url, { params: { symbol: normalizeSymbol(symbol) }, timeout: 5000 });
-    return {
-      symbol,
-      exchange,
-      price: Number(data.lastPrice),
-      change: Number(data.priceChange),
-      changePercent: Number(data.priceChangePercent),
-      timestamp: new Date().toISOString()
-    };
+  const cacheKey = `quote:${exchange}:${symbol}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const adapter = getAdapter(exchange, symbol);
+
+  try {
+    const quote = await adapter.getQuote(symbol, exchange);
+    cache.set(cacheKey, quote, 30 * 1000); // 30 second cache for quotes
+    return quote;
+  } catch (err) {
+    console.error(`[${exchange}] Quote error for ${symbol}:`, err.message);
+    const fallback = await demoAdapter.getQuote(symbol, exchange);
+    fallback.error = err.message;
+    return fallback;
+  }
+}
+
+export async function getHistory(symbol, exchange = 'Binance', interval = '1h', limit = 100) {
+  const cacheKey = `ohlcv:${exchange}:${symbol}:${interval}:${limit}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const adapter = getAdapter(exchange, symbol);
+
+  try {
+    const ohlcv = await adapter.getOHLCV(symbol, interval, limit);
+    cache.set(cacheKey, ohlcv, 60 * 1000); // 1 minute cache for OHLCV
+    return ohlcv;
+  } catch (err) {
+    console.error(`[${exchange}] OHLCV error for ${symbol}:`, err.message);
+    return demoAdapter.getOHLCV(symbol, interval, limit);
+  }
+}
+
+export async function searchSymbols(q = '', exchange = null) {
+  if (!q.trim()) return [];
+
+  const cacheKey = `search:${exchange || 'all'}:${q.toLowerCase()}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const results = [];
+  const exLower = exchange?.toLowerCase();
+
+  // Indian stock exchanges - use Upstox
+  if (['nse', 'bse'].includes(exLower)) {
+    if (upstoxAdapter.isConfigured()) {
+      try {
+        const upstoxResults = await upstoxAdapter.searchSymbols(q, exchange.toUpperCase());
+        results.push(...upstoxResults);
+      } catch (err) {
+        console.error('[Upstox] Search error:', err.message);
+      }
+    }
+
+    // Fallback to demo if no results
+    if (results.length === 0) {
+      const demoResults = await demoAdapter.searchSymbols(q, exchange);
+      results.push(...demoResults);
+    }
+
+    cache.set(cacheKey, results, 5 * 60 * 1000);
+    return results.slice(0, 50);
   }
 
-  const fallback = demoQuotes[symbol.toUpperCase()] || { price: 100, change: 0, changePercent: 0 };
-  return { symbol, exchange, ...fallback, timestamp: new Date().toISOString(), source: 'demo' };
-}
+  // US stock exchanges - use Alpha Vantage
+  if (['nasdaq', 'nyse'].includes(exLower)) {
+    if (alphaVantageAdapter.isConfigured()) {
+      try {
+        const avResults = await alphaVantageAdapter.searchSymbols(q);
+        results.push(...avResults.map(r => ({ ...r, exchange })));
+      } catch (err) {
+        console.error('[AlphaVantage] Search error:', err.message);
+      }
+    }
 
-export async function getHistory(symbol, exchange, interval = '1h') {
-  const now = Date.now();
-  return Array.from({ length: 60 }, (_, index) => {
-    const base = demoQuotes[symbol.toUpperCase()]?.price || 100;
-    const wave = Math.sin(index / 4) * base * 0.015;
-    const close = Number((base + wave + index * 0.07).toFixed(2));
-    return {
-      time: new Date(now - (59 - index) * 60 * 60 * 1000).toISOString(),
-      open: Number((close * 0.995).toFixed(2)),
-      high: Number((close * 1.01).toFixed(2)),
-      low: Number((close * 0.99).toFixed(2)),
-      close,
-      volume: Math.round(1000 + index * 18)
-    };
-  });
-}
+    // Fallback to demo if no results
+    if (results.length === 0) {
+      const demoResults = await demoAdapter.searchSymbols(q, exchange);
+      results.push(...demoResults);
+    }
 
-export function searchSymbols(q = '') {
-  const universe = [
-    { symbol: 'BTC/USDT', exchange: 'Binance', name: 'Bitcoin' },
-    { symbol: 'ETH/USDT', exchange: 'Binance', name: 'Ethereum' },
-    { symbol: 'AAPL', exchange: 'NASDAQ', name: 'Apple Inc.' },
-    { symbol: 'MSFT', exchange: 'NASDAQ', name: 'Microsoft Corp.' },
-    { symbol: 'INFY', exchange: 'NSE', name: 'Infosys Ltd.' },
-    { symbol: 'RELIANCE', exchange: 'NSE', name: 'Reliance Industries' }
-  ];
-  const needle = q.trim().toLowerCase();
-  return universe.filter((item) =>
-    [item.symbol, item.exchange, item.name].some((value) => value.toLowerCase().includes(needle))
-  );
+    cache.set(cacheKey, results, 5 * 60 * 1000);
+    return results.slice(0, 50);
+  }
+
+  // Crypto exchanges
+  try {
+    if (!exchange || exLower === 'binance') {
+      const binanceResults = await binanceAdapter.searchSymbols(q);
+      results.push(...binanceResults);
+    }
+  } catch (err) {
+    console.error('[Binance] Search error:', err.message);
+  }
+
+  try {
+    if (!exchange || exLower === 'kraken') {
+      const krakenResults = await krakenAdapter.searchSymbols(q);
+      results.push(...krakenResults);
+    }
+  } catch (err) {
+    console.error('[Kraken] Search error:', err.message);
+  }
+
+  // Fallback to demo for non-specific searches
+  if (!exchange) {
+    const demoResults = await demoAdapter.searchSymbols(q);
+    results.push(...demoResults);
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of results) {
+    const key = `${item.exchange}:${item.symbol}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(item);
+    }
+  }
+
+  cache.set(cacheKey, unique, 5 * 60 * 1000);
+  return unique.slice(0, 50);
 }
 
 export async function placeLiveOrder() {

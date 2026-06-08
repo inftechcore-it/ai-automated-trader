@@ -13,6 +13,7 @@ import portfolioRoutes from './routes/portfolioRoutes.js';
 import watchlistRoutes from './routes/watchlistRoutes.js';
 import marketRoutes from './routes/marketRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import upstoxRoutes from './routes/upstoxRoutes.js';
 import { registerMarketSocket } from './sockets/marketSocket.js';
 
 const app = express();
@@ -43,6 +44,7 @@ app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/upstox', upstoxRoutes);
 app.use(notFound);
 app.use(errorHandler);
 

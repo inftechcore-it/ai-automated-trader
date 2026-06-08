@@ -26,5 +26,10 @@ export const env = {
     krakenBaseUrl: process.env.KRAKEN_BASE_URL || 'https://api.kraken.com',
     alphaVantageApiKey: process.env.ALPHA_VANTAGE_API_KEY || '',
     twelveDataApiKey: process.env.TWELVE_DATA_API_KEY || ''
+  },
+  upstox: {
+    apiKey: process.env.UPSTOX_API_KEY || '',
+    apiSecret: process.env.UPSTOX_API_SECRET || '',
+    redirectUri: process.env.UPSTOX_REDIRECT_URI || 'http://localhost:5000/api/upstox/callback'
   }
 };
