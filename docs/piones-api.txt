@@ -1,0 +1,10 @@
+API Label
+bot-trader
+API Key
+4qkPdZCNPWAEKP32i54xKYup6i34DWkpHgQZEGgwn4RcA537yQCaKxAGuD4Vr9JMbR
+Api Secret
+bDxxXSr0mGqUMbFC7EiUnasLepGVRpf7bjej8t8zNFRF1IMgGEozdJa5zon511yx
+API restrictions
+Enable reading、Enable trading、Bot reading、Bot trading
+IP access restrictions
+103.16

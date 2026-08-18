@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   KeyRound, Trash2, RefreshCw, CheckCircle, XCircle, Wallet,
   ToggleLeft, ToggleRight, Search, TrendingUp, TrendingDown,
-  ArrowLeft, BarChart2, Clock, DollarSign, Activity, ExternalLink, Link2
+  ArrowLeft, BarChart2, Clock, DollarSign, Activity, ExternalLink, Link2, AlertTriangle
 } from 'lucide-react';
 import { api, errorMessage } from '../api.js';
 import Badge from '../components/Badge.jsx';
@@ -13,7 +13,7 @@ export default function Exchanges() {
   const [balances, setBalances] = useState({});
   const [message, setMessage] = useState({ text: '', type: '' });
   const [loading, setLoading] = useState({});
-  const [form, setForm] = useState({ exchangeName: 'Binance', exchangeType: 'crypto', apiKey: '', apiSecret: '' });
+  const [form, setForm] = useState({ exchangeName: 'Binance', exchangeType: 'crypto', apiKey: '', apiSecret: '', paperMode: false, useTestnet: false });
   const [connecting, setConnecting] = useState(false);
 
   // Stock explorer state
@@ -27,12 +27,13 @@ export default function Exchanges() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [chartInterval, setChartInterval] = useState('1h');
 
-  // Show connect form for crypto
+  // Show connect form for crypto and brokers
   const [showConnectForm, setShowConnectForm] = useState(false);
   const [connectExchange, setConnectExchange] = useState(null);
 
-  // Upstox auth state
+  // Broker status
   const [upstoxStatus, setUpstoxStatus] = useState({ configured: false, authenticated: false });
+  const [alpacaStatus, setAlpacaStatus] = useState({ configured: false, paperMode: false });
 
   async function loadSupported() {
     try {
@@ -73,6 +74,20 @@ export default function Exchanges() {
     }
   }
 
+  async function loadAlpacaStatus() {
+    try {
+      const response = await api.get('/api/broker/alpaca/status');
+      // Only show as "configured" for the Live card if it's from database (not env paper)
+      setAlpacaStatus({
+        configured: response.data.configured && response.data.source === 'database',
+        paperMode: response.data.paperMode,
+        source: response.data.source
+      });
+    } catch {
+      setAlpacaStatus({ configured: false, paperMode: false });
+    }
+  }
+
   async function connectUpstox() {
     try {
       const response = await api.get('/api/upstox/auth-url');
@@ -98,6 +113,7 @@ export default function Exchanges() {
     loadSupported();
     loadConnected();
     loadUpstoxStatus();
+    loadAlpacaStatus();
 
     // Check for Upstox callback results
     const params = new URLSearchParams(window.location.search);
@@ -117,12 +133,20 @@ export default function Exchanges() {
     setMessage({ text: '', type: '' });
     setConnecting(true);
     try {
-      const response = await api.post('/api/exchanges/connect', form);
-      setForm({ ...form, apiKey: '', apiSecret: '' });
-      setMessage({ text: `Exchange connected! ${response.data.canTrade ? 'Trading enabled.' : ''}`, type: 'success' });
+      const payload = {
+        exchange: form.exchangeName,
+        apiKey: form.apiKey,
+        apiSecret: form.apiSecret,
+        paperMode: form.paperMode,
+        useTestnet: form.useTestnet
+      };
+      const response = await api.post('/api/broker/connect', payload);
+      setForm({ ...form, apiKey: '', apiSecret: '', paperMode: false, useTestnet: false });
+      setMessage({ text: `${form.exchangeName} connected! ${response.data.paperMode ? '(Paper Mode)' : '(Live Mode)'}`, type: 'success' });
       setShowConnectForm(false);
       setConnectExchange(null);
       loadConnected();
+      loadAlpacaStatus();
     } catch (error) {
       setMessage({ text: errorMessage(error), type: 'error' });
     } finally {
@@ -218,13 +242,33 @@ export default function Exchanges() {
     }
   }, [chartInterval]);
 
-  function handleExchangeClick(exchange) {
-    if (exchange.type === 'crypto') {
-      // Check if already connected
-      const isConnected = connected.some(c => c.exchangeName === exchange.name);
+  function handleExchangeClick(exchange, action = 'default') {
+    // If action is 'browse', just open explorer
+    if (action === 'browse') {
+      setSelectedExchange(exchange);
+      setShowConnectForm(false);
+      setConnectExchange(null);
+      setStockSearch('');
+      setStockResults([]);
+      setSelectedStock(null);
+      setStockQuote(null);
+      setStockHistory([]);
+      return;
+    }
+
+    if (exchange.type === 'crypto' || exchange.name === 'Alpaca') {
+      // Check if already connected (for Alpaca, check if live is connected)
+      const isConnected = exchange.name === 'Alpaca'
+        ? alpacaStatus.configured && !alpacaStatus.paperMode
+        : connected.some(c => c.exchangeName.toLowerCase() === exchange.name.toLowerCase());
       if (!isConnected) {
         setConnectExchange(exchange);
-        setForm({ ...form, exchangeName: exchange.name, exchangeType: 'crypto' });
+        setForm({
+          ...form,
+          exchangeName: exchange.name,
+          exchangeType: exchange.type,
+          paperMode: false // Always false - Alpaca card is for live trading only
+        });
         setShowConnectForm(true);
       }
       setSelectedExchange(null);
@@ -238,6 +282,21 @@ export default function Exchanges() {
       setSelectedStock(null);
       setStockQuote(null);
       setStockHistory([]);
+    }
+  }
+
+  async function disconnectExchange(exchangeName) {
+    if (!confirm(`Disconnect from ${exchangeName}?`)) return;
+    setLoading(prev => ({ ...prev, [`disconnect_${exchangeName}`]: true }));
+    try {
+      await api.delete(`/api/broker/disconnect/${exchangeName}`);
+      setMessage({ text: `Disconnected from ${exchangeName}`, type: 'success' });
+      loadConnected();
+      loadAlpacaStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    } finally {
+      setLoading(prev => ({ ...prev, [`disconnect_${exchangeName}`]: false }));
     }
   }
 
@@ -519,12 +578,12 @@ export default function Exchanges() {
               <p className="panel-hint">Connect your exchange API keys to enable live trading and portfolio sync</p>
               <div className="exchange-list">
                 {cryptoExchanges.map((ex) => {
-                  const isConnected = connected.some(c => c.exchangeName === ex.name);
+                  const isConnected = connected.some(c => c.exchangeName.toLowerCase() === ex.name.toLowerCase());
                   return (
                     <div
                       key={ex.name}
                       className={`exchange-card clickable ${isConnected ? 'connected' : ''}`}
-                      onClick={() => handleExchangeClick(ex)}
+                      onClick={() => !isConnected && handleExchangeClick(ex)}
                     >
                       <div className="exchange-card-header">
                         <strong>{ex.name}</strong>
@@ -537,7 +596,20 @@ export default function Exchanges() {
                         </div>
                       </div>
                       <span>{ex.description}</span>
-                      {!isConnected && <div className="card-action">Click to connect</div>}
+                      {isConnected ? (
+                        <div className="broker-actions" onClick={e => e.stopPropagation()}>
+                          <button
+                            className="btn-small disconnect"
+                            onClick={() => disconnectExchange(ex.name)}
+                            disabled={loading[`disconnect_${ex.name}`]}
+                          >
+                            {loading[`disconnect_${ex.name}`] ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}
+                            Disconnect
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="card-action">Click to connect</div>
+                      )}
                     </div>
                   );
                 })}
@@ -569,27 +641,58 @@ export default function Exchanges() {
                 </div>
               )}
 
+              {/* Alpaca Live Trading for US Stocks */}
+              <div
+                className={`broker-card clickable ${alpacaStatus.configured && !alpacaStatus.paperMode ? 'connected live' : ''}`}
+                onClick={() => !(alpacaStatus.configured && !alpacaStatus.paperMode) && handleExchangeClick({ name: 'Alpaca', type: 'stock', description: 'US Stocks Live Trading' })}
+              >
+                <div className="broker-card-header">
+                  <strong>Alpaca Live Trading</strong>
+                  {alpacaStatus.configured && !alpacaStatus.paperMode ? (
+                    <Badge tone="green" small><CheckCircle size={10} /> Connected</Badge>
+                  ) : (
+                    <Badge tone="yellow" small><KeyRound size={10} /> API Required</Badge>
+                  )}
+                </div>
+                <span>US Stock Live Trading (NASDAQ, NYSE) - Real Money</span>
+                {alpacaStatus.configured && !alpacaStatus.paperMode ? (
+                  <div className="broker-actions" onClick={e => e.stopPropagation()}>
+                    <button className="btn-small browse" onClick={() => handleExchangeClick({ name: 'NASDAQ', type: 'stock' }, 'browse')}>
+                      <BarChart2 size={12} /> Browse
+                    </button>
+                    <button
+                      className="btn-small disconnect"
+                      onClick={() => disconnectExchange('Alpaca')}
+                      disabled={loading['disconnect_Alpaca']}
+                    >
+                      {loading['disconnect_Alpaca'] ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <div className="card-action">Click to connect live trading API</div>
+                )}
+              </div>
+
               <div className="exchange-list">
                 {stockExchanges.map((ex) => {
                   const isIndian = ['NSE', 'BSE'].includes(ex.name);
+                  const isUS = ['NASDAQ', 'NYSE'].includes(ex.name);
                   const needsUpstox = isIndian && upstoxStatus.configured && !upstoxStatus.authenticated;
+                  const isLive = (isIndian && upstoxStatus.authenticated) || (isUS && alpacaStatus.configured);
 
                   return (
                     <div
                       key={ex.name}
                       className={`exchange-card clickable stock ${needsUpstox ? 'needs-auth' : ''}`}
-                      onClick={() => handleExchangeClick(ex)}
+                      onClick={() => handleExchangeClick(ex, 'browse')}
                     >
                       <div className="exchange-card-header">
                         <strong>{ex.name}</strong>
                         <div className="exchange-badges">
-                          {isIndian && upstoxStatus.authenticated ? (
-                            <Badge tone="green" small>LIVE</Badge>
-                          ) : (
-                            <Badge tone={ex.live ? 'green' : 'neutral'} small>
-                              {ex.live ? 'LIVE' : 'DEMO'}
-                            </Badge>
-                          )}
+                          <Badge tone={isLive ? 'green' : 'neutral'} small>
+                            {isLive ? 'LIVE' : 'DEMO'}
+                          </Badge>
                         </div>
                       </div>
                       <span>{ex.description}</span>
@@ -642,6 +745,27 @@ export default function Exchanges() {
                     autoComplete="off"
                   />
                 </div>
+                {connectExchange.type === 'crypto' && (
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.useTestnet}
+                        onChange={(e) => setForm({ ...form, useTestnet: e.target.checked })}
+                      />
+                      <span>Use Testnet (for testing with fake funds)</span>
+                    </label>
+                    <small className="form-hint">
+                      Check this if your API keys are from {connectExchange.name} Testnet
+                    </small>
+                  </div>
+                )}
+                {connectExchange.name === 'Alpaca' && (
+                  <div className="form-note info">
+                    <AlertTriangle size={14} />
+                    <span>This connects your <strong>Live Trading</strong> account. Paper trading is always available without API connection.</span>
+                  </div>
+                )}
                 <div className="form-actions">
                   <button type="submit" disabled={connecting || !form.apiKey || !form.apiSecret}>
                     {connecting ? (

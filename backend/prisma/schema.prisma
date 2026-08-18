@@ -1,0 +1,436 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Exchange {
+  id               String    @id @default(cuid())
+  name             String    @unique
+  type             ExchangeType
+  apiKeyEncrypted  String?
+  apiSecretEncrypted String?
+  testnet          Boolean   @default(true)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  balances         Balance[]
+  positions        Position[]
+  orders           Order[]
+  trades           Trade[]
+}
+
+enum ExchangeType {
+  SPOT
+  FUTURES
+}
+
+model Balance {
+  id          String   @id @default(cuid())
+  exchangeId  String
+  asset       String
+  free        Decimal  @db.Decimal(30, 10)
+  locked      Decimal  @db.Decimal(30, 10)
+  total       Decimal  @db.Decimal(30, 10)
+  updatedAt   DateTime @updatedAt
+
+  exchange    Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+
+  @@unique([exchangeId, asset])
+  @@index([exchangeId, asset])
+}
+
+model Position {
+  id            String   @id @default(cuid())
+  exchangeId    String
+  symbol        String
+  side          PositionSide
+  quantity      Decimal  @db.Decimal(30, 10)
+  entryPrice    Decimal  @db.Decimal(30, 10)
+  currentPrice  Decimal? @db.Decimal(30, 10)
+  unrealizedPnl Decimal? @db.Decimal(30, 10)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  exchange      Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+
+  @@index([exchangeId])
+  @@index([symbol])
+}
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  exchangeId      String
+  exchangeOrderId String
+  symbol          String
+  side            OrderSide
+  type            OrderType
+  quantity        Decimal     @db.Decimal(30, 10)
+  price           Decimal?    @db.Decimal(30, 10)
+  status          OrderStatus
+  filledQuantity  Decimal     @db.Decimal(30, 10) @default(0)
+  avgFillPrice    Decimal?    @db.Decimal(30, 10)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  exchange        Exchange    @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  trades          Trade[]
+
+  @@index([symbol])
+  @@index([status])
+  @@index([exchangeId])
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+  STOP_LOSS
+  STOP_LIMIT
+  TAKE_PROFIT
+}
+
+enum OrderStatus {
+  PENDING
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  REJECTED
+  EXPIRED
+}
+
+model Trade {
+  id          String   @id @default(cuid())
+  orderId     String?
+  exchangeId  String
+  symbol      String
+  side        OrderSide
+  quantity    Decimal  @db.Decimal(30, 10)
+  price       Decimal  @db.Decimal(30, 10)
+  fee         Decimal  @db.Decimal(30, 10) @default(0)
+  feeAsset    String?
+  executedAt  DateTime
+
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  exchange    Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+
+  @@index([executedAt])
+  @@index([symbol])
+  @@index([exchangeId])
+}
+
+model ArbitrageOpportunity {
+  id            String               @id @default(cuid())
+  type          ArbitrageType
+  symbols       Json
+  exchanges     Json
+  spreadPercent Decimal              @db.Decimal(10, 4)
+  grossProfit   Decimal              @db.Decimal(30, 10)
+  netProfit     Decimal              @db.Decimal(30, 10)
+  status        OpportunityStatus
+  detectedAt    DateTime             @default(now())
+
+  executions    Execution[]
+
+  @@index([detectedAt])
+  @@index([status])
+  @@index([type])
+}
+
+enum ArbitrageType {
+  CROSS_EXCHANGE
+  TRIANGULAR
+  FUTURES_SPOT
+}
+
+enum OpportunityStatus {
+  DETECTED
+  EVALUATING
+  EXECUTING
+  EXECUTED
+  EXPIRED
+  FAILED
+}
+
+model Execution {
+  id             String               @id @default(cuid())
+  opportunityId  String
+  status         ExecutionStatus
+  legs           Json
+  totalProfit    Decimal?             @db.Decimal(30, 10)
+  startedAt      DateTime             @default(now())
+  completedAt    DateTime?
+
+  opportunity    ArbitrageOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+  @@index([status])
+}
+
+enum ExecutionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+model ProfitRecord {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date @unique
+  totalProfit Decimal  @db.Decimal(30, 10)
+  tradeCount  Int
+  winRate     Decimal  @db.Decimal(5, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+}
+
+model StrategyConfig {
+  id                  String       @id @default(cuid())
+  name                String       @unique
+  type                StrategyType
+  minProfitThreshold  Decimal      @db.Decimal(10, 4)
+  maxTradeSize        Decimal      @db.Decimal(30, 10)
+  isEnabled           Boolean      @default(true)
+  params              Json?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+enum StrategyType {
+  CROSS_EXCHANGE
+  TRIANGULAR
+  FUTURES_SPOT
+}
+
+model RiskEvent {
+  id        String        @id @default(cuid())
+  type      RiskEventType
+  severity  Severity
+  message   String
+  metadata  Json?
+  createdAt DateTime      @default(now())
+
+  @@index([type])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+enum RiskEventType {
+  BALANCE_LOW
+  ORDER_FAILED
+  SPREAD_ANOMALY
+  LATENCY_HIGH
+  API_ERROR
+  POSITION_LIMIT
+}
+
+enum Severity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  userId    String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRADING BOT ENGINE TABLES
+// ═══════════════════════════════════════════════════════════════
+
+model BotConfig {
+  id              String        @id @default(cuid())
+  userId          String
+  name            String
+  strategyType    BotStrategyType
+  exchangeName    String
+  symbol          String
+  mode            BotMode
+  status          BotStatus     @default(CREATED)
+  params          Json
+  investedAmount  Decimal       @db.Decimal(30, 10)
+  currentValue    Decimal       @db.Decimal(30, 10) @default(0)
+  totalProfit     Decimal       @db.Decimal(30, 10) @default(0)
+  totalTrades     Int           @default(0)
+  createdAt       DateTime      @default(now())
+  startedAt       DateTime?
+  stoppedAt       DateTime?
+  updatedAt       DateTime      @updatedAt
+
+  orders          BotOrder[]
+  snapshots       BotSnapshot[]
+  logs            BotLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([strategyType])
+  @@index([exchangeName, symbol])
+}
+
+model BotLog {
+  id        String   @id @default(cuid())
+  botId     String
+  level     String   @default("info")
+  message   String   @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  bot       BotConfig @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId])
+  @@index([createdAt])
+  @@index([level])
+}
+
+enum BotStrategyType {
+  GRID
+  INFINITY_GRID
+  DCA
+  SMART_TRADE
+  TRAILING
+  MARTINGALE
+  REBALANCING
+  ARBITRAGE
+  DYNAMIC_GRID
+}
+
+enum BotMode {
+  PAPER
+  LIVE
+}
+
+enum BotStatus {
+  CREATED
+  RUNNING
+  PAUSED
+  STOPPED
+  ERROR
+}
+
+model BotOrder {
+  id              String          @id @default(cuid())
+  botConfigId     String
+  exchangeOrderId String?
+  symbol          String
+  side            OrderSide
+  type            OrderType
+  quantity        Decimal         @db.Decimal(30, 10)
+  price           Decimal?        @db.Decimal(30, 10)
+  filledQuantity  Decimal         @db.Decimal(30, 10) @default(0)
+  filledPrice     Decimal?        @db.Decimal(30, 10)
+  status          BotOrderStatus  @default(PENDING)
+  fee             Decimal         @db.Decimal(30, 10) @default(0)
+  feeCoin         String?
+  profit          Decimal?        @db.Decimal(30, 10)
+  gridLevel       Int?
+  metadata        Json?
+  filledAt        DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  botConfig       BotConfig       @relation(fields: [botConfigId], references: [id], onDelete: Cascade)
+
+  @@index([botConfigId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum BotOrderStatus {
+  PENDING
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  FAILED
+}
+
+model BotSnapshot {
+  id          String   @id @default(cuid())
+  botConfigId String
+  equity      Decimal  @db.Decimal(30, 10)
+  profit      Decimal  @db.Decimal(30, 10)
+  tradeCount  Int
+  holdings    Json?
+  snapshotAt  DateTime @default(now())
+
+  botConfig   BotConfig @relation(fields: [botConfigId], references: [id], onDelete: Cascade)
+
+  @@index([botConfigId])
+  @@index([snapshotAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMMUNITY BOTS - Shared Bot Configurations
+// ═══════════════════════════════════════════════════════════════
+
+model SharedBotConfig {
+  id              String          @id @default(cuid())
+  originalBotId   String?
+  authorId        String
+  authorName      String
+  name            String
+  description     String?         @db.Text
+  strategyType    BotStrategyType
+  symbol          String
+  params          Json
+  tags            Json?
+  isPublic        Boolean         @default(true)
+  copyCount       Int             @default(0)
+  rating          Decimal         @db.Decimal(3, 2) @default(0)
+  ratingCount     Int             @default(0)
+  totalProfit     Decimal         @db.Decimal(30, 10) @default(0)
+  winRate         Decimal         @db.Decimal(5, 2) @default(0)
+  avgTradesPerDay Decimal         @db.Decimal(10, 2) @default(0)
+  backtestResult  Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  ratings         SharedBotRating[]
+
+  @@index([strategyType])
+  @@index([symbol])
+  @@index([isPublic])
+  @@index([rating])
+  @@index([copyCount])
+  @@index([authorId])
+}
+
+model SharedBotRating {
+  id              String          @id @default(cuid())
+  sharedBotId     String
+  userId          String
+  rating          Int
+  comment         String?         @db.Text
+  createdAt       DateTime        @default(now())
+
+  sharedBot       SharedBotConfig @relation(fields: [sharedBotId], references: [id], onDelete: Cascade)
+
+  @@unique([sharedBotId, userId])
+  @@index([sharedBotId])
+}

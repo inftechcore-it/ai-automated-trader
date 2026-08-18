@@ -7,7 +7,7 @@ import AuthShell from '../components/AuthShell.jsx';
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: 'demo@trading.com', password: 'Demo@1234' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
 
   async function submit(event) {
