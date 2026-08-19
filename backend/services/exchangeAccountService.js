@@ -2,12 +2,14 @@ import { query } from '../config/db.js';
 import { decrypt } from '../utils/encryption.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
+import * as pionexAdapter from './adapters/pionexAdapter.js';
 import * as cache from './cache.js';
 
 function getAdapter(exchangeName) {
   const name = exchangeName.toLowerCase();
   if (name === 'binance') return binanceAdapter;
   if (name === 'kraken') return krakenAdapter;
+  if (name === 'pionex') return pionexAdapter;
   return null;
 }
 

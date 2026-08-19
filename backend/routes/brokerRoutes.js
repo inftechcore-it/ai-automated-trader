@@ -6,6 +6,7 @@ import { ok, fail } from '../utils/apiResponse.js';
 import { query } from '../config/db.js';
 import * as binanceAdapter from '../services/adapters/binanceAdapter.js';
 import * as krakenAdapter from '../services/adapters/krakenAdapter.js';
+import * as pionexAdapter from '../services/adapters/pionexAdapter.js';
 import * as alpacaAdapter from '../services/adapters/alpacaAdapter.js';
 import * as upstoxAdapter from '../services/adapters/upstoxAdapter.js';
 import { connectBroker, disconnectBroker, getSupportedExchanges } from '../services/exchangeService.js';
@@ -95,6 +96,9 @@ router.post(
         exchangeType = 'crypto';
       } else if (exLower === 'kraken') {
         validation = await krakenAdapter.validateCredentials(apiKey, apiSecret);
+        exchangeType = 'crypto';
+      } else if (exLower === 'pionex') {
+        validation = await pionexAdapter.validateCredentials(apiKey, apiSecret);
         exchangeType = 'crypto';
       } else if (exLower === 'bybit') {
         // Bybit validation - just store for now, validate later
@@ -199,6 +203,8 @@ router.get('/balances/:exchange', requireAuth, async (req, res) => {
       balances = await binanceAdapter.getBalances(credentials.api_key, credentials.api_secret);
     } else if (exchange === 'kraken') {
       balances = await krakenAdapter.getBalances(credentials.api_key, credentials.api_secret);
+    } else if (exchange === 'pionex') {
+      balances = await pionexAdapter.getBalances(credentials.api_key, credentials.api_secret);
     } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
       alpacaAdapter.setCredentials(credentials.api_key, credentials.api_secret, credentials.paper_mode);
       balances = await alpacaAdapter.getBalances();
@@ -258,6 +264,14 @@ router.get('/orders/:exchange', requireAuth, async (req, res) => {
       );
       if (credentials) {
         orders = await binanceAdapter.getOpenOrders(credentials.api_key, credentials.api_secret);
+      }
+    } else if (exchange === 'pionex') {
+      const [credentials] = await query(
+        'SELECT api_key, api_secret FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
+        { userId: req.user.id, exchangeName: 'Pionex' }
+      );
+      if (credentials) {
+        orders = await pionexAdapter.getOpenOrders(credentials.api_key, credentials.api_secret);
       }
     } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
       const [credentials] = await query(

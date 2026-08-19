@@ -27,9 +27,38 @@ export const env = {
     alphaVantageApiKey: process.env.ALPHA_VANTAGE_API_KEY || '',
     twelveDataApiKey: process.env.TWELVE_DATA_API_KEY || ''
   },
+  binance: {
+    apiKey: process.env.BINANCE_API_KEY || '',
+    apiSecret: process.env.BINANCE_API_SECRET || ''
+  },
+  bybit: {
+    apiKey: process.env.BYBIT_API_KEY || '',
+    apiSecret: process.env.BYBIT_API_SECRET || ''
+  },
+  kraken: {
+    apiKey: process.env.KRAKEN_API_KEY || '',
+    apiSecret: process.env.KRAKEN_API_SECRET || ''
+  },
   upstox: {
     apiKey: process.env.UPSTOX_API_KEY || '',
     apiSecret: process.env.UPSTOX_API_SECRET || '',
     redirectUri: process.env.UPSTOX_REDIRECT_URI || 'http://localhost:5000/api/upstox/callback'
-  }
+  },
+  alpaca: {
+    apiKey: process.env.ALPACA_API_KEY || 'AKLSXWEQP3PXG7TLVFZQZFKPZT',
+    apiSecret: process.env.ALPACA_API_SECRET || '6qmwCz48URuw3QuHrwGUi7YDAJupJwGwNeNcW2LkPRbJ',
+    paperMode: process.env.ALPACA_PAPER_MODE === 'true' // Default to LIVE now
+  },
+  alpacaPaper: {
+    apiKey: process.env.ALPACA_PAPER_API_KEY || 'PKMCC56E3X6DTUUB2KGEG6B3LQ',
+    apiSecret: process.env.ALPACA_PAPER_API_SECRET || 'J9ebyQv75X9ySy5XBuGNyCgng1mwaZNnQoV1zbMykwQh'
+  },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || ''
+  },
+  pionex: {
+    apiKey: process.env.PIONEX_API_KEY || '',
+    apiSecret: process.env.PIONEX_API_SECRET || ''
+  },
+  mlServiceUrl: process.env.ML_SERVICE_URL || 'http://localhost:8000'
 };
