@@ -1,0 +1,61 @@
+{
+  "symbol": "USDT/USD",
+  "type": "stablecoin_spread",
+  "trained_at": "2026-06-18T01:01:55.647265",
+  "samples": 4189,
+  "features": 36,
+  "feature_names": [
+    "peg_deviation",
+    "peg_deviation_abs",
+    "peg_deviation_pct",
+    "range",
+    "range_pct",
+    "volatility_5",
+    "volatility_20",
+    "high_deviation",
+    "low_deviation",
+    "volume_sma",
+    "volume_ratio",
+    "volume_spike",
+    "momentum_1h",
+    "momentum_4h",
+    "momentum_24h",
+    "sma_5",
+    "sma_20",
+    "distance_from_sma5",
+    "distance_from_sma20",
+    "bb_upper",
+    "bb_lower",
+    "bb_position",
+    "hour",
+    "is_asia_hours",
+    "is_europe_hours",
+    "is_us_hours",
+    "close_lag_1",
+    "range_lag_1",
+    "close_lag_2",
+    "range_lag_2",
+    "close_lag_3",
+    "range_lag_3",
+    "close_lag_6",
+    "range_lag_6",
+    "close_lag_12",
+    "range_lag_12"
+  ],
+  "results": {
+    "random_forest": {
+      "mae": 0.000201771687701233,
+      "r2": 0.06149646383456053
+    },
+    "gradient_boosting": {
+      "mae": 0.00023438562257753603,
+      "r2": 0.010410808783705927
+    },
+    "xgboost": {
+      "mae": 0.00020087652372669757,
+      "r2": 0.057518210585944196
+    }
+  },
+  "best_model": "xgboost",
+  "target_description": "Future 1h price range (spread opportunity)"
+}

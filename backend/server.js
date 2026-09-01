@@ -14,7 +14,18 @@ import watchlistRoutes from './routes/watchlistRoutes.js';
 import marketRoutes from './routes/marketRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import upstoxRoutes from './routes/upstoxRoutes.js';
+import angeloneRoutes from './routes/angeloneRoutes.js';
+import jupiterRoutes from './routes/jupiterRoutes.js';
+import walletRoutes from './routes/walletRoutes.js';
+import tradingRoutes from './routes/tradingRoutes.js';
+import brokerRoutes from './routes/brokerRoutes.js';
+import accountRoutes from './routes/accountRoutes.js';
+import arbitrageRoutes, { setArbitrageSocket } from './routes/arbitrageRoutes.js';
+import predictionRoutes from './routes/predictionRoutes.js';
+import botRoutes, { setBotSocket } from './routes/botRoutes.js';
 import { registerMarketSocket } from './sockets/marketSocket.js';
+import { searchSymbols } from './services/exchangeService.js';
+import { preloadInstruments } from './services/adapters/upstoxAdapter.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -45,11 +56,30 @@ app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/upstox', upstoxRoutes);
+app.use('/api/angelone', angeloneRoutes);
+app.use('/api/jupiter', jupiterRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/trading', tradingRoutes);
+app.use('/api/broker', brokerRoutes);
+app.use('/api/account', accountRoutes);
+app.use('/api/arbitrage', arbitrageRoutes);
+app.use('/api/predictions', predictionRoutes);
+app.use('/api/bots', botRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
 registerMarketSocket(io);
+setArbitrageSocket(io);
+setBotSocket(io);
 
 server.listen(env.port, () => {
   logger.info(`API listening on http://localhost:${env.port}`);
+
+  // Preload instruments caches for fast search
+  searchSymbols('BTC', 'Binance').catch(() => {});
+
+  // Preload Upstox instruments (NSE/BSE) - runs in background
+  preloadInstruments().catch(err => {
+    logger.warn('Failed to preload Upstox instruments:', err.message);
+  });
 });

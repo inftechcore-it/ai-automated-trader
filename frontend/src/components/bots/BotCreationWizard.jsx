@@ -102,12 +102,20 @@ const DIFFICULTY_COLORS = {
   'Advanced': '#ef4444',
 };
 
-// Demo exchanges for paper trading (always available)
-const DEMO_EXCHANGES = [
-  { name: 'Demo', label: 'Demo Exchange', isDemo: true },
+// Default supported exchanges (always available for Paper mode, connectable for Live mode)
+const DEFAULT_SUPPORTED_EXCHANGES = [
+  { name: 'Demo', label: 'Demo Exchange', isDemo: true, isConnected: true },
+  { name: 'Pionex', label: 'Pionex', type: 'crypto', isDemo: false, isConnected: false },
+  { name: 'Jupiter', label: 'Jupiter (Solana DEX)', type: 'dex', isDemo: false, isConnected: false },
+  { name: 'AngelOne', label: 'Angel One (SmartAPI)', type: 'stock', isDemo: false, isConnected: false },
+  { name: 'Binance', label: 'Binance', type: 'crypto', isDemo: false, isConnected: false },
+  { name: 'Bybit', label: 'Bybit', type: 'crypto', isDemo: false, isConnected: false },
+  { name: 'Kraken', label: 'Kraken', type: 'crypto', isDemo: false, isConnected: false },
+  { name: 'Alpaca', label: 'Alpaca (US Stocks)', type: 'stock', isDemo: false, isConnected: false },
+  { name: 'Upstox', label: 'Upstox (NSE/BSE)', type: 'stock', isDemo: false, isConnected: false },
 ];
 
-// Common trading pairs for demo mode
+// Common trading pairs for demo & quick selection
 const DEMO_SYMBOLS = [
   { symbol: 'BTC/USDT', price: 67500, name: 'Bitcoin' },
   { symbol: 'ETH/USDT', price: 3450, name: 'Ethereum' },
@@ -135,6 +143,32 @@ const DEMO_SYMBOLS = [
   { symbol: 'PEPE/USDT', price: 0.000012, name: 'Pepe' },
 ];
 
+const SOLANA_SYMBOLS = [
+  { symbol: 'SOL/USDC', price: 145, name: 'Solana' },
+  { symbol: 'JUP/USDC', price: 0.95, name: 'Jupiter' },
+  { symbol: 'RAY/USDC', price: 1.85, name: 'Raydium' },
+  { symbol: 'BONK/USDC', price: 0.000022, name: 'Bonk' },
+  { symbol: 'WIF/USDC', price: 1.65, name: 'dogwifhat' },
+  { symbol: 'PYTH/USDC', price: 0.32, name: 'Pyth Network' },
+  { symbol: 'JTO/USDC', price: 2.15, name: 'Jito' },
+  { symbol: 'ORCA/USDC', price: 2.45, name: 'Orca' },
+  { symbol: 'RENDER/USDC', price: 5.80, name: 'Render Token' },
+  { symbol: 'POPCAT/USDC', price: 0.65, name: 'Popcat' },
+];
+
+const INDIAN_STOCK_SYMBOLS = [
+  { symbol: 'RELIANCE', price: 2950, name: 'Reliance Industries Ltd' },
+  { symbol: 'TCS', price: 4180, name: 'Tata Consultancy Services' },
+  { symbol: 'INFY', price: 1870, name: 'Infosys Ltd' },
+  { symbol: 'HDFCBANK', price: 1650, name: 'HDFC Bank Ltd' },
+  { symbol: 'ICICIBANK', price: 1200, name: 'ICICI Bank Ltd' },
+  { symbol: 'SBIN', price: 810, name: 'State Bank of India' },
+  { symbol: 'TATAMOTORS', price: 980, name: 'Tata Motors Ltd' },
+  { symbol: 'BHARTIARTL', price: 1550, name: 'Bharti Airtel Ltd' },
+  { symbol: 'ITC', price: 505, name: 'ITC Ltd' },
+  { symbol: 'LT', price: 3650, name: 'Larsen & Toubro Ltd' },
+];
+
 export default function BotCreationWizard({ onClose, onCreated, prefilledConfig }) {
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState({
@@ -146,7 +180,7 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
     params: prefilledConfig?.params || {},
     investedAmount: 100,
   });
-  const [exchanges, setExchanges] = useState([]);
+  const [exchanges, setExchanges] = useState(DEFAULT_SUPPORTED_EXCHANGES);
   const [symbols, setSymbols] = useState([]);
   const [symbolSearch, setSymbolSearch] = useState('');
   const [symbolInfo, setSymbolInfo] = useState(null);
@@ -161,11 +195,18 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
   }, []);
 
   useEffect(() => {
-    // For demo exchange, show all symbols when selected (no search needed)
-    if (config.exchangeName === 'Demo' && !config.symbol) {
-      setSymbols(DEMO_SYMBOLS);
+    // Show popular symbols when exchange selected (if search empty)
+    if (config.exchangeName && !config.symbol && !symbolSearch) {
+      const exLower = config.exchangeName.toLowerCase();
+      if (['angelone', 'upstox'].includes(exLower)) {
+        setSymbols(INDIAN_STOCK_SYMBOLS.map(s => ({ ...s, exchange: config.exchangeName })));
+      } else if (exLower === 'jupiter') {
+        setSymbols(SOLANA_SYMBOLS.map(s => ({ ...s, exchange: config.exchangeName })));
+      } else {
+        setSymbols(DEMO_SYMBOLS.map(s => ({ ...s, exchange: config.exchangeName })));
+      }
     }
-  }, [config.exchangeName, config.symbol]);
+  }, [config.exchangeName, config.symbol, symbolSearch]);
 
   // Debounced search for live exchanges
   useEffect(() => {
@@ -197,28 +238,40 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
   const loadExchanges = async () => {
     try {
-      // Get connected exchanges from bot-specific endpoint (auto-connected from env)
+      // Get connected and supported exchanges from endpoint
       const res = await api('/bots/exchanges');
 
-      if (res.success && res.exchanges) {
-        const liveExchanges = res.exchanges.map(ex => ({
+      if (res.success && res.exchanges && res.exchanges.length > 0) {
+        const apiExchanges = res.exchanges.map(ex => ({
           name: ex.name,
           label: ex.label || ex.name,
           type: ex.type || 'crypto',
           isDemo: false,
-          tradingEnabled: ex.tradingEnabled
+          isConnected: !!ex.isConnected,
+          tradingEnabled: !!ex.tradingEnabled
         }));
 
-        // Always include demo exchange, plus any real connected exchanges
-        setExchanges([...DEMO_EXCHANGES, ...liveExchanges]);
+        const merged = [
+          { name: 'Demo', label: 'Demo Exchange', isDemo: true, isConnected: true },
+          ...apiExchanges
+        ];
+
+        // Deduplicate
+        const seen = new Set();
+        const unique = merged.filter(ex => {
+          const key = ex.name.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        setExchanges(unique);
       } else {
-        // Fallback to demo exchange only
-        setExchanges(DEMO_EXCHANGES);
+        setExchanges(DEFAULT_SUPPORTED_EXCHANGES);
       }
     } catch (e) {
       console.error('Failed to load exchanges:', e);
-      // Fallback to demo exchange only
-      setExchanges(DEMO_EXCHANGES);
+      setExchanges(DEFAULT_SUPPORTED_EXCHANGES);
     }
   };
 
@@ -288,12 +341,17 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
     switch (step) {
       case 1:
         return !!config.strategyType;
-      case 2:
+      case 2: {
+        if (config.mode === 'LIVE') {
+          const selectedEx = exchanges.find(e => e.name.toLowerCase() === config.exchangeName?.toLowerCase());
+          if (!selectedEx || (!selectedEx.isConnected && !selectedEx.isDemo)) return false;
+        }
         // Dynamic Grid doesn't need symbol - it auto-discovers coins
         if (config.strategyType === 'DYNAMIC_GRID') {
           return !!config.exchangeName;
         }
         return !!config.exchangeName && !!config.symbol;
+      }
       case 3:
         return Object.keys(config.params).length > 0;
       case 4:
@@ -463,9 +521,10 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                   // Filter exchanges based on mode
                   const filteredExchanges = config.mode === 'LIVE'
                     ? exchanges.filter(ex => !ex.isDemo)  // Live mode: only real exchanges
-                    : exchanges;  // Paper mode: demo + real exchanges
+                    : exchanges;  // Paper mode: demo + all real exchanges
 
-                  const hasRealExchanges = exchanges.some(ex => !ex.isDemo);
+                  const selectedExObj = exchanges.find(e => e.name.toLowerCase() === config.exchangeName?.toLowerCase());
+                  const isSelectedConnected = selectedExObj?.isConnected || selectedExObj?.isDemo;
 
                   return (
                     <>
@@ -478,9 +537,9 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                               setConfig(c => ({ ...c, exchangeName: ex.name, symbol: '' }));
                               setSymbolSearch('');
                               setSymbolInfo(null);
-                              // For demo exchange, show all symbols immediately
-                              if (ex.isDemo) {
-                                setSymbols(DEMO_SYMBOLS);
+                              const cryptoExchanges = ['demo', 'pionex', 'binance', 'bybit', 'kraken'];
+                              if (cryptoExchanges.includes(ex.name.toLowerCase())) {
+                                setSymbols(DEMO_SYMBOLS.map(s => ({ ...s, exchange: ex.name })));
                               } else {
                                 setSymbols([]);
                               }
@@ -488,23 +547,43 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                           >
                             {ex.isDemo ? <FlaskConical size={14} /> : null}
                             {ex.label || ex.name}
+                            {config.mode === 'LIVE' && !ex.isDemo && (
+                              <span
+                                className={`connection-pill ${ex.isConnected ? 'live-on' : 'live-off'}`}
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  marginLeft: '6px',
+                                  background: ex.isConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                  color: ex.isConnected ? '#10b981' : '#ef4444'
+                                }}
+                              >
+                                {ex.isConnected ? 'Ready' : 'Setup Required'}
+                              </span>
+                            )}
                           </button>
                         )) : (
                           <div className="no-exchanges-msg">
                             <AlertTriangle size={16} />
-                            <span>No exchanges connected for live trading</span>
+                            <span>No exchanges configured</span>
                           </div>
                         )}
                       </div>
-                      {config.mode === 'LIVE' && !hasRealExchanges && (
-                        <small className="exchange-hint warning">
-                          <AlertTriangle size={12} />
-                          Connect an exchange in the <a href="/exchanges">Exchanges</a> page to enable live trading
+
+                      {config.mode === 'LIVE' && config.exchangeName && !isSelectedConnected && (
+                        <small className="exchange-hint warning" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
+                          <AlertTriangle size={14} />
+                          <span>
+                            {config.exchangeName} API keys are not connected. Add your credentials in the <a href="/exchanges" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'underline' }}>Exchanges</a> page to trade live.
+                          </span>
                         </small>
                       )}
-                      {config.mode === 'PAPER' && !hasRealExchanges && (
-                        <small className="exchange-hint">
-                          Using Demo Exchange for paper trading. Connect real exchanges in <a href="/exchanges">Exchanges</a> for live data.
+
+                      {config.mode === 'PAPER' && (
+                        <small className="exchange-hint" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
+                          <FlaskConical size={14} />
+                          Paper trading simulates orders with virtual funds using live market prices from {config.exchangeName || 'the selected exchange'}.
                         </small>
                       )}
                     </>

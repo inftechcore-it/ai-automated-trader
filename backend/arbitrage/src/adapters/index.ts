@@ -4,6 +4,8 @@ export { BinanceAdapter } from './BinanceAdapter.js';
 export { BybitAdapter } from './BybitAdapter.js';
 export { KrakenAdapter } from './KrakenAdapter.js';
 export { PionexAdapter } from './PionexAdapter.js';
+export { AngelOneAdapter } from './AngelOneAdapter.js';
+export { JupiterAdapter } from './JupiterAdapter.js';
 export {
   adapterFactory,
   getAdapter,

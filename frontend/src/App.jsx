@@ -11,6 +11,11 @@ import Orders from './pages/Orders.jsx';
 import Watchlist from './pages/Watchlist.jsx';
 import AiAnalysis from './pages/AiAnalysis.jsx';
 import Settings from './pages/Settings.jsx';
+import Account from './pages/Account.jsx';
+import Bots from './pages/Bots.jsx';
+import BotDetail from './pages/BotDetail.jsx';
+import BotAnalytics from './pages/BotAnalytics.jsx';
+import CommunityBots from './pages/CommunityBots.jsx';
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -33,7 +38,12 @@ export default function App() {
           <Route path="orders" element={<Orders />} />
           <Route path="watchlist" element={<Watchlist />} />
           <Route path="ai-analysis" element={<AiAnalysis />} />
+          <Route path="bots" element={<Bots />} />
+          <Route path="bots/:id" element={<BotDetail />} />
+          <Route path="community-bots" element={<CommunityBots />} />
+          <Route path="bot-analytics" element={<BotAnalytics />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="account" element={<Account />} />
         </Route>
       </Routes>
     </AuthProvider>

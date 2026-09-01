@@ -4,6 +4,8 @@ import { BinanceAdapter } from './BinanceAdapter.js';
 import { BybitAdapter } from './BybitAdapter.js';
 import { KrakenAdapter } from './KrakenAdapter.js';
 import { PionexAdapter } from './PionexAdapter.js';
+import { AngelOneAdapter } from './AngelOneAdapter.js';
+import { JupiterAdapter } from './JupiterAdapter.js';
 import { ConfigurationError, AdapterError } from '../utils/errors.js';
 import type { ExchangeConfig } from '../types/index.js';
 
@@ -14,6 +16,8 @@ const ADAPTER_REGISTRY: Record<string, AdapterConstructor> = {
   bybit: BybitAdapter,
   kraken: KrakenAdapter,
   pionex: PionexAdapter,
+  angelone: AngelOneAdapter,
+  jupiter: JupiterAdapter,
 };
 
 class AdapterFactory {

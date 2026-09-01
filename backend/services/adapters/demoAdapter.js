@@ -92,11 +92,20 @@ export async function getQuote(symbol, exchange = 'NASDAQ') {
   };
 }
 
-export async function getOHLCV(symbol, interval = '1h', limit = 100) {
+export async function getOHLCV(symbol, interval = '1h', limit = 100, exchange = null) {
   const upper = symbol.toUpperCase();
   const stock = DEMO_STOCKS[upper];
   const basePrice = stock?.price || 100;
-  const now = Date.now();
+  const stockExchange = exchange || stock?.exchange || 'NASDAQ';
+
+  // Market hours configuration
+  const isIndianMarket = ['NSE', 'BSE'].includes(stockExchange);
+  const isUSMarket = ['NASDAQ', 'NYSE'].includes(stockExchange);
+  const isCrypto = ['Binance', 'Kraken'].includes(stockExchange);
+
+  // Indian market: 9:15 AM - 3:30 PM IST (Mon-Fri)
+  // US market: 9:30 AM - 4:00 PM ET (Mon-Fri)
+  // Crypto: 24/7
 
   const intervalMs = {
     '1m': 60 * 1000,
@@ -111,29 +120,145 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
   const candles = [];
   let prevClose = basePrice * 0.95;
 
-  for (let i = 0; i < limit; i++) {
-    const trend = (i / limit) * basePrice * 0.08;
-    const wave = Math.sin(i / 6) * basePrice * 0.015;
-    const noise = (Math.random() - 0.5) * basePrice * 0.02;
+  // For daily intervals, generate proper trading days
+  if (interval === '1d' || interval === '1w' || interval === '1M') {
+    const tradingDays = generateTradingDays(limit, isIndianMarket || isUSMarket);
 
-    const open = prevClose;
-    const close = Number((basePrice * 0.95 + trend + wave + noise).toFixed(2));
-    const high = Number((Math.max(open, close) + Math.random() * basePrice * 0.01).toFixed(2));
-    const low = Number((Math.min(open, close) - Math.random() * basePrice * 0.01).toFixed(2));
+    for (let i = 0; i < tradingDays.length; i++) {
+      const trend = (i / tradingDays.length) * basePrice * 0.08;
+      const wave = Math.sin(i / 6) * basePrice * 0.015;
+      const noise = (Math.random() - 0.5) * basePrice * 0.02;
 
-    candles.push({
-      time: new Date(now - (limit - 1 - i) * intervalMs).toISOString(),
-      open,
-      high,
-      low,
-      close,
-      volume: Math.floor(500000 + Math.random() * 2000000)
-    });
+      const open = prevClose;
+      const close = Number((basePrice * 0.95 + trend + wave + noise).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.random() * basePrice * 0.01).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.random() * basePrice * 0.01).toFixed(2));
 
-    prevClose = close;
+      candles.push({
+        time: tradingDays[i].toISOString(),
+        open,
+        high,
+        low,
+        close,
+        volume: Math.floor(500000 + Math.random() * 2000000)
+      });
+
+      prevClose = close;
+    }
+  } else {
+    // For intraday intervals, generate market-hours data
+    const tradingTimes = generateTradingTimes(limit, intervalMs, isIndianMarket, isUSMarket, isCrypto);
+
+    for (let i = 0; i < tradingTimes.length; i++) {
+      const trend = (i / tradingTimes.length) * basePrice * 0.08;
+      const wave = Math.sin(i / 6) * basePrice * 0.015;
+      const noise = (Math.random() - 0.5) * basePrice * 0.02;
+
+      const open = prevClose;
+      const close = Number((basePrice * 0.95 + trend + wave + noise).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.random() * basePrice * 0.01).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.random() * basePrice * 0.01).toFixed(2));
+
+      candles.push({
+        time: tradingTimes[i].toISOString(),
+        open,
+        high,
+        low,
+        close,
+        volume: Math.floor(500000 + Math.random() * 2000000)
+      });
+
+      prevClose = close;
+    }
   }
 
   return candles;
+}
+
+function generateTradingDays(count, skipWeekends = true) {
+  const days = [];
+  let date = new Date();
+  date.setHours(15, 30, 0, 0); // Market close time
+
+  while (days.length < count) {
+    const dayOfWeek = date.getDay();
+
+    // Skip weekends for stock markets
+    if (!skipWeekends || (dayOfWeek !== 0 && dayOfWeek !== 6)) {
+      days.unshift(new Date(date));
+    }
+
+    date.setDate(date.getDate() - 1);
+  }
+
+  return days;
+}
+
+function generateTradingTimes(count, intervalMs, isIndianMarket, isUSMarket, isCrypto) {
+  const times = [];
+  let date = new Date();
+
+  // Set appropriate market hours
+  if (isIndianMarket) {
+    // IST: 9:15 AM - 3:30 PM (UTC+5:30)
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const marketOpen = 9 * 60 + 15; // 9:15 AM in minutes
+    const marketClose = 15 * 60 + 30; // 3:30 PM in minutes
+
+    while (times.length < count) {
+      const dayOfWeek = date.getDay();
+
+      // Skip weekends
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const localDate = new Date(date.getTime() + istOffset);
+        const minutesOfDay = localDate.getUTCHours() * 60 + localDate.getUTCMinutes();
+
+        if (minutesOfDay >= marketOpen && minutesOfDay <= marketClose) {
+          times.unshift(new Date(date));
+        }
+      }
+
+      date = new Date(date.getTime() - intervalMs);
+    }
+  } else if (isUSMarket) {
+    // ET: 9:30 AM - 4:00 PM (UTC-4 or UTC-5)
+    const marketOpen = 9 * 60 + 30; // 9:30 AM in minutes
+    const marketClose = 16 * 60; // 4:00 PM in minutes
+
+    while (times.length < count) {
+      const dayOfWeek = date.getDay();
+
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const minutesOfDay = hours * 60 + minutes;
+
+        // Approximate US market hours
+        if (minutesOfDay >= marketOpen && minutesOfDay <= marketClose) {
+          times.unshift(new Date(date));
+        }
+      }
+
+      date = new Date(date.getTime() - intervalMs);
+    }
+  } else {
+    // Crypto - 24/7
+    for (let i = 0; i < count; i++) {
+      times.unshift(new Date(date.getTime() - i * intervalMs));
+    }
+  }
+
+  // Ensure we have enough data points
+  if (times.length < count) {
+    // Fall back to simple generation if not enough market hours
+    const now = Date.now();
+    times.length = 0;
+    for (let i = 0; i < count; i++) {
+      times.push(new Date(now - (count - 1 - i) * intervalMs));
+    }
+  }
+
+  return times;
 }
 
 export async function searchSymbols(query, filterExchange = null) {

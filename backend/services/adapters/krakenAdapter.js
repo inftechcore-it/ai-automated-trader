@@ -206,3 +206,112 @@ export async function getBalances(apiKey, apiSecret) {
       total: parseFloat(amount)
     }));
 }
+
+export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, quantity, price, stopPrice }) {
+  const path = '/0/private/AddOrder';
+  const nonce = Date.now() * 1000;
+  const pair = toKrakenPair(symbol);
+
+  const krakenOrderType = {
+    'market': 'market',
+    'limit': 'limit',
+    'stop_loss': 'stop-loss',
+    'take_profit': 'take-profit',
+    'stop_limit': 'stop-loss-limit'
+  }[orderType] || 'market';
+
+  let postData = `nonce=${nonce}&pair=${pair}&type=${side.toLowerCase()}&ordertype=${krakenOrderType}&volume=${quantity}`;
+
+  if (orderType === 'limit' || orderType === 'stop_limit') {
+    postData += `&price=${price}`;
+  }
+
+  if (['stop_loss', 'take_profit', 'stop_limit'].includes(orderType)) {
+    postData += `&price=${stopPrice}`;
+    if (orderType === 'stop_limit') {
+      postData += `&price2=${price}`;
+    }
+  }
+
+  const signature = createSignature(path, nonce, postData, apiSecret);
+
+  const { data } = await axios.post(`${BASE_URL}${path}`, postData, {
+    headers: {
+      'API-Key': apiKey,
+      'API-Sign': signature,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    timeout: 10000
+  });
+
+  if (data.error && data.error.length > 0) {
+    throw new Error(data.error.join(', '));
+  }
+
+  const txid = data.result.txid?.[0];
+  return {
+    orderId: txid,
+    symbol: symbol,
+    side: side.toLowerCase(),
+    orderType: orderType,
+    quantity: parseFloat(quantity),
+    price: price ? parseFloat(price) : null,
+    status: 'open',
+    createdAt: new Date().toISOString()
+  };
+}
+
+export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {
+  const path = '/0/private/CancelOrder';
+  const nonce = Date.now() * 1000;
+  const postData = `nonce=${nonce}&txid=${orderId}`;
+  const signature = createSignature(path, nonce, postData, apiSecret);
+
+  const { data } = await axios.post(`${BASE_URL}${path}`, postData, {
+    headers: {
+      'API-Key': apiKey,
+      'API-Sign': signature,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    timeout: 10000
+  });
+
+  if (data.error && data.error.length > 0) {
+    throw new Error(data.error.join(', '));
+  }
+
+  return { orderId, status: 'cancelled' };
+}
+
+export async function getOpenOrders(apiKey, apiSecret) {
+  const path = '/0/private/OpenOrders';
+  const nonce = Date.now() * 1000;
+  const postData = `nonce=${nonce}`;
+  const signature = createSignature(path, nonce, postData, apiSecret);
+
+  const { data } = await axios.post(`${BASE_URL}${path}`, postData, {
+    headers: {
+      'API-Key': apiKey,
+      'API-Sign': signature,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    timeout: 10000
+  });
+
+  if (data.error && data.error.length > 0) {
+    throw new Error(data.error.join(', '));
+  }
+
+  const orders = data.result?.open || {};
+  return Object.entries(orders).map(([txid, order]) => ({
+    orderId: txid,
+    symbol: fromKrakenPair(order.descr.pair),
+    side: order.descr.type,
+    orderType: order.descr.ordertype,
+    quantity: parseFloat(order.vol),
+    price: parseFloat(order.descr.price) || null,
+    status: order.status === 'open' ? 'open' : order.status,
+    filledQuantity: parseFloat(order.vol_exec),
+    createdAt: new Date(order.opentm * 1000).toISOString()
+  }));
+}

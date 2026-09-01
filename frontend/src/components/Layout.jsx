@@ -1,15 +1,19 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Activity, BarChart3, Bot, Briefcase, ChevronRight, Gauge, ListOrdered, Settings, Shield, Star, Wallet } from 'lucide-react';
+import { Activity, BarChart3, Bot, Briefcase, ChevronRight, Gauge, ListOrdered, Settings, Shield, Star, Wallet, User, Cpu, PieChart, Users } from 'lucide-react';
 import { useAuth } from '../auth.jsx';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: Gauge },
+  { to: '/account', label: 'My Account', icon: User },
   { to: '/exchanges', label: 'Exchanges', icon: Shield },
   { to: '/trading', label: 'Trading', icon: Activity },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/orders', label: 'Orders', icon: ListOrdered },
   { to: '/watchlist', label: 'Watchlist', icon: Star },
   { to: '/ai-analysis', label: 'AI Analysis', icon: Bot },
+  { to: '/bots', label: 'Trading Bots', icon: Cpu },
+  // { to: '/community-bots', label: 'Community Bots', icon: Users }, // On hold
+  { to: '/bot-analytics', label: 'Bot Analytics', icon: PieChart },
   { to: '/settings', label: 'Settings', icon: Settings }
 ];
 

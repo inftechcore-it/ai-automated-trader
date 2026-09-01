@@ -202,6 +202,33 @@ export class PionexAdapter extends BaseAdapter {
     }
   }
 
+  async getMarkets(): Promise<any[]> {
+    try {
+      const response = await axios.get(`${PIONEX_BASE_URL}/api/v1/common/symbols`, {
+        params: { type: 'SPOT' },
+        timeout: 10000,
+      });
+
+      if (!response.data.result || !response.data.data?.symbols) {
+        return [];
+      }
+
+      return response.data.data.symbols
+        .filter((s: any) => s.enable)
+        .map((s: any) => ({
+          symbol: `${s.baseCurrency}/${s.quoteCurrency}`,
+          base: s.baseCurrency,
+          baseAsset: s.baseCurrency,
+          quote: s.quoteCurrency,
+          quoteAsset: s.quoteCurrency,
+          active: s.enable,
+        }));
+    } catch (error: any) {
+      console.error(`[PionexAdapter] getMarkets error:`, error.message);
+      return [];
+    }
+  }
+
   async getBalance(): Promise<Balance[]> {
     try {
       const data = await this.request('GET', '/api/v1/account/balances');

@@ -1,6 +1,8 @@
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as jupiterAdapter from './adapters/jupiterAdapter.js';
+import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as alphaVantageAdapter from './adapters/alphaVantageAdapter.js';
 import * as upstoxAdapter from './adapters/upstoxAdapter.js';
 import * as alpacaAdapter from './adapters/alpacaAdapter.js';
@@ -58,6 +60,34 @@ function autoConnectFromEnv() {
     console.log('[Exchange] Auto-connected Pionex from environment');
   }
 
+  // Jupiter (Solana DEX Aggregator)
+  if (env.jupiter?.apiKey) {
+    jupiterAdapter.setCredentials(env.jupiter.apiKey, env.jupiter.rpcUrl, env.jupiter.privateKey);
+    connectedBrokers.set('jupiter', {
+      apiKey: env.jupiter.apiKey,
+      source: 'env'
+    });
+    console.log('[Exchange] Auto-connected Jupiter DEX from environment');
+  }
+
+  // Angel One SmartAPI (Indian Stocks - NSE/BSE)
+  if (env.angelone?.apiKey) {
+    angeloneAdapter.setCredentials(
+      env.angelone.apiKey,
+      env.angelone.clientCode,
+      env.angelone.password,
+      env.angelone.totpSecret,
+      env.angelone.jwtToken,
+      env.angelone.feedToken
+    );
+    connectedBrokers.set('angelone', {
+      apiKey: env.angelone.apiKey,
+      clientCode: env.angelone.clientCode,
+      source: 'env'
+    });
+    console.log('[Exchange] Auto-connected Angel One SmartAPI from environment');
+  }
+
   // Alpaca (US Stocks)
   if (env.alpaca?.apiKey && env.alpaca?.apiSecret) {
     alpacaAdapter.setCredentials(env.alpaca.apiKey, env.alpaca.apiSecret, env.alpaca.paperMode);
@@ -78,13 +108,15 @@ export function getSupportedExchanges() {
   return [
     { name: 'Binance', type: 'crypto', description: 'Crypto spot trading', live: true, tradingEnabled: connectedBrokers.has('binance') },
     { name: 'Pionex', type: 'crypto', description: 'Crypto trading with built-in bots', live: true, tradingEnabled: connectedBrokers.has('pionex') },
+    { name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator (Swaps, Limit, DCA)', live: true, tradingEnabled: jupiterAdapter.isConfigured() || connectedBrokers.has('jupiter') },
+    { name: 'AngelOne', type: 'stock', description: 'Indian stocks via Angel One SmartAPI', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured() || connectedBrokers.has('angelone') },
     { name: 'Bybit', type: 'crypto', description: 'Crypto derivatives & spot', live: true, tradingEnabled: connectedBrokers.has('bybit') },
     { name: 'Kraken', type: 'crypto', description: 'Crypto trading', live: true, tradingEnabled: connectedBrokers.has('kraken') },
     { name: 'Coinbase', type: 'crypto', description: 'Crypto brokerage', live: false, tradingEnabled: false },
     { name: 'NASDAQ', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: alpacaAdapter.isConfigured() || connectedBrokers.has('alpaca') },
     { name: 'NYSE', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: alpacaAdapter.isConfigured() || connectedBrokers.has('alpaca') },
-    { name: 'NSE', type: 'stock', description: 'Indian stocks via Upstox', live: true, tradingEnabled: upstoxAdapter.isAuthenticated() },
-    { name: 'BSE', type: 'stock', description: 'Indian stocks via Upstox', live: true, tradingEnabled: upstoxAdapter.isAuthenticated() }
+    { name: 'NSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || upstoxAdapter.isAuthenticated() },
+    { name: 'BSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || upstoxAdapter.isAuthenticated() }
   ];
 }
 
@@ -95,14 +127,20 @@ export function getConnectedExchanges() {
   if (connectedBrokers.has('binance')) {
     connected.push({ name: 'Binance', type: 'crypto', isActive: true });
   }
+  if (connectedBrokers.has('pionex')) {
+    connected.push({ name: 'Pionex', type: 'crypto', isActive: true });
+  }
+  if (connectedBrokers.has('jupiter') || jupiterAdapter.isConfigured()) {
+    connected.push({ name: 'Jupiter', type: 'dex', isActive: true, markets: ['SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC'] });
+  }
+  if (connectedBrokers.has('angelone') || angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
+    connected.push({ name: 'AngelOne', type: 'stock', isActive: true, markets: ['NSE', 'BSE'] });
+  }
   if (connectedBrokers.has('bybit')) {
     connected.push({ name: 'Bybit', type: 'crypto', isActive: true });
   }
   if (connectedBrokers.has('kraken')) {
     connected.push({ name: 'Kraken', type: 'crypto', isActive: true });
-  }
-  if (connectedBrokers.has('pionex')) {
-    connected.push({ name: 'Pionex', type: 'crypto', isActive: true });
   }
   if (connectedBrokers.has('alpaca') || alpacaAdapter.isConfigured()) {
     connected.push({ name: 'Alpaca', type: 'stock', isActive: true, markets: ['NASDAQ', 'NYSE'] });
@@ -133,6 +171,9 @@ export const supportedExchanges = getSupportedExchanges();
 function getAdapter(exchange, symbol) {
   const exLower = exchange?.toLowerCase();
 
+  if (exLower === 'jupiter' || (symbol && jupiterAdapter.supportsSymbol(symbol))) {
+    return jupiterAdapter;
+  }
   if (exLower === 'binance' && binanceAdapter.supportsSymbol(symbol)) {
     return binanceAdapter;
   }
@@ -142,8 +183,14 @@ function getAdapter(exchange, symbol) {
   if (exLower === 'kraken' && krakenAdapter.supportsSymbol(symbol)) {
     return krakenAdapter;
   }
-  // Indian exchanges - prefer Upstox if authenticated, fallback to Yahoo
+  if (exLower === 'angelone') {
+    return angeloneAdapter;
+  }
+  // Indian exchanges - prefer Angel One or Upstox if authenticated, fallback to Yahoo
   if (['nse', 'bse'].includes(exLower)) {
+    if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
+      return angeloneAdapter;
+    }
     if (upstoxAdapter.isAuthenticated()) {
       return upstoxAdapter;
     }
@@ -399,10 +446,54 @@ export async function placeLiveOrder({ userId, symbol, exchange, side, orderType
     });
   }
 
+  // Jupiter (Solana DEX)
+  if (exLower === 'jupiter') {
+    return jupiterAdapter.placeOrder({
+      symbol,
+      side,
+      orderType,
+      quantity,
+      price
+    });
+  }
+
+  // Angel One SmartAPI
+  if (exLower === 'angelone') {
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (creds) {
+      angeloneAdapter.setCredentials(creds.apiKey, creds.clientCode || creds.apiSecret, creds.password, creds.totpSecret);
+    }
+    if (!angeloneAdapter.isAuthenticated() && !angeloneAdapter.isConfigured()) {
+      throw createError('Angel One not connected. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    }
+
+    return angeloneAdapter.placeOrder({
+      symbol,
+      transactionType: side.toUpperCase(),
+      orderType: orderType.toUpperCase(),
+      productType: 'DELIVERY',
+      price: price || 0,
+      quantity,
+      exchange: 'NSE'
+    });
+  }
+
   // Indian stock exchanges
   if (['nse', 'bse'].includes(exLower)) {
+    if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
+      return angeloneAdapter.placeOrder({
+        symbol,
+        transactionType: side.toUpperCase(),
+        orderType: orderType.toUpperCase(),
+        productType: 'DELIVERY',
+        price: price || 0,
+        quantity,
+        exchange: exchange.toUpperCase()
+      });
+    }
+
     if (!upstoxAdapter.isAuthenticated()) {
-      throw createError('Upstox not connected. Please authenticate first.', 401, 'BROKER_NOT_CONNECTED');
+      throw createError('No Indian broker connected (Angel One or Upstox required).', 401, 'BROKER_NOT_CONNECTED');
     }
 
     return upstoxAdapter.placeOrder({
@@ -427,6 +518,10 @@ export async function placeLiveOrder({ userId, symbol, exchange, side, orderType
 export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
   const exLower = exchange?.toLowerCase();
 
+  if (exLower === 'jupiter') {
+    return jupiterAdapter.cancelOrder(orderId, symbol);
+  }
+
   if (exLower === 'binance') {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
     if (!creds) throw createError('Binance not connected', 401, 'BROKER_NOT_CONNECTED');
@@ -445,8 +540,13 @@ export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
     return pionexAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
+  if (exLower === 'angelone') {
+    return angeloneAdapter.cancelOrder(orderId);
+  }
+
   if (['nse', 'bse'].includes(exLower)) {
-    if (!upstoxAdapter.isAuthenticated()) throw createError('Upstox not connected', 401, 'BROKER_NOT_CONNECTED');
+    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.cancelOrder(orderId);
+    if (!upstoxAdapter.isAuthenticated()) throw createError('Broker not connected', 401, 'BROKER_NOT_CONNECTED');
     return upstoxAdapter.cancelOrder(orderId);
   }
 
@@ -460,6 +560,10 @@ export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
 
 export async function getLivePositions(userId, exchange) {
   const exLower = exchange?.toLowerCase();
+
+  if (exLower === 'jupiter') {
+    return jupiterAdapter.getBalances();
+  }
 
   if (exLower === 'binance') {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
@@ -475,8 +579,13 @@ export async function getLivePositions(userId, exchange) {
     return balances.filter(b => b.total > 0 && b.asset !== 'USDT');
   }
 
-  if (['nse', 'bse'].includes(exLower) && upstoxAdapter.isAuthenticated()) {
-    return upstoxAdapter.getPositions();
+  if (exLower === 'angelone') {
+    return angeloneAdapter.getHoldings();
+  }
+
+  if (['nse', 'bse'].includes(exLower)) {
+    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.getHoldings();
+    if (upstoxAdapter.isAuthenticated()) return upstoxAdapter.getPositions();
   }
 
   if (['nasdaq', 'nyse'].includes(exLower) && alpacaAdapter.isConfigured()) {
@@ -493,6 +602,27 @@ export async function getLiveOpenOrders(userId, exchange) {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
     if (!creds) return [];
     return binanceAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
+  }
+
+  if (exLower === 'kraken') {
+    const creds = await getUserBrokerCredentials(userId, 'Kraken');
+    if (!creds) return [];
+    return krakenAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
+  }
+
+  if (exLower === 'pionex') {
+    const creds = await getUserBrokerCredentials(userId, 'Pionex');
+    if (!creds) return [];
+    return pionexAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
+  }
+
+  if (exLower === 'angelone') {
+    return angeloneAdapter.getOrderBook();
+  }
+
+  if (['nse', 'bse'].includes(exLower)) {
+    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.getOrderBook();
+    if (upstoxAdapter.isAuthenticated()) return upstoxAdapter.getOpenOrders();
   }
 
   if (exLower === 'kraken') {

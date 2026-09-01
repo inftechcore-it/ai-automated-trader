@@ -13,7 +13,18 @@ export default function Exchanges() {
   const [balances, setBalances] = useState({});
   const [message, setMessage] = useState({ text: '', type: '' });
   const [loading, setLoading] = useState({});
-  const [form, setForm] = useState({ exchangeName: 'Binance', exchangeType: 'crypto', apiKey: '', apiSecret: '', paperMode: false, useTestnet: false });
+  const [form, setForm] = useState({
+    exchangeName: 'Binance',
+    exchangeType: 'crypto',
+    apiKey: '',
+    apiSecret: '',
+    clientCode: '',
+    password: '',
+    totpSecret: '',
+    totp: '',
+    paperMode: false,
+    useTestnet: false
+  });
   const [connecting, setConnecting] = useState(false);
 
   // Stock explorer state
@@ -34,6 +45,8 @@ export default function Exchanges() {
   // Broker status
   const [upstoxStatus, setUpstoxStatus] = useState({ configured: false, authenticated: false });
   const [alpacaStatus, setAlpacaStatus] = useState({ configured: false, paperMode: false });
+  const [angeloneStatus, setAngeloneStatus] = useState({ configured: false, authenticated: false });
+  const [jupiterStatus, setJupiterStatus] = useState({ configured: false });
 
   async function loadSupported() {
     try {
@@ -88,6 +101,31 @@ export default function Exchanges() {
     }
   }
 
+  async function loadAngelOneStatus() {
+    try {
+      const response = await api.get('/api/broker/angelone/status');
+      setAngeloneStatus({
+        configured: response.data.configured,
+        authenticated: response.data.authenticated,
+        source: response.data.source
+      });
+    } catch {
+      setAngeloneStatus({ configured: false, authenticated: false });
+    }
+  }
+
+  async function loadJupiterStatus() {
+    try {
+      const response = await api.get('/api/jupiter/status');
+      setJupiterStatus({
+        configured: response.data.configured,
+        config: response.data.config
+      });
+    } catch {
+      setJupiterStatus({ configured: false });
+    }
+  }
+
   async function connectUpstox() {
     try {
       const response = await api.get('/api/upstox/auth-url');
@@ -114,6 +152,8 @@ export default function Exchanges() {
     loadConnected();
     loadUpstoxStatus();
     loadAlpacaStatus();
+    loadAngelOneStatus();
+    loadJupiterStatus();
 
     // Check for Upstox callback results
     const params = new URLSearchParams(window.location.search);
@@ -137,16 +177,32 @@ export default function Exchanges() {
         exchange: form.exchangeName,
         apiKey: form.apiKey,
         apiSecret: form.apiSecret,
+        clientCode: form.clientCode,
+        password: form.password,
+        totpSecret: form.totpSecret,
+        totp: form.totp,
         paperMode: form.paperMode,
         useTestnet: form.useTestnet
       };
       const response = await api.post('/api/broker/connect', payload);
-      setForm({ ...form, apiKey: '', apiSecret: '', paperMode: false, useTestnet: false });
+      setForm({
+        exchangeName: 'Binance',
+        exchangeType: 'crypto',
+        apiKey: '',
+        apiSecret: '',
+        clientCode: '',
+        password: '',
+        totpSecret: '',
+        totp: '',
+        paperMode: false,
+        useTestnet: false
+      });
       setMessage({ text: `${form.exchangeName} connected! ${response.data.paperMode ? '(Paper Mode)' : '(Live Mode)'}`, type: 'success' });
       setShowConnectForm(false);
       setConnectExchange(null);
       loadConnected();
       loadAlpacaStatus();
+      loadAngelOneStatus();
     } catch (error) {
       setMessage({ text: errorMessage(error), type: 'error' });
     } finally {
@@ -256,10 +312,14 @@ export default function Exchanges() {
       return;
     }
 
-    if (exchange.type === 'crypto' || exchange.name === 'Alpaca') {
-      // Check if already connected (for Alpaca, check if live is connected)
+    if (exchange.type === 'crypto' || exchange.type === 'dex' || ['Alpaca', 'AngelOne', 'Jupiter'].includes(exchange.name)) {
+      // Check if already connected (for Alpaca/AngelOne/Jupiter, check configured/live)
       const isConnected = exchange.name === 'Alpaca'
         ? alpacaStatus.configured && !alpacaStatus.paperMode
+        : exchange.name === 'AngelOne'
+        ? angeloneStatus.authenticated
+        : exchange.name === 'Jupiter'
+        ? (jupiterStatus.configured || connected.some(c => c.exchangeName.toLowerCase() === 'jupiter'))
         : connected.some(c => c.exchangeName.toLowerCase() === exchange.name.toLowerCase());
       if (!isConnected) {
         setConnectExchange(exchange);
@@ -267,7 +327,12 @@ export default function Exchanges() {
           ...form,
           exchangeName: exchange.name,
           exchangeType: exchange.type,
-          paperMode: false // Always false - Alpaca card is for live trading only
+          apiKey: exchange.name === 'Jupiter'
+            ? (form.apiKey || 'jup_e254889340b2c9eff161bbda9832fd12b299927ce7ec7d4ac025fdd99c0db00d')
+            : exchange.name === 'AngelOne'
+            ? (form.apiKey || 'AThErGZk')
+            : form.apiKey,
+          paperMode: false
         });
         setShowConnectForm(true);
       }
@@ -322,7 +387,7 @@ export default function Exchanges() {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   }
 
-  const cryptoExchanges = supported.filter(e => e.type === 'crypto');
+  const cryptoExchanges = supported.filter(e => e.type === 'crypto' || e.type === 'dex');
   const stockExchanges = supported.filter(e => e.type === 'stock');
 
   // Simple sparkline chart
@@ -618,8 +683,43 @@ export default function Exchanges() {
 
             {/* Stock Exchanges */}
             <section className="panel">
-              <h2>Stock Exchanges</h2>
-              <p className="panel-hint">Click to browse live market data</p>
+              <h2>Stock Exchanges & Indian Brokers</h2>
+              <p className="panel-hint">Connect Indian brokers or browse live market data</p>
+
+              {/* Angel One SmartAPI Live Trading for Indian Stocks */}
+              <div
+                className={`broker-card clickable ${angeloneStatus.configured || angeloneStatus.authenticated ? 'connected live' : ''}`}
+                onClick={() => !(angeloneStatus.configured || angeloneStatus.authenticated) && handleExchangeClick({ name: 'AngelOne', type: 'stock', description: 'Angel One SmartAPI (NSE/BSE)' })}
+              >
+                <div className="broker-card-header">
+                  <strong>Angel One SmartAPI</strong>
+                  {angeloneStatus.authenticated ? (
+                    <Badge tone="green" small><CheckCircle size={10} /> Active</Badge>
+                  ) : angeloneStatus.configured ? (
+                    <Badge tone="blue" small><CheckCircle size={10} /> Configured</Badge>
+                  ) : (
+                    <Badge tone="yellow" small><KeyRound size={10} /> Connect API</Badge>
+                  )}
+                </div>
+                <span>Indian Stock Live Trading (NSE, BSE) & Automated Trading Bots</span>
+                {angeloneStatus.configured || angeloneStatus.authenticated ? (
+                  <div className="broker-actions" onClick={e => e.stopPropagation()}>
+                    <button className="btn-small browse" onClick={() => handleExchangeClick({ name: 'NSE', type: 'stock' }, 'browse')}>
+                      <BarChart2 size={12} /> Browse NSE
+                    </button>
+                    <button
+                      className="btn-small disconnect"
+                      onClick={() => disconnectExchange('AngelOne')}
+                      disabled={loading['disconnect_AngelOne']}
+                    >
+                      {loading['disconnect_AngelOne'] ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <div className="card-action">Click to connect SmartAPI credentials</div>
+                )}
+              </div>
 
               {/* Upstox Connection Banner for Indian Exchanges */}
               {upstoxStatus.configured && (
@@ -678,8 +778,8 @@ export default function Exchanges() {
                 {stockExchanges.map((ex) => {
                   const isIndian = ['NSE', 'BSE'].includes(ex.name);
                   const isUS = ['NASDAQ', 'NYSE'].includes(ex.name);
-                  const needsUpstox = isIndian && upstoxStatus.configured && !upstoxStatus.authenticated;
-                  const isLive = (isIndian && upstoxStatus.authenticated) || (isUS && alpacaStatus.configured);
+                  const needsUpstox = isIndian && !angeloneStatus.configured && !angeloneStatus.authenticated && upstoxStatus.configured && !upstoxStatus.authenticated;
+                  const isLive = (isIndian && (angeloneStatus.authenticated || angeloneStatus.configured || upstoxStatus.authenticated)) || (isUS && alpacaStatus.configured);
 
                   return (
                     <div
@@ -698,7 +798,7 @@ export default function Exchanges() {
                       <span>{ex.description}</span>
                       {needsUpstox ? (
                         <div className="card-action warning">
-                          <ExternalLink size={14} /> Connect Upstox for live data
+                          <ExternalLink size={14} /> Connect broker for live data
                         </div>
                       ) : (
                         <div className="card-action">
@@ -726,25 +826,82 @@ export default function Exchanges() {
               </p>
               <form className="form" onSubmit={connect}>
                 <div className="form-group">
-                  <label>API Key</label>
+                  <label>API Key {connectExchange.name === 'AngelOne' && '(SmartAPI Key)'}</label>
                   <input
                     type="password"
-                    placeholder="Enter your API key"
+                    placeholder={connectExchange.name === 'AngelOne' ? 'Enter Angel One SmartAPI Key' : 'Enter your API key'}
                     value={form.apiKey}
                     onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
                     autoComplete="off"
                   />
                 </div>
-                <div className="form-group">
-                  <label>API Secret</label>
-                  <input
-                    type="password"
-                    placeholder="Enter your API secret"
-                    value={form.apiSecret}
-                    onChange={(e) => setForm({ ...form, apiSecret: e.target.value })}
-                    autoComplete="off"
-                  />
-                </div>
+
+                {connectExchange.name === 'AngelOne' ? (
+                  <>
+                    <div className="form-group">
+                      <label>Client Code / User ID</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. S1234567"
+                        value={form.clientCode}
+                        onChange={(e) => setForm({ ...form, clientCode: e.target.value, apiSecret: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Account Password / MPIN</label>
+                      <input
+                        type="password"
+                        placeholder="Enter Angel One PIN / password"
+                        value={form.password}
+                        onChange={(e) => setForm({ ...form, password: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>TOTP Secret Key (or 6-digit TOTP)</label>
+                      <input
+                        type="password"
+                        placeholder="Base32 TOTP secret key for automatic 2FA"
+                        value={form.totpSecret}
+                        onChange={(e) => setForm({ ...form, totpSecret: e.target.value, totp: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="form-note info">
+                      <AlertTriangle size={14} />
+                      <span>Angel One SmartAPI requires your API Key, Client Code, PIN, and TOTP key to establish authenticated sessions for order placement.</span>
+                    </div>
+                  </>
+                ) : connectExchange.name === 'Jupiter' ? (
+                  <>
+                    <div className="form-group">
+                      <label>Solana RPC URL</label>
+                      <input
+                        type="text"
+                        placeholder="https://api.mainnet-beta.solana.com"
+                        value={form.apiSecret || 'https://api.mainnet-beta.solana.com'}
+                        onChange={(e) => setForm({ ...form, apiSecret: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-note info">
+                      <AlertTriangle size={14} />
+                      <span>Jupiter Developer API provides high-speed Price V3, Tokens V2 discovery, and Swap V2 meta-aggregation on Solana.</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="form-group">
+                    <label>API Secret</label>
+                    <input
+                      type="password"
+                      placeholder="Enter your API secret"
+                      value={form.apiSecret}
+                      onChange={(e) => setForm({ ...form, apiSecret: e.target.value })}
+                      autoComplete="off"
+                    />
+                  </div>
+                )}
+
                 {connectExchange.type === 'crypto' && (
                   <div className="form-group checkbox-group">
                     <label className="checkbox-label">
@@ -767,7 +924,10 @@ export default function Exchanges() {
                   </div>
                 )}
                 <div className="form-actions">
-                  <button type="submit" disabled={connecting || !form.apiKey || !form.apiSecret}>
+                  <button
+                    type="submit"
+                    disabled={connecting || !form.apiKey || (connectExchange.name === 'AngelOne' ? !form.clientCode : connectExchange.name === 'Jupiter' ? false : !form.apiSecret)}
+                  >
                     {connecting ? (
                       <><RefreshCw size={16} className="spin" /> Verifying...</>
                     ) : (

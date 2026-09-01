@@ -7,6 +7,7 @@ import { query } from '../config/db.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as alpacaAdapter from './adapters/alpacaAdapter.js';
 import * as upstoxAdapter from './adapters/upstoxAdapter.js';
 import * as paperWalletService from './paperWalletService.js';
@@ -254,6 +255,38 @@ async function fetchExchangeBalance(exchange) {
     };
   }
 
+  if (name === 'angelone') {
+    let rms = { net: 0, availableCash: 0, collateral: 0, utilizedMargin: 0 };
+    let holdings = [];
+    try {
+      rms = await angeloneAdapter.getRMS();
+    } catch {}
+    try {
+      holdings = await angeloneAdapter.getHoldings();
+    } catch {}
+
+    const holdingsValue = holdings.reduce((sum, h) => sum + (h.totalValue || (h.quantity * h.ltp) || 0), 0);
+    const totalINR = (rms.net || rms.availableCash || 0) + holdingsValue;
+
+    return {
+      currency: 'INR',
+      cash: rms.availableCash || rms.net || 0,
+      collateral: rms.collateral || 0,
+      utilizedMargin: rms.utilizedMargin || 0,
+      totalValue: Number(totalINR.toFixed(2)),
+      holdingsValue: Number(holdingsValue.toFixed(2)),
+      positions: holdings.map(h => ({
+        symbol: h.tradingsymbol,
+        qty: h.quantity,
+        currentPrice: h.ltp,
+        marketValue: h.totalValue,
+        pnl: h.pnl,
+        pnlPercent: h.pnlPercent
+      })),
+      positionCount: holdings.length
+    };
+  }
+
   if (name === 'bybit') {
     // Bybit support - placeholder
     return {
@@ -297,15 +330,26 @@ function getDollarFundsSummary(exchangeBalances) {
 }
 
 function getIndianFundsSummary(exchangeBalances) {
-  // Upstox uses OAuth, check if authenticated
+  const angelEx = exchangeBalances.find(e => e.exchange?.toLowerCase() === 'angelone');
   const isUpstoxConnected = upstoxAdapter.isAuthenticated();
+  const isAngelConnected = angelEx?.connected || angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured();
+
+  const total = (angelEx?.totalValue || 0);
 
   return {
+    angelone: {
+      connected: isAngelConnected,
+      cash: angelEx?.cash || 0,
+      holdingsValue: angelEx?.holdingsValue || 0,
+      totalINR: angelEx?.totalValue || 0,
+      positions: angelEx?.positions || [],
+      error: isAngelConnected ? null : 'Connect via API on Exchanges page'
+    },
     upstox: {
       connected: isUpstoxConnected,
       error: isUpstoxConnected ? null : 'Connect via OAuth on Exchanges page'
     },
-    total: 0
+    total
   };
 }
 

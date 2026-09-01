@@ -60,16 +60,23 @@ router.get('/exchanges', requireAuth, async (req, res) => {
   try {
     const connected = getConnectedExchanges();
     const supported = getSupportedExchanges();
+    const connectedNames = new Set(connected.map(c => c.name.toLowerCase()));
+
+    // Merge supported and connected for easy frontend use
+    const mergedExchanges = supported.map(ex => ({
+      name: ex.name,
+      label: ex.name,
+      type: ex.type || 'crypto',
+      description: ex.description,
+      live: ex.live,
+      isConnected: connectedNames.has(ex.name.toLowerCase()),
+      tradingEnabled: connectedNames.has(ex.name.toLowerCase()) || ex.tradingEnabled || false
+    }));
 
     return ok(res, {
       connected,
       supported,
-      // Merge for easy frontend use
-      exchanges: connected.map(ex => ({
-        ...ex,
-        label: ex.name,
-        tradingEnabled: true
-      }))
+      exchanges: mergedExchanges
     });
   } catch (error) {
     return fail(res, 500, error.message);

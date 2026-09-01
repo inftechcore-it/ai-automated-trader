@@ -13,5 +13,10 @@ export async function history(req, res) {
 }
 
 export async function search(req, res) {
-  return ok(res, { symbols: await searchSymbols(req.query.q || '', req.query.exchange) });
+  const q = req.query.q || '';
+  const exchange = req.query.exchange || null;
+  console.log(`[MarketController] search q="${q}" exchange="${exchange}"`);
+  const symbols = await searchSymbols(q, exchange);
+  console.log(`[MarketController] returning ${symbols.length} symbols`);
+  return ok(res, { symbols });
 }

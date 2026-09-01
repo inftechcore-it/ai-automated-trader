@@ -60,5 +60,18 @@ export const env = {
     apiKey: process.env.PIONEX_API_KEY || '',
     apiSecret: process.env.PIONEX_API_SECRET || ''
   },
+  angelone: {
+    apiKey: process.env.ANGELONE_API_KEY || 'AThErGZk',
+    clientCode: process.env.ANGELONE_CLIENT_CODE || '',
+    password: process.env.ANGELONE_PASSWORD || '',
+    totpSecret: process.env.ANGELONE_TOTP_KEY || '',
+    jwtToken: process.env.ANGELONE_JWT_TOKEN || '',
+    feedToken: process.env.ANGELONE_FEED_TOKEN || ''
+  },
+  jupiter: {
+    apiKey: process.env.JUPITER_API_KEY || 'jup_e254889340b2c9eff161bbda9832fd12b299927ce7ec7d4ac025fdd99c0db00d',
+    rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    privateKey: process.env.SOLANA_WALLET_PRIVATE_KEY || ''
+  },
   mlServiceUrl: process.env.ML_SERVICE_URL || 'http://localhost:8000'
 };

@@ -78,6 +78,17 @@ export class MarketScanner {
         markets = await adapter.getMarkets();
       } else if (adapter.fetchMarkets) {
         markets = await adapter.fetchMarkets();
+      } else if (this.exchange?.toLowerCase() === 'pionex') {
+        const axios = (await import('axios')).default;
+        const { data } = await axios.get('https://api.pionex.com/api/v1/common/symbols', { params: { type: 'SPOT' } });
+        markets = (data?.data?.symbols || [])
+          .filter((s: any) => s.enable && s.quoteCurrency === quoteAsset)
+          .map((s: any) => ({
+            symbol: `${s.baseCurrency}/${s.quoteCurrency}`,
+            base: s.baseCurrency,
+            quote: s.quoteCurrency,
+            active: true,
+          }));
       } else {
         // Fallback: use Binance API directly
         const axios = (await import('axios')).default;
@@ -99,32 +110,63 @@ export class MarketScanner {
       // Get tickers for all pairs
       const coins: CoinInfo[] = [];
 
-      for (const market of usdtPairs.slice(0, limit)) {
+      // Check if adapter supports batch getTickers
+      if (adapter.getTickers) {
         try {
-          const symbol = market.symbol || `${market.base}/${market.quote}`;
-          let ticker: any = null;
+          const pairSymbols = usdtPairs.map((m: any) => m.symbol || `${m.base}/${m.quote}`);
+          const tickers = await adapter.getTickers(pairSymbols);
+          const tickerMap = new Map(tickers.map((t: any) => [t.symbol, t]));
 
-          if (adapter.getTicker) {
-            ticker = await adapter.getTicker(symbol);
-          } else if (adapter.fetchTicker) {
-            ticker = await adapter.fetchTicker(symbol);
-          }
-
-          const price = ticker?.last || ticker?.close || 0;
-          if (price > 0) {
-            coins.push({
-              symbol,
-              baseAsset: market.base || market.baseAsset,
-              quoteAsset: market.quote || market.quoteAsset,
-              price,
-              volume24h: ticker?.quoteVolume || (ticker?.volume || 0) * price || 0,
-              priceChange24h: ticker?.change || ticker?.percentage || 0,
-              high24h: ticker?.high || price,
-              low24h: ticker?.low || price,
-            });
+          for (const market of usdtPairs.slice(0, limit)) {
+            const symbol = market.symbol || `${market.base}/${market.quote}`;
+            const ticker: any = tickerMap.get(symbol);
+            const price = ticker?.last || ticker?.close || 0;
+            if (price > 0) {
+              coins.push({
+                symbol,
+                baseAsset: market.base || market.baseAsset,
+                quoteAsset: market.quote || market.quoteAsset,
+                price,
+                volume24h: ticker?.quoteVolume || (ticker?.volume || 0) * price || 0,
+                priceChange24h: ticker?.change || ticker?.percentage || ticker?.changePercent || 0,
+                high24h: ticker?.high || price,
+                low24h: ticker?.low || price,
+              });
+            }
           }
         } catch (e) {
-          // Skip coins that fail to fetch
+          console.warn(`[MarketScanner] Batch getTickers failed, falling back to individual getTicker:`, e);
+        }
+      }
+
+      if (coins.length === 0) {
+        for (const market of usdtPairs.slice(0, limit)) {
+          try {
+            const symbol = market.symbol || `${market.base}/${market.quote}`;
+            let ticker: any = null;
+
+            if (adapter.getTicker) {
+              ticker = await adapter.getTicker(symbol);
+            } else if (adapter.fetchTicker) {
+              ticker = await adapter.fetchTicker(symbol);
+            }
+
+            const price = ticker?.last || ticker?.close || 0;
+            if (price > 0) {
+              coins.push({
+                symbol,
+                baseAsset: market.base || market.baseAsset,
+                quoteAsset: market.quote || market.quoteAsset,
+                price,
+                volume24h: ticker?.quoteVolume || (ticker?.volume || 0) * price || 0,
+                priceChange24h: ticker?.change || ticker?.percentage || 0,
+                high24h: ticker?.high || price,
+                low24h: ticker?.low || price,
+              });
+            }
+          } catch (e) {
+            // Skip coins that fail to fetch
+          }
         }
       }
 

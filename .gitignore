@@ -6,3 +6,7 @@ build/
 vendor/
 tmp/
 .cache/
+.claude/
+.gemini/
+*.pyc
+__pycache__/
