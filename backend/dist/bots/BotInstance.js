@@ -84,9 +84,10 @@ export class BotInstance extends EventEmitter {
         }
         try {
             const adapter = await this.getAdapter();
-            // For LIVE mode, sync existing orders from exchange before starting
+            // For LIVE mode, sync existing orders and real wallet balance from exchange before starting
             if (this.config.mode === 'LIVE') {
                 await this.loadExistingOrders(adapter);
+                await this.syncLiveBalance(adapter);
             }
             // Set log callback so strategy logs go to UI
             if ('setLogCallback' in this.strategy && typeof this.strategy.setLogCallback === 'function') {
@@ -169,9 +170,10 @@ export class BotInstance extends EventEmitter {
             this.updateHoldingsPrice(tick);
             // Get actions from strategy
             const actions = await this.strategy.evaluate(tick, this.state);
-            // Execute actions
+            // Execute actions with a small throttle between them to avoid API rate limits (e.g. 429 Too many requests)
             for (const action of actions) {
                 await this.executeAction(action, tick);
+                await new Promise(r => setTimeout(r, 250));
             }
             // Update equity
             this.updateEquity();
@@ -275,6 +277,35 @@ export class BotInstance extends EventEmitter {
         }
         catch (error) {
             console.warn(`[Bot ${this.config.name}] Failed to load existing orders:`, error.message);
+        }
+    }
+    async syncLiveBalance(adapter) {
+        try {
+            let balances = [];
+            if (typeof adapter.getBalances === 'function') {
+                balances = await adapter.getBalances();
+            }
+            else if (typeof adapter.getBalance === 'function') {
+                balances = await adapter.getBalance();
+            }
+            if (!Array.isArray(balances))
+                return;
+            const symbolParts = (this.config.symbol || '').split('/');
+            const quoteAsset = (symbolParts[1] || 'USDT').toUpperCase();
+            const quoteBalObj = balances.find((b) => (b.asset || '').toUpperCase() === quoteAsset);
+            const freeAmount = quoteBalObj ? Number(quoteBalObj.free ?? quoteBalObj.total ?? 0) : 0;
+            this.log(`Live wallet balance for ${quoteAsset}: $${freeAmount.toFixed(2)} (Bot allocated investment: $${Number(this.config.investedAmount).toFixed(2)})`);
+            if (freeAmount <= 0) {
+                this.state.availableBalance = 0;
+                this.log(`⚠️ Live wallet has $0.00 ${quoteAsset}. Live orders will pause until funds are deposited into your wallet or bot mode is switched to Paper mode.`, 'warn');
+            }
+            else {
+                // Cap available balance by actual live free balance in wallet
+                this.state.availableBalance = Math.min(Number(this.config.investedAmount), freeAmount);
+            }
+        }
+        catch (error) {
+            console.warn(`[Bot ${this.config.name}] Failed to sync live balance:`, error.message);
         }
     }
     async executeAction(action, tick) {

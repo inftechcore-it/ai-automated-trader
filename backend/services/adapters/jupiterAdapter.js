@@ -501,6 +501,36 @@ export async function placeOrder(orderParams) {
 
   if (!dryRun && kp) {
     // LIVE ON-CHAIN SWAP EXECUTION
+    const connection = new Connection(rpcUrl, 'confirmed');
+
+    // 1. Check wallet SOL balance for network gas fees
+    const lamports = await connection.getBalance(kp.publicKey).catch(() => 0);
+    if (lamports < 5000) { // < 0.000005 SOL
+      throw new Error(`Insufficient SOL in wallet (${(lamports / 1e9).toFixed(5)} SOL) for Solana transaction gas. Please fund your wallet or switch to Paper mode.`);
+    }
+
+    // 2. Check input token balance
+    const isInputSol = inputToken === resolveMint('SOL') || inputToken === 'So11111111111111111111111111111111111111112';
+    if (isInputSol) {
+      if (lamports < inAmountRaw + 5000) {
+        throw new Error(`Insufficient SOL in wallet. Need ${(inAmountRaw / 1e9).toFixed(4)} SOL + gas, but wallet only has ${(lamports / 1e9).toFixed(4)} SOL.`);
+      }
+    } else {
+      try {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
+          mint: new PublicKey(inputToken)
+        });
+        const currentAmount = tokenAccounts.value.reduce((sum, a) => sum + (a.account.data.parsed.info.tokenAmount.amount || 0), 0);
+        if (Number(currentAmount) < inAmountRaw) {
+          const neededUi = inAmountRaw / Math.pow(10, inDecimals);
+          const haveUi = Number(currentAmount) / Math.pow(10, inDecimals);
+          throw new Error(`Insufficient balance in wallet for ${isBuy ? quote : base}. Needed ${neededUi.toFixed(4)}, but wallet only has ${haveUi.toFixed(4)}.`);
+        }
+      } catch (tokenErr) {
+        if (tokenErr.message.includes('Insufficient balance')) throw tokenErr;
+      }
+    }
+
     console.log(`[JupiterAdapter] >>> EXECUTING LIVE ON-CHAIN SWAP: ${side} ${quantity} ${symbol} via Wallet ${kp.publicKey.toBase58()} <<<`);
     const swapOrder = await createSwapOrder({
       inputMint: inputToken,
@@ -518,11 +548,10 @@ export async function placeOrder(orderParams) {
     const transaction = VersionedTransaction.deserialize(txBuf);
     transaction.sign([kp]);
 
-    // Send raw transaction to Solana network
-    const connection = new Connection(rpcUrl, 'confirmed');
+    // Send raw transaction to Solana network (with preflight check)
     const rawTx = transaction.serialize();
     const txid = await connection.sendRawTransaction(rawTx, {
-      skipPreflight: true,
+      skipPreflight: false,
       maxRetries: 3
     });
 

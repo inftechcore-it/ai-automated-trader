@@ -60,6 +60,7 @@ export declare class BotInstance extends EventEmitter {
     processTick(tick: PriceTick): Promise<void>;
     syncOrdersWithExchange(): Promise<void>;
     private loadExistingOrders;
+    private syncLiveBalance;
     private executeAction;
     private placeOrder;
     private cancelOrder;
