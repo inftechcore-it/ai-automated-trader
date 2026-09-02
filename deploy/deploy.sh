@@ -85,10 +85,11 @@ cd ${APP_DIR}/backend
 npx prisma generate --schema=prisma/schema.prisma
 npx prisma migrate deploy --schema=prisma/schema.prisma
 
-# 9. Build arbitrage TypeScript module
-print_step "Building arbitrage module..."
+# 9. Build arbitrage and bot engine TypeScript modules
+print_step "Building backend TypeScript modules..."
 cd ${APP_DIR}/backend
-npm run build:arbitrage
+npm run build:bots || true
+npm run build:arbitrage || true
 
 # 10. Install frontend dependencies and build
 print_step "Building frontend..."

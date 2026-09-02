@@ -6,6 +6,8 @@
     "dev": "nodemon server.js",
     "start": "node server.js",
     "build:arbitrage": "tsc -p arbitrage/tsconfig.json",
+    "build:bots": "tsc -p src/bots/tsconfig.json",
+    "build": "npm run build:bots",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:push": "prisma db push --schema=prisma/schema.prisma",

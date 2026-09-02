@@ -26,7 +26,24 @@ async function getBotEngine() {
 
   try {
     console.log('[BotRoutes] Initializing Bot Engine...');
-    const { initializeBotEngine } = await import('../dist/bots/index.js');
+    let engineModule;
+    try {
+      engineModule = await import('../dist/bots/index.js');
+    } catch (importErr) {
+      if (importErr.code === 'ERR_MODULE_NOT_FOUND' && (importErr.message.includes('dist/bots') || importErr.message.includes('dist\\bots'))) {
+        console.log('[BotRoutes] dist/bots/index.js not found. Attempting automatic build with tsc...');
+        const { execSync } = await import('child_process');
+        const path = await import('path');
+        const { fileURLToPath } = await import('url');
+        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+        const backendDir = path.resolve(__dirname, '..');
+        execSync('npx tsc -p src/bots/tsconfig.json', { cwd: backendDir, stdio: 'inherit' });
+        engineModule = await import('../dist/bots/index.js');
+      } else {
+        throw importErr;
+      }
+    }
+    const { initializeBotEngine } = engineModule;
     botEngine = await initializeBotEngine();
     console.log('[BotRoutes] Bot Engine initialized successfully');
     isInitializing = false;
