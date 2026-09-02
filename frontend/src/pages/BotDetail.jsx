@@ -52,7 +52,8 @@ export default function BotDetail() {
   const [timeframe, setTimeframe] = useState('7d');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const socketRef = useRef(null);
-  const logsEndRef = useRef(null);
+  const logsContainerRef = useRef(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   const loadLogs = async () => {
     try {
@@ -145,12 +146,27 @@ export default function BotDetail() {
     loadSnapshots();
   }, [timeframe]);
 
-  // Auto-scroll logs to bottom
+  // Auto-scroll logs inside the logs container only when autoScroll is enabled
   useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll && logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
-  }, [logs]);
+  }, [logs, autoScroll]);
+
+  const handleLogsScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // If user is within 40px of bottom, resume autoscroll; if they scrolled up, pause autoscroll
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 40;
+    setAutoScroll(isAtBottom);
+  };
+
+  const toggleAutoScroll = () => {
+    const nextState = !autoScroll;
+    setAutoScroll(nextState);
+    if (nextState && logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
+  };
 
   const handleAction = async (action) => {
     setActionLoading(true);
@@ -437,44 +453,6 @@ export default function BotDetail() {
         </div>
       )}
 
-      {/* Bot Logs */}
-      <div className="logs-section">
-        <div className="section-header">
-          <h2><Terminal size={20} /> Live Logs</h2>
-          <button className="refresh-btn" onClick={() => setLogs([])}>
-            Clear
-          </button>
-        </div>
-        <div className="logs-container">
-          {logs.length > 0 ? (
-            <div className="logs-list">
-              {logs.map((log, i) => {
-                const msg = log.message?.toLowerCase() || '';
-                let tradeClass = '';
-                if (msg.includes('buy') && (msg.includes('#') || msg.includes('order'))) tradeClass = 'trade-buy';
-                else if (msg.includes('sell') || msg.includes('sold')) tradeClass = 'trade-sell';
-                else if (msg.includes('added')) tradeClass = 'trade-added';
-                else if (msg.includes('profit target')) tradeClass = 'trade-profit';
-                else if (msg.includes('stop loss')) tradeClass = 'trade-stoploss';
-
-                return (
-                  <div key={i} className={`log-entry ${log.level} ${tradeClass}`}>
-                    <span className="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                    <span className={`log-level ${log.level}`}>{log.level?.toUpperCase()}</span>
-                    <span className="log-message">{log.message}</span>
-                  </div>
-                );
-              })}
-              <div ref={logsEndRef} />
-            </div>
-          ) : (
-            <div className="no-logs">
-              <p>No logs yet. Logs will appear here in real-time when the bot is running.</p>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Open Orders */}
       {bot.openOrders && bot.openOrders.length > 0 && (
         <div className="orders-section open-orders">
@@ -565,10 +543,22 @@ export default function BotDetail() {
           <h2><Terminal size={20} /> Bot Logs</h2>
           <div className="logs-actions">
             <span className="log-count">{logs.length} messages</span>
+            <button
+              className={`autoscroll-btn ${autoScroll ? 'active' : 'paused'}`}
+              onClick={toggleAutoScroll}
+              title={autoScroll ? 'Auto-scroll is ON (Click to Pause)' : 'Auto-scroll is PAUSED (Click to Resume)'}
+            >
+              <span className="scroll-indicator" />
+              {autoScroll ? 'Auto-scroll ON' : 'Auto-scroll PAUSED'}
+            </button>
             <button className="clear-btn" onClick={() => setLogs([])}>Clear</button>
           </div>
         </div>
-        <div className="logs-console">
+        <div
+          className="logs-console"
+          ref={logsContainerRef}
+          onScroll={handleLogsScroll}
+        >
           {logs.length === 0 ? (
             <div className="logs-empty">
               <Terminal size={24} />
@@ -576,18 +566,27 @@ export default function BotDetail() {
             </div>
           ) : (
             <div className="logs-list">
-              {logs.map((log, idx) => (
-                <div key={idx} className={`log-entry ${log.level || 'info'}`}>
-                  <span className="log-time">
-                    {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
-                  </span>
-                  <span className={`log-level ${log.level || 'info'}`}>
-                    {(log.level || 'INFO').toUpperCase()}
-                  </span>
-                  <span className="log-message">{log.message}</span>
-                </div>
-              ))}
-              <div ref={logsEndRef} />
+              {logs.map((log, idx) => {
+                const msg = (log.message || '').toLowerCase();
+                let tradeClass = '';
+                if (msg.includes('buy') && (msg.includes('#') || msg.includes('order') || msg.includes('filled'))) tradeClass = 'trade-buy';
+                else if (msg.includes('sell') || msg.includes('sold')) tradeClass = 'trade-sell';
+                else if (msg.includes('added')) tradeClass = 'trade-added';
+                else if (msg.includes('profit target')) tradeClass = 'trade-profit';
+                else if (msg.includes('stop loss')) tradeClass = 'trade-stoploss';
+
+                return (
+                  <div key={idx} className={`log-entry ${log.level || 'info'} ${tradeClass}`}>
+                    <span className="log-time">
+                      {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
+                    </span>
+                    <span className={`log-level ${log.level || 'info'}`}>
+                      {(log.level || 'INFO').toUpperCase()}
+                    </span>
+                    <span className="log-message">{log.message}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
