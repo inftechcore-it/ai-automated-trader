@@ -13,6 +13,11 @@ export declare class DCABot extends BaseBotStrategy {
     private avgBuyPrice;
     private buyCount;
     private asset;
+    private isStopLossActive;
+    private isTakeProfitActive;
+    private lastStopLossPrice;
+    private lastStopLossLog;
+    private lastTakeProfitLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;

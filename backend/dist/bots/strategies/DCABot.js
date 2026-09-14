@@ -20,6 +20,11 @@ export class DCABot extends BaseBotStrategy {
     avgBuyPrice = 0;
     buyCount = 0;
     asset = '';
+    isStopLossActive = false;
+    isTakeProfitActive = false;
+    lastStopLossPrice = 0;
+    lastStopLossLog = 0;
+    lastTakeProfitLog = 0;
     validate(params) {
         const p = params;
         const errors = [];
@@ -65,24 +70,64 @@ export class DCABot extends BaseBotStrategy {
         const stopLossPercent = toNum(p.stopLossPercent);
         const totalBudget = toNum(p.totalBudget);
         const amountPerBuy = toNum(p.amountPerBuy);
-        // Check take profit
-        if (takeProfitPercent && this.avgBuyPrice > 0) {
-            const targetPrice = this.avgBuyPrice * (1 + takeProfitPercent / 100);
-            if (currentPrice >= targetPrice) {
-                console.log(`[DCABot] Take profit triggered at ${currentPrice} (target: ${targetPrice.toFixed(2)})`);
-                return this.createSellAllAction(state);
-            }
-        }
-        // Check stop loss
+        // 1. Check stop loss
         if (stopLossPercent && this.avgBuyPrice > 0) {
             const stopPrice = this.avgBuyPrice * (1 - stopLossPercent / 100);
             if (currentPrice <= stopPrice) {
-                console.log(`[DCABot] Stop loss triggered at ${currentPrice} (stop: ${stopPrice.toFixed(2)})`);
-                return this.createSellAllAction(state);
+                if (!this.isStopLossActive) {
+                    this.isStopLossActive = true;
+                    this.lastStopLossPrice = stopPrice;
+                    console.log(`[DCABot] ⚠️ Stop loss triggered at $${currentPrice.toFixed(6)} (stop: $${stopPrice.toFixed(6)}). Liquidating holdings...`);
+                    return this.createSellAllAction(state, 'STOP_LOSS');
+                }
+                else {
+                    if (now - this.lastStopLossLog > 30000) {
+                        this.lastStopLossLog = now;
+                        console.log(`[DCABot] [STOP LOSS ACTIVE] Current price $${currentPrice.toFixed(6)} <= Stop $${stopPrice.toFixed(6)}. Waiting for recovery...`);
+                    }
+                    return [{ action: 'hold' }];
+                }
             }
         }
+        // Recover from stop loss
+        if (this.isStopLossActive && this.lastStopLossPrice > 0 && currentPrice > this.lastStopLossPrice) {
+            this.isStopLossActive = false;
+            console.log(`[DCABot] 🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${this.lastStopLossPrice.toFixed(6)}). Resuming DCA buying cycle!`);
+            this.totalSpent = 0;
+            this.totalQuantity = 0;
+            this.avgBuyPrice = 0;
+            this.buyCount = 0;
+            this.nextBuyTime = Date.now();
+        }
+        // 2. Check take profit
+        if (takeProfitPercent && this.avgBuyPrice > 0) {
+            const tpPrice = this.avgBuyPrice * (1 + takeProfitPercent / 100);
+            if (currentPrice >= tpPrice) {
+                if (!this.isTakeProfitActive) {
+                    this.isTakeProfitActive = true;
+                    console.log(`[DCABot] 🎯 Take profit triggered at $${currentPrice.toFixed(6)} (target: $${tpPrice.toFixed(6)}). Liquidating holdings for profit...`);
+                    return this.createSellAllAction(state, 'TAKE_PROFIT');
+                }
+                else {
+                    if (now - this.lastTakeProfitLog > 30000) {
+                        this.lastTakeProfitLog = now;
+                        console.log(`[DCABot] [TAKE PROFIT ACTIVE] Current price $${currentPrice.toFixed(6)} >= TP $${tpPrice.toFixed(6)}. Profits secured. Waiting for pullback...`);
+                    }
+                    return [{ action: 'hold' }];
+                }
+            }
+        }
+        if (this.isTakeProfitActive) {
+            this.isTakeProfitActive = false;
+            console.log(`[DCABot] Resuming DCA cycle after take profit.`);
+            this.totalSpent = 0;
+            this.totalQuantity = 0;
+            this.avgBuyPrice = 0;
+            this.buyCount = 0;
+            this.nextBuyTime = Date.now();
+        }
         // Check if it's time to buy
-        if (now >= this.nextBuyTime) {
+        if (!this.isStopLossActive && !this.isTakeProfitActive && now >= this.nextBuyTime) {
             // Check if we have budget remaining
             const remainingBudget = totalBudget - this.totalSpent;
             const buyAmount = Math.min(amountPerBuy, remainingBudget);
@@ -105,15 +150,21 @@ export class DCABot extends BaseBotStrategy {
         }
         return actions.length > 0 ? actions : [{ action: 'hold' }];
     }
-    createSellAllAction(state) {
+    createSellAllAction(state, reason = 'STOP_LOSS') {
         const holding = state.holdings.find(h => h.asset === this.asset);
         if (!holding || holding.quantity <= 0) {
-            return [{ action: 'hold' }];
+            return [{
+                    action: 'sell',
+                    quantity: 0,
+                    orderType: 'MARKET',
+                    metadata: { isExit: true, exitReason: reason, sweepAll: true },
+                }];
         }
         return [{
                 action: 'sell',
                 quantity: holding.quantity,
                 orderType: 'MARKET',
+                metadata: { isExit: true, exitReason: reason },
             }];
     }
     onOrderFilled(orderId, filledPrice, filledQuantity) {
@@ -149,6 +200,8 @@ export class DCABot extends BaseBotStrategy {
         this.totalQuantity = customState.totalQuantity || 0;
         this.avgBuyPrice = customState.avgBuyPrice || 0;
         this.buyCount = customState.buyCount || 0;
+        this.isStopLossActive = customState.isStopLossActive || false;
+        this.lastStopLossPrice = customState.lastStopLossPrice || 0;
     }
     getCustomState() {
         return {
@@ -157,6 +210,8 @@ export class DCABot extends BaseBotStrategy {
             totalQuantity: this.totalQuantity,
             avgBuyPrice: this.avgBuyPrice,
             buyCount: this.buyCount,
+            isStopLossActive: this.isStopLossActive,
+            lastStopLossPrice: this.lastStopLossPrice,
         };
     }
 }

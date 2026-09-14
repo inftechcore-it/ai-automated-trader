@@ -20,7 +20,10 @@ export class GridBot extends BaseBotStrategy {
     lastBalanceCheck = 0;
     lastStatusLog = 0;
     lastRangeLog = 0;
-    isStopped = false; // Only true when stop loss or take profit is hit
+    isStopLossActive = false;
+    isTakeProfitActive = false;
+    lastStopLossLog = 0;
+    lastTakeProfitLog = 0;
     validate(params) {
         const p = params;
         const errors = [];
@@ -75,7 +78,8 @@ export class GridBot extends BaseBotStrategy {
             this.gridProfitCount = toNum(initialState.customState.gridProfitCount);
             this.lastError = initialState.customState.lastError || '';
             this.insufficientBalance = initialState.customState.insufficientBalance || false;
-            this.isStopped = initialState.customState.isStopped || false;
+            this.isStopLossActive = initialState.customState.isStopLossActive || false;
+            this.isTakeProfitActive = initialState.customState.isTakeProfitActive || false;
             // Restore buy counts per grid
             if (Array.isArray(initialState.customState.gridLevels)) {
                 for (const savedGrid of initialState.customState.gridLevels) {
@@ -131,7 +135,8 @@ export class GridBot extends BaseBotStrategy {
         if (now - this.lastStatusLog > 30000) {
             this.lastStatusLog = now;
             const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
-            this.log(`Tick: $${tick.price.toFixed(6)} | Balance: $${state.availableBalance.toFixed(2)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}`);
+            const stopStatus = this.isStopLossActive ? ' [STOP LOSS ACTIVE]' : '';
+            this.log(`Tick: $${tick.price.toFixed(6)} | Balance: $${state.availableBalance.toFixed(2)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
         }
         if (!this.asset) {
             const { base, quote } = parseSymbol(tick.symbol);
@@ -140,17 +145,71 @@ export class GridBot extends BaseBotStrategy {
         }
         const currentPrice = tick.price;
         this.lastPrice = currentPrice;
-        // Check stop loss
+        // 1. Check stop loss
         if (stopLoss && currentPrice <= stopLoss) {
-            this.log(`STOP LOSS triggered at $${currentPrice.toFixed(6)}`, 'warn');
-            this.isStopped = true;
-            return this.createExitActions(state);
+            if (!this.isStopLossActive) {
+                this.isStopLossActive = true;
+                this.log(`⚠️ STOP LOSS triggered at $${currentPrice.toFixed(6)} (stop: $${stopLoss.toFixed(6)}). Liquidating all open orders & holdings to cash...`, 'warn');
+                // Reset grid level states
+                for (const grid of this.gridLevels) {
+                    grid.filled = false;
+                    grid.orderId = undefined;
+                    grid.buyCount = 0;
+                    grid.type = 'buy';
+                }
+                return this.createExitActions(state, 'STOP_LOSS');
+            }
+            else {
+                // While stop loss is active and price stays below stop loss, log throttled status and wait
+                if (now - this.lastStopLossLog > 30000) {
+                    this.lastStopLossLog = now;
+                    this.log(`[STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Holdings liquidated. Waiting for price to recover...`);
+                }
+                return [{ action: 'hold' }];
+            }
         }
-        // Check take profit
+        // When price recovers above stop loss
+        if (this.isStopLossActive && currentPrice > stopLoss) {
+            this.isStopLossActive = false;
+            this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming normal grid cycle and placing initial BUY orders!`);
+            for (const grid of this.gridLevels) {
+                grid.filled = false;
+                grid.orderId = undefined;
+                grid.buyCount = 0;
+                grid.type = grid.price < currentPrice ? 'buy' : 'sell';
+            }
+        }
+        // 2. Check take profit
         if (takeProfit && currentPrice >= takeProfit) {
-            this.log(`TAKE PROFIT triggered at $${currentPrice.toFixed(6)}`);
-            this.isStopped = true;
-            return this.createExitActions(state);
+            if (!this.isTakeProfitActive) {
+                this.isTakeProfitActive = true;
+                this.log(`🎯 TAKE PROFIT triggered at $${currentPrice.toFixed(6)} (target: $${takeProfit.toFixed(6)}). Liquidating holdings to secure profits...`);
+                for (const grid of this.gridLevels) {
+                    grid.filled = false;
+                    grid.orderId = undefined;
+                    grid.buyCount = 0;
+                    grid.type = 'buy';
+                }
+                return this.createExitActions(state, 'TAKE_PROFIT');
+            }
+            else {
+                if (now - this.lastTakeProfitLog > 30000) {
+                    this.lastTakeProfitLog = now;
+                    this.log(`[TAKE PROFIT ACTIVE] Price $${currentPrice.toFixed(6)} >= TP $${takeProfit.toFixed(6)}. Profits secured. Waiting for pullback...`);
+                }
+                return [{ action: 'hold' }];
+            }
+        }
+        // When price pulls back below take profit
+        if (this.isTakeProfitActive && currentPrice < takeProfit) {
+            this.isTakeProfitActive = false;
+            this.log(`Price pulled back to $${currentPrice.toFixed(6)} (below take profit $${takeProfit.toFixed(6)}). Resuming normal grid cycle.`);
+            for (const grid of this.gridLevels) {
+                grid.filled = false;
+                grid.orderId = undefined;
+                grid.buyCount = 0;
+                grid.type = grid.price < currentPrice ? 'buy' : 'sell';
+            }
         }
         // Check if price is in range
         if (currentPrice < lowerPrice || currentPrice > upperPrice) {
@@ -216,23 +275,22 @@ export class GridBot extends BaseBotStrategy {
                 }
             }
         }
-        // Initial order setup - skip if insufficient balance
-        if (state.openOrders.length === 0 && this.gridProfitCount === 0) {
+        // Initial / recovery order setup - place initial buy orders if no open orders
+        if (state.openOrders.length === 0) {
             if (this.insufficientBalance || state.availableBalance < investmentPerGrid) {
                 this.insufficientBalance = true;
                 if (now - this.lastBalanceCheck > 30000) {
                     this.lastBalanceCheck = now;
-                    this.log(`Skipping initial grid setup: Insufficient balance (need $${investmentPerGrid.toFixed(2)}, have $${state.availableBalance.toFixed(2)}). Waiting for funds...`, 'warn');
+                    this.log(`Waiting for balance to place grid orders (need $${investmentPerGrid.toFixed(2)}, have $${state.availableBalance.toFixed(2)})...`, 'warn');
                 }
             }
             else {
-                this.log(`Setting up initial orders at price $${currentPrice.toFixed(6)}`);
+                this.log(`Setting up initial grid orders at price $${currentPrice.toFixed(6)}`);
                 const initialActions = this.createInitialOrders(currentPrice, currentGridIndex, state, maxBuysPerLevel);
                 actions.push(...initialActions);
             }
         }
         else if (state.openOrders.length > 0 && this.gridProfitCount === 0) {
-            this.log(`Syncing ${state.openOrders.length} existing orders with grid state`);
             for (const order of state.openOrders) {
                 const matchingGrid = this.gridLevels.find(g => Math.abs(g.price - toNum(order.price)) < 0.00001);
                 if (matchingGrid) {
@@ -294,19 +352,30 @@ export class GridBot extends BaseBotStrategy {
         this.log(`Placed ${buyOrderCount} initial BUY orders below current price`);
         return actions;
     }
-    createExitActions(state) {
+    createExitActions(state, reason = 'STOP_LOSS') {
         const actions = [];
-        actions.push({ action: 'cancel_all' });
+        actions.push({ action: 'cancel_all', metadata: { isExit: true, exitReason: reason } });
+        let hasHoldings = false;
         for (const holding of state.holdings) {
             if (holding.quantity > 0) {
+                hasHoldings = true;
                 actions.push({
                     action: 'sell',
                     quantity: holding.quantity,
                     orderType: 'MARKET',
+                    metadata: { isExit: true, exitReason: reason },
                 });
             }
         }
-        this.log(`Exiting: Cancelling all orders and selling holdings`);
+        if (!hasHoldings) {
+            actions.push({
+                action: 'sell',
+                quantity: 0,
+                orderType: 'MARKET',
+                metadata: { isExit: true, exitReason: reason, sweepAll: true },
+            });
+        }
+        this.log(`Exiting: Cancelling all orders and selling holdings (${reason})`);
         return actions;
     }
     calculateQuantity(price, state) {
@@ -346,8 +415,8 @@ export class GridBot extends BaseBotStrategy {
         this.customState.gridProfitCount = this.gridProfitCount;
         this.customState.gridLevels = this.gridLevels;
         this.customState.lastError = this.lastError;
-        this.customState.insufficientBalance = this.insufficientBalance;
-        this.customState.isStopped = this.isStopped;
+        this.customState.isStopLossActive = this.isStopLossActive;
+        this.customState.isTakeProfitActive = this.isTakeProfitActive;
     }
     // Called when order fails
     onOrderError(error) {
@@ -394,7 +463,8 @@ export class GridBot extends BaseBotStrategy {
         this.gridProfitCount = toNum(customState.gridProfitCount);
         this.lastError = customState.lastError || '';
         this.insufficientBalance = customState.insufficientBalance || false;
-        this.isStopped = customState.isStopped || false;
+        this.isStopLossActive = customState.isStopLossActive || false;
+        this.isTakeProfitActive = customState.isTakeProfitActive || false;
         if (Array.isArray(customState.gridLevels)) {
             this.gridLevels = customState.gridLevels.map((g) => ({
                 ...g,
@@ -409,7 +479,8 @@ export class GridBot extends BaseBotStrategy {
             gridLevels: this.gridLevels,
             lastError: this.lastError,
             insufficientBalance: this.insufficientBalance,
-            isStopped: this.isStopped,
+            isStopLossActive: this.isStopLossActive,
+            isTakeProfitActive: this.isTakeProfitActive,
         };
     }
 }

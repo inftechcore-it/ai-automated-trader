@@ -76,12 +76,19 @@ export default function BotDetail() {
     loadSnapshots();
     loadLogs();
 
+    // Auto-refresh orders and bot stats periodically
+    const pollInterval = setInterval(() => {
+      loadOrders();
+      loadBot();
+    }, 8000);
+
     const socket = io(import.meta.env.VITE_API || 'http://localhost:5000');
     socketRef.current = socket;
 
     socket.on('bot:status', (data) => {
       if (data.botId === id) {
         setBot(prev => prev ? { ...prev, ...data } : prev);
+        loadOrders();
       }
     });
 
@@ -104,7 +111,10 @@ export default function BotDetail() {
       }
     });
 
-    return () => socket.disconnect();
+    return () => {
+      clearInterval(pollInterval);
+      socket.disconnect();
+    };
   }, [id]);
 
   const loadBot = async () => {
@@ -458,44 +468,52 @@ export default function BotDetail() {
       )}
 
       {/* Open Orders */}
-      {bot.openOrders && bot.openOrders.length > 0 && (
-        <div className="orders-section open-orders">
-          <div className="section-header">
-            <h2><Clock size={20} /> Open Orders ({bot.openOrders.length})</h2>
-            <button className="refresh-btn" onClick={() => handleAction('sync')} disabled={actionLoading}>
-              <RefreshCw size={16} /> Sync
-            </button>
-          </div>
-          <div className="orders-table-container">
-            <table className="orders-table">
-              <thead>
-                <tr>
-                  <th>Order ID</th>
-                  <th>Side</th>
-                  <th>Price</th>
-                  <th>Quantity</th>
-                  <th>Filled</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bot.openOrders.map(order => (
-                  <tr key={order.id}>
-                    <td className="order-id">{order.exchangeOrderId || order.id}</td>
-                    <td className={order.side?.toLowerCase()}>{order.side}</td>
-                    <td>${Number(order.price || 0).toFixed(6)}</td>
-                    <td>{Number(order.quantity || 0).toFixed(4)}</td>
-                    <td>{Number(order.filledQuantity || 0).toFixed(4)}</td>
-                    <td><span className={`status ${order.status?.toLowerCase()}`}>{order.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {(() => {
+        const openOrdersList = (bot?.openOrders && bot.openOrders.length > 0)
+          ? bot.openOrders
+          : orders.filter(o => ['OPEN', 'NEW', 'PENDING'].includes(o.status?.toUpperCase()));
 
-      {/* Orders Table */}
+        if (!openOrdersList || openOrdersList.length === 0) return null;
+
+        return (
+          <div className="orders-section open-orders">
+            <div className="section-header">
+              <h2><Clock size={20} /> Open Orders ({openOrdersList.length})</h2>
+              <button className="refresh-btn" onClick={() => handleAction('sync')} disabled={actionLoading}>
+                <RefreshCw size={16} /> Sync
+              </button>
+            </div>
+            <div className="orders-table-container">
+              <table className="orders-table">
+                <thead>
+                  <tr>
+                    <th>Order ID</th>
+                    <th>Side</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Filled</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openOrdersList.map(order => (
+                    <tr key={order.id || order.exchangeOrderId}>
+                      <td className="order-id">{order.exchangeOrderId || order.id}</td>
+                      <td className={order.side?.toLowerCase()}>{order.side}</td>
+                      <td>${Number(order.price || 0).toFixed(6)}</td>
+                      <td>{Number(order.quantity || 0).toFixed(4)}</td>
+                      <td>{Number(order.filledQuantity || 0).toFixed(4)}</td>
+                      <td><span className={`status ${order.status?.toLowerCase()}`}>{order.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Orders Table / Trade History */}
       <div className="orders-section">
         <div className="section-header">
           <h2><Activity size={20} /> Trade History</h2>
@@ -504,40 +522,49 @@ export default function BotDetail() {
           </button>
         </div>
         <div className="orders-table-container">
-          {orders.length > 0 ? (
-            <table className="orders-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Side</th>
-                  <th>Price</th>
-                  <th>Quantity</th>
-                  <th>Fee</th>
-                  <th>Profit</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.slice(0, 50).map(order => (
-                  <tr key={order.id}>
-                    <td>{new Date(order.createdAt).toLocaleString()}</td>
-                    <td className={order.side?.toLowerCase()}>{order.side}</td>
-                    <td>${Number(order.filledPrice || order.price || 0).toFixed(4)}</td>
-                    <td>{Number(order.quantity || 0).toFixed(6)}</td>
-                    <td>${Number(order.fee || 0).toFixed(4)}</td>
-                    <td className={Number(order.profit || 0) >= 0 ? 'positive' : 'negative'}>
-                      {order.profit ? `${Number(order.profit) >= 0 ? '+' : ''}$${Number(order.profit).toFixed(4)}` : '-'}
-                    </td>
-                    <td><span className={`status ${order.status?.toLowerCase()}`}>{order.status}</span></td>
+          {(() => {
+            const tradeHistoryList = orders.filter(o => !['OPEN', 'NEW', 'PENDING'].includes(o.status?.toUpperCase()));
+            const listToDisplay = tradeHistoryList.length > 0 ? tradeHistoryList : orders.filter(o => ['FILLED', 'CLOSED'].includes(o.status?.toUpperCase()));
+
+            if (listToDisplay.length === 0) {
+              return (
+                <div className="no-orders">
+                  <p>No trades yet</p>
+                </div>
+              );
+            }
+
+            return (
+              <table className="orders-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Side</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Fee</th>
+                    <th>Profit</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="no-orders">
-              <p>No trades yet</p>
-            </div>
-          )}
+                </thead>
+                <tbody>
+                  {listToDisplay.slice(0, 50).map(order => (
+                    <tr key={order.id || order.exchangeOrderId}>
+                      <td>{order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Just now'}</td>
+                      <td className={order.side?.toLowerCase()}>{order.side}</td>
+                      <td>${Number(order.filledPrice || order.price || 0).toFixed(4)}</td>
+                      <td>{Number(order.quantity || 0).toFixed(6)}</td>
+                      <td>${Number(order.fee || 0).toFixed(4)}</td>
+                      <td className={Number(order.profit || 0) >= 0 ? 'positive' : 'negative'}>
+                        {order.profit ? `${Number(order.profit) >= 0 ? '+' : ''}$${Number(order.profit).toFixed(4)}` : '-'}
+                      </td>
+                      <td><span className={`status ${order.status?.toLowerCase()}`}>{order.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       </div>
 

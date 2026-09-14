@@ -30,6 +30,8 @@ export class DynamicGridBot extends BaseBotStrategy {
     dailyStartValue = 0;
     dailyStartDate = '';
     isStopped = false;
+    isStopLossActive = false;
+    lastStopLossLog = 0;
     stopReason = '';
     validate(params) {
         const p = params;
@@ -47,48 +49,28 @@ export class DynamicGridBot extends BaseBotStrategy {
             errors.push('Price range high must be positive');
         if (priceRangeLow >= priceRangeHigh)
             errors.push('Price range low must be less than high');
-        if (!p.scanPoolSize || p.scanPoolSize < 5 || p.scanPoolSize > 100) {
-            errors.push('Scan pool size must be between 5 and 100');
-        }
         if (!totalInvestment || totalInvestment <= 0)
             errors.push('Total investment must be positive');
         if (gridCount < 2 || gridCount > 50)
             errors.push('Grid count must be between 2 and 50');
-        if (maxBuysPerCoin < 1 || maxBuysPerCoin > 20)
-            errors.push('Max buys per coin must be between 1 and 20');
+        if (maxBuysPerCoin < 1 || maxBuysPerCoin > 10)
+            errors.push('Max buys per coin must be between 1 and 10');
         if (maxTotalBuys < 1 || maxTotalBuys > 100)
             errors.push('Max total buys must be between 1 and 100');
-        if (maxActiveCoins < 1 || maxActiveCoins > 50)
-            errors.push('Max active coins must be between 1 and 50');
-        // Validate stop loss / take profit percentages
-        const overallStopLossPercent = toNum(p.overallStopLossPercent);
-        const profitTargetPercent = toNum(p.profitTargetPercent);
-        const dailyLossLimitPercent = toNum(p.dailyLossLimitPercent);
-        if (overallStopLossPercent && (overallStopLossPercent < 1 || overallStopLossPercent > 50)) {
-            errors.push('Overall stop loss must be between 1% and 50%');
-        }
-        if (profitTargetPercent && (profitTargetPercent < 1 || profitTargetPercent > 100)) {
-            errors.push('Profit target must be between 1% and 100%');
-        }
-        if (dailyLossLimitPercent && (dailyLossLimitPercent < 1 || dailyLossLimitPercent > 30)) {
-            errors.push('Daily loss limit must be between 1% and 30%');
-        }
+        if (maxActiveCoins < 1 || maxActiveCoins > 20)
+            errors.push('Max active coins must be between 1 and 20');
         return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
     }
     async onInitialize(initialState) {
-        const p = this.params;
-        if (initialState?.customState?.coinGrids) {
+        if (initialState?.customState) {
             this.restoreState(initialState.customState);
-            this.initialized = true;
             return;
         }
-        // Set defaults
-        const maxBuysPerCoin = toNum(p.maxBuysPerCoin) || 3;
-        const maxTotalBuys = toNum(p.maxTotalBuys) || 30;
-        const maxActiveCoins = toNum(p.maxActiveCoins) || 10;
-        this.log(`Initializing Auto-Discovery mode`);
-        this.log(`Price range: $${p.priceRangeLow} - $${p.priceRangeHigh}`);
-        this.log(`Limits: ${maxBuysPerCoin} buys/coin, ${maxTotalBuys} total buys, ${maxActiveCoins} max coins`);
+        const p = this.params;
+        this.log(` Dynamic Grid Bot initialized`);
+        this.log(`Price Range: $${p.priceRangeLow} - $${p.priceRangeHigh}`);
+        this.log(`Max Active Coins: ${p.maxActiveCoins || 10}`);
+        this.log(`Max Buys/Coin: ${p.maxBuysPerCoin || 3} | Max Total Buys: ${p.maxTotalBuys || 30}`);
         if (p.overallStopLossPercent) {
             this.log(`Overall stop loss: ${p.overallStopLossPercent}%`);
         }
@@ -99,7 +81,8 @@ export class DynamicGridBot extends BaseBotStrategy {
     async evaluate(tick, state) {
         const p = this.params;
         const actions = [];
-        // Check if bot is stopped
+        const now = Date.now();
+        // Check if bot is manually stopped
         if (this.isStopped) {
             return [{ action: 'hold', metadata: { reason: this.stopReason } }];
         }
@@ -114,6 +97,12 @@ export class DynamicGridBot extends BaseBotStrategy {
             this.dailyStartDate = today;
             this.dailyStartValue = this.calculatePortfolioValue(state);
             this.log(` New trading day. Starting value: $${this.dailyStartValue.toFixed(2)}`);
+            // Reset daily loss standby on new day
+            if (this.isStopLossActive && this.stopReason.includes('Daily loss limit')) {
+                this.isStopLossActive = false;
+                this.stopReason = '';
+                this.log(`🚀 New trading day started. Resuming Dynamic Grid trading!`);
+            }
         }
         // Calculate current portfolio value
         const currentValue = this.calculatePortfolioValue(state);
@@ -126,10 +115,24 @@ export class DynamicGridBot extends BaseBotStrategy {
         if (overallStopLossPercent && this.peakPortfolioValue > 0) {
             const drawdownPercent = ((this.peakPortfolioValue - currentValue) / this.peakPortfolioValue) * 100;
             if (drawdownPercent >= overallStopLossPercent) {
-                this.log(` OVERALL STOP LOSS triggered! Drawdown: ${drawdownPercent.toFixed(2)}% (limit: ${overallStopLossPercent}%)`);
-                this.isStopped = true;
-                this.stopReason = `Overall stop loss: ${drawdownPercent.toFixed(2)}% drawdown from peak`;
-                return this.createExitAllActions(state);
+                if (!this.isStopLossActive) {
+                    this.isStopLossActive = true;
+                    this.stopReason = `Overall stop loss: ${drawdownPercent.toFixed(2)}% drawdown from peak`;
+                    this.log(`⚠️ OVERALL STOP LOSS triggered! Drawdown: ${drawdownPercent.toFixed(2)}% (limit: ${overallStopLossPercent}%). Liquidating all positions to cash & waiting for recovery...`, 'warn');
+                    return this.createExitAllActions(state);
+                }
+                else {
+                    if (now - this.lastStopLossLog > 30000) {
+                        this.lastStopLossLog = now;
+                        this.log(`[STOP LOSS ACTIVE] Drawdown ${drawdownPercent.toFixed(2)}% >= Limit ${overallStopLossPercent}%. Positions liquidated. Waiting for market recovery...`);
+                    }
+                    return [{ action: 'hold' }];
+                }
+            }
+            else if (this.isStopLossActive && drawdownPercent < overallStopLossPercent * 0.8) {
+                this.isStopLossActive = false;
+                this.peakPortfolioValue = currentValue;
+                this.log(`🚀 Market recovered (drawdown reduced to ${drawdownPercent.toFixed(2)}%). Resuming Dynamic Grid operations!`);
             }
         }
         // Check daily loss limit
@@ -137,11 +140,24 @@ export class DynamicGridBot extends BaseBotStrategy {
         if (dailyLossLimitPercent && this.dailyStartValue > 0) {
             const dailyLossPercent = ((this.dailyStartValue - currentValue) / this.dailyStartValue) * 100;
             if (dailyLossPercent >= dailyLossLimitPercent) {
-                this.log(` DAILY LOSS LIMIT triggered! Loss: ${dailyLossPercent.toFixed(2)}% (limit: ${dailyLossLimitPercent}%)`);
-                this.isStopped = true;
-                this.stopReason = `Daily loss limit: ${dailyLossPercent.toFixed(2)}% loss today`;
-                return this.createExitAllActions(state);
+                if (!this.isStopLossActive) {
+                    this.isStopLossActive = true;
+                    this.stopReason = `Daily loss limit: ${dailyLossPercent.toFixed(2)}% loss today`;
+                    this.log(`⚠️ DAILY LOSS LIMIT triggered! Loss: ${dailyLossPercent.toFixed(2)}% (limit: ${dailyLossLimitPercent}%). Liquidating all positions & waiting for next trading day...`, 'warn');
+                    return this.createExitAllActions(state);
+                }
+                else {
+                    if (now - this.lastStopLossLog > 30000) {
+                        this.lastStopLossLog = now;
+                        this.log(`[DAILY LOSS LIMIT ACTIVE] Loss ${dailyLossPercent.toFixed(2)}% >= Limit ${dailyLossLimitPercent}%. Waiting for new trading day...`);
+                    }
+                    return [{ action: 'hold' }];
+                }
             }
+        }
+        // If stop loss is active, stay in hold mode
+        if (this.isStopLossActive) {
+            return [{ action: 'hold' }];
         }
         // Check if we've hit max total buys
         const maxTotalBuys = toNum(p.maxTotalBuys) || 30;
@@ -150,7 +166,6 @@ export class DynamicGridBot extends BaseBotStrategy {
             this.log(` Max total buys reached (${maxTotalBuys}). Processing sells only.`);
         }
         // Scan for coins periodically
-        const now = Date.now();
         if (now - this.lastScanTime > this.scanInterval || !this.initialized) {
             await this.scanAndSetupCoins(p, state);
             this.lastScanTime = now;
@@ -376,7 +391,21 @@ export class DynamicGridBot extends BaseBotStrategy {
                 metadata: {
                     symbol: grid.symbol,
                     exitReason: reason,
+                    isExit: true,
                     avgEntry: grid.avgEntryPrice,
+                },
+            });
+        }
+        else {
+            actions.push({
+                action: 'sell',
+                quantity: 0,
+                orderType: 'MARKET',
+                metadata: {
+                    symbol: grid.symbol,
+                    exitReason: reason,
+                    isExit: true,
+                    sweepAll: true,
                 },
             });
         }
@@ -399,6 +428,21 @@ export class DynamicGridBot extends BaseBotStrategy {
                     metadata: {
                         symbol: grid.symbol,
                         exitReason: this.stopReason,
+                        isExit: true,
+                    },
+                });
+                grid.status = 'stopped';
+            }
+            else {
+                actions.push({
+                    action: 'sell',
+                    quantity: 0,
+                    orderType: 'MARKET',
+                    metadata: {
+                        symbol: grid.symbol,
+                        exitReason: this.stopReason,
+                        isExit: true,
+                        sweepAll: true,
                     },
                 });
                 grid.status = 'stopped';

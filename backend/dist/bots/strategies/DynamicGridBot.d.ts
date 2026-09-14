@@ -28,6 +28,8 @@ export declare class DynamicGridBot extends BaseBotStrategy {
     private dailyStartValue;
     private dailyStartDate;
     private isStopped;
+    private isStopLossActive;
+    private lastStopLossLog;
     private stopReason;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;

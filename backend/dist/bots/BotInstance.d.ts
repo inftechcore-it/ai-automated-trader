@@ -4,7 +4,7 @@
  */
 import { EventEmitter } from 'events';
 import type { IBotStrategy } from './IBotStrategy.js';
-import type { BotConfig, BotState, PriceTick, BotStatus, TradeRecord, OrderSide, OrderType } from './types.js';
+import type { BotConfig, BotState, PriceTick, BotStatus, OpenOrder, TradeRecord, OrderSide, OrderType } from './types.js';
 interface ExecutionEngine {
     placeOrder(params: {
         exchange: string;
@@ -49,6 +49,7 @@ export declare class BotInstance extends EventEmitter {
     private status;
     private state;
     private lastTickTime;
+    private lastPrice;
     private tickCount;
     private isPausedForBalance;
     private lastLiveBalanceCheck;
@@ -80,5 +81,6 @@ export declare class BotInstance extends EventEmitter {
     private takeSnapshot;
     private getAdapter;
     getStats(): any;
+    getOpenOrders(): OpenOrder[];
 }
 export {};

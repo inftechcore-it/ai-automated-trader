@@ -25,6 +25,9 @@ export class MartingaleBot extends BaseBotStrategy {
   private totalSpent = 0;
   private asset = '';
   private hasInitialBuy = false;
+  private isStopLossActive = false;
+  private lastStopLossPrice = 0;
+  private lastStopLossLog = 0;
 
   validate(params: BotParams): ValidationResult {
     const p = params as MartingaleParams;
@@ -36,12 +39,14 @@ export class MartingaleBot extends BaseBotStrategy {
     const maxSafetyOrders = toNum(p.maxSafetyOrders);
     const multiplier = toNum(p.multiplier);
     const maxTotalInvestment = toNum(p.maxTotalInvestment);
+    const stopLossPercent = toNum(p.stopLossPercent);
 
     if (!initialBuyAmount || initialBuyAmount <= 0) errors.push('Initial buy amount must be positive');
     if (!priceDropPercent || priceDropPercent <= 0 || priceDropPercent > 50) {
       errors.push('Price drop percent must be between 0 and 50');
     }
     if (!takeProfitPercent || takeProfitPercent <= 0) errors.push('Take profit percent must be positive');
+    if (p.stopLossPercent !== undefined && stopLossPercent <= 0) errors.push('Stop loss percent must be positive');
     if (!maxSafetyOrders || maxSafetyOrders < 1 || maxSafetyOrders > 20) {
       errors.push('Max safety orders must be between 1 and 20');
     }
@@ -79,6 +84,7 @@ export class MartingaleBot extends BaseBotStrategy {
 
   async evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]> {
     const p = this.params as MartingaleParams;
+    const now = Date.now();
 
     if (!this.asset) {
       const { base } = parseSymbol(tick.symbol);
@@ -88,13 +94,46 @@ export class MartingaleBot extends BaseBotStrategy {
     const currentPrice = tick.price;
     const initialBuyAmount = toNum(p.initialBuyAmount);
     const takeProfitPercent = toNum(p.takeProfitPercent);
+    const stopLossPercent = toNum(p.stopLossPercent);
     const priceDropPercent = toNum(p.priceDropPercent);
     const maxSafetyOrders = toNum(p.maxSafetyOrders);
     const multiplier = toNum(p.multiplier);
     const maxTotalInvestment = toNum(p.maxTotalInvestment);
 
+    // 1. Check stop loss
+    if (stopLossPercent && this.avgEntryPrice > 0) {
+      const stopPrice = this.avgEntryPrice * (1 - stopLossPercent / 100);
+      if (currentPrice <= stopPrice) {
+        if (!this.isStopLossActive) {
+          this.isStopLossActive = true;
+          this.lastStopLossPrice = stopPrice;
+          console.log(`[Martingale] ⚠️ Stop loss triggered at $${currentPrice.toFixed(6)} (stop: $${stopPrice.toFixed(6)}). Liquidating holdings...`);
+          return this.createSellAllAction(state, 'STOP_LOSS');
+        } else {
+          if (now - this.lastStopLossLog > 30000) {
+            this.lastStopLossLog = now;
+            console.log(`[Martingale] [STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopPrice.toFixed(6)}. Waiting for recovery...`);
+          }
+          return [{ action: 'hold' }];
+        }
+      }
+    }
+
+    // Recover from stop loss
+    if (this.isStopLossActive && this.lastStopLossPrice > 0 && currentPrice > this.lastStopLossPrice) {
+      this.isStopLossActive = false;
+      console.log(`[Martingale] 🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${this.lastStopLossPrice.toFixed(6)}). Resuming Martingale cycle!`);
+      this.safetyOrderCount = 0;
+      this.hasInitialBuy = false;
+      this.lastBuyPrice = 0;
+      this.lastBuyAmount = 0;
+      this.avgEntryPrice = 0;
+      this.totalQuantity = 0;
+      this.totalSpent = 0;
+    }
+
     // Initial buy
-    if (!this.hasInitialBuy) {
+    if (!this.isStopLossActive && !this.hasInitialBuy) {
       if (state.availableBalance >= initialBuyAmount) {
         console.log(`[Martingale] Initial buy: $${initialBuyAmount} @ ${currentPrice}`);
         return [{
@@ -112,12 +151,12 @@ export class MartingaleBot extends BaseBotStrategy {
       const targetPrice = this.avgEntryPrice * (1 + takeProfitPercent / 100);
       if (currentPrice >= targetPrice) {
         console.log(`[Martingale] Take profit at ${currentPrice} (target: ${targetPrice.toFixed(2)})`);
-        return this.createSellAllAction(state);
+        return this.createSellAllAction(state, 'TAKE_PROFIT');
       }
     }
 
     // Check for safety order trigger
-    if (this.lastBuyPrice > 0 && this.safetyOrderCount < maxSafetyOrders) {
+    if (!this.isStopLossActive && this.lastBuyPrice > 0 && this.safetyOrderCount < maxSafetyOrders) {
       const triggerPrice = this.lastBuyPrice * (1 - priceDropPercent / 100);
 
       if (currentPrice <= triggerPrice) {
@@ -145,11 +184,8 @@ export class MartingaleBot extends BaseBotStrategy {
     return [{ action: 'hold' }];
   }
 
-  private createSellAllAction(state: BotState): BotAction[] {
+  private createSellAllAction(state: BotState, reason: string = 'TAKE_PROFIT'): BotAction[] {
     const holding = state.holdings.find(h => h.asset === this.asset);
-    if (!holding || holding.quantity <= 0) {
-      return [{ action: 'hold' }];
-    }
 
     // Reset for next cycle
     this.safetyOrderCount = 0;
@@ -160,10 +196,20 @@ export class MartingaleBot extends BaseBotStrategy {
     this.totalQuantity = 0;
     this.totalSpent = 0;
 
+    if (!holding || holding.quantity <= 0) {
+      return [{
+        action: 'sell',
+        quantity: 0,
+        orderType: 'MARKET',
+        metadata: { isExit: true, exitReason: reason, sweepAll: true },
+      }];
+    }
+
     return [{
       action: 'sell',
       quantity: holding.quantity,
       orderType: 'MARKET',
+      metadata: { isExit: true, exitReason: reason },
     }];
   }
 
@@ -217,6 +263,8 @@ export class MartingaleBot extends BaseBotStrategy {
     this.totalQuantity = customState.totalQuantity || 0;
     this.totalSpent = customState.totalSpent || 0;
     this.hasInitialBuy = customState.hasInitialBuy || false;
+    this.isStopLossActive = customState.isStopLossActive || false;
+    this.lastStopLossPrice = customState.lastStopLossPrice || 0;
   }
 
   getCustomState(): Record<string, any> {
@@ -228,6 +276,8 @@ export class MartingaleBot extends BaseBotStrategy {
       totalQuantity: this.totalQuantity,
       totalSpent: this.totalSpent,
       hasInitialBuy: this.hasInitialBuy,
+      isStopLossActive: this.isStopLossActive,
+      lastStopLossPrice: this.lastStopLossPrice,
     };
   }
 }

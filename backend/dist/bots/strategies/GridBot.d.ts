@@ -19,7 +19,10 @@ export declare class GridBot extends BaseBotStrategy {
     private lastBalanceCheck;
     private lastStatusLog;
     private lastRangeLog;
-    private isStopped;
+    private isStopLossActive;
+    private isTakeProfitActive;
+    private lastStopLossLog;
+    private lastTakeProfitLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     handleError(error: string): void;

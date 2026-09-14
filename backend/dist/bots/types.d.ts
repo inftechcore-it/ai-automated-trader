@@ -125,6 +125,7 @@ export interface MartingaleParams {
     maxSafetyOrders: number;
     multiplier: number;
     maxTotalInvestment: number;
+    stopLossPercent?: number;
 }
 export interface RebalancingParams {
     allocations: Array<{

@@ -15,6 +15,9 @@ export declare class MartingaleBot extends BaseBotStrategy {
     private totalSpent;
     private asset;
     private hasInitialBuy;
+    private isStopLossActive;
+    private lastStopLossPrice;
+    private lastStopLossLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;

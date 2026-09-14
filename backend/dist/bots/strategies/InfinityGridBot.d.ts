@@ -13,6 +13,8 @@ export declare class InfinityGridBot extends BaseBotStrategy {
     private gridProfitCount;
     private lastPrice;
     private asset;
+    private isStopLossActive;
+    private lastStopLossLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;

@@ -61,6 +61,7 @@ export class BotInstance extends EventEmitter {
   private status: BotStatus = 'CREATED';
   private state: BotState;
   private lastTickTime = 0;
+  private lastPrice = 0;
   private tickCount = 0;
   private isPausedForBalance = false;
   private lastLiveBalanceCheck = 0;
@@ -239,6 +240,7 @@ export class BotInstance extends EventEmitter {
 
     this.tickCount++;
     this.lastTickTime = Date.now();
+    this.lastPrice = tick.price;
     const now = Date.now();
 
     try {
@@ -275,8 +277,16 @@ export class BotInstance extends EventEmitter {
       // Get actions from strategy
       const actions = await this.strategy.evaluate(tick, this.state);
 
+      let exitTriggered = false;
+      let exitReason = '';
+
       // Execute actions with a small throttle between them to avoid API rate limits (e.g. 429 Too many requests)
       for (const action of actions) {
+        if (action.metadata?.isExit || action.metadata?.exitReason) {
+          exitTriggered = true;
+          exitReason = action.metadata.exitReason || 'Exit Strategy Triggered';
+        }
+
         // If paused for balance, block BUY actions completely to prevent continuously hitting exchange APIs
         const isBuy = action.action === 'buy';
         if (this.isPausedForBalance && isBuy) {
@@ -289,6 +299,11 @@ export class BotInstance extends EventEmitter {
 
       // Update equity
       this.updateEquity();
+
+      // If an exit condition (Stop Loss / Take Profit) was triggered, holdings were liquidated, keep bot active to resume when price recovers
+      if (exitTriggered) {
+        this.log(`[Bot ${this.config.name}] Protection liquidation executed for ${exitReason}. Bot remains active and will resume when price recovers.`);
+      }
 
     } catch (error: any) {
       console.error(`[Bot ${this.config.name}] Tick error:`, error.message);
@@ -381,22 +396,36 @@ export class BotInstance extends EventEmitter {
       }
 
       // Also load existing holdings
-      const balances = await adapter.getBalance();
-      const asset = this.config.symbol.split('/')[0];
-      const assetBalance = balances.find((b: any) => b.asset === asset);
+      let balances: any[] = [];
+      if (typeof adapter.getBalances === 'function') {
+        balances = await adapter.getBalances();
+      } else if (typeof adapter.getBalance === 'function') {
+        balances = await adapter.getBalance();
+      }
+      const asset = (this.config.symbol.split('/')[0] || '').toUpperCase();
+      const assetBalance = Array.isArray(balances)
+        ? balances.find((b: any) => (b.asset || '').toUpperCase() === asset)
+        : null;
 
-      if (assetBalance && assetBalance.total > 0) {
+      if (assetBalance && Number(assetBalance.total ?? assetBalance.free ?? 0) > 0) {
+        const totalQty = Number(assetBalance.total ?? assetBalance.free ?? 0);
         const ticker = await adapter.getTicker(this.config.symbol);
+        const price = ticker.last || ticker.close || 0;
         const holding = {
           asset,
-          quantity: assetBalance.total,
-          avgEntryPrice: ticker.last, // Approximate - we don't know actual entry
-          currentPrice: ticker.last,
-          value: assetBalance.total * ticker.last,
+          quantity: totalQty,
+          avgEntryPrice: price,
+          currentPrice: price,
+          value: totalQty * price,
           unrealizedPnl: 0,
         };
-        this.state.holdings.push(holding);
-        console.log(`[Bot ${this.config.name}] Loaded holding: ${assetBalance.total} ${asset}`);
+        const existingIdx = this.state.holdings.findIndex(h => (h.asset || '').toUpperCase() === asset);
+        if (existingIdx >= 0) {
+          this.state.holdings[existingIdx] = holding;
+        } else {
+          this.state.holdings.push(holding);
+        }
+        console.log(`[Bot ${this.config.name}] Loaded holding: ${totalQty} ${asset}`);
       }
     } catch (error: any) {
       console.warn(`[Bot ${this.config.name}] Failed to load existing orders:`, error.message);
@@ -428,6 +457,30 @@ export class BotInstance extends EventEmitter {
 
       // In LIVE mode, available quote balance is capped by actual free wallet balance
       this.state.availableBalance = maxConfigured > 0 ? Math.min(maxConfigured, freeAmount) : freeAmount;
+
+      // Also synchronize base coin holdings in state
+      let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === baseAsset);
+      const currentPrice = this.lastPrice || (this.state.holdings[0]?.currentPrice || 0);
+      if (baseFree > 0) {
+        if (holding) {
+          holding.quantity = baseFree;
+          if (currentPrice > 0) {
+            holding.value = baseFree * currentPrice;
+          }
+        } else {
+          this.state.holdings.push({
+            asset: baseAsset,
+            quantity: baseFree,
+            avgEntryPrice: currentPrice,
+            currentPrice: currentPrice,
+            value: baseFree * currentPrice,
+            unrealizedPnl: 0,
+          });
+        }
+      } else if (holding) {
+        holding.quantity = 0;
+        holding.value = 0;
+      }
 
       if (freeAmount < 0.50) {
         if (!this.isPausedForBalance) {
@@ -565,11 +618,51 @@ export class BotInstance extends EventEmitter {
     // Check if we have enough holdings for sell
     if (side === 'SELL') {
       const parts = this.config.symbol?.split('/') || [];
-      const asset = parts[0] || '';
-      const holding = this.state.holdings.find(h => h.asset === asset);
-      if (!holding || holding.quantity < quantity) {
-        this.log(`${prefix} Insufficient holdings for sell order`, 'warn');
+      const asset = (parts[0] || '').toUpperCase();
+      let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+
+      // In LIVE mode, if holding is not in state, zero, or sweepAll is set, verify live wallet directly
+      if (!isPaper && (!holding || holding.quantity <= 0 || action.metadata?.sweepAll)) {
+        try {
+          const adapter = await this.getAdapter();
+          let balances: any[] = [];
+          if (typeof adapter.getBalances === 'function') {
+            balances = await adapter.getBalances();
+          } else if (typeof adapter.getBalance === 'function') {
+            balances = await adapter.getBalance();
+          }
+          if (Array.isArray(balances)) {
+            const baseBalObj = balances.find((b: any) => (b.asset || '').toUpperCase() === asset);
+            const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
+            if (baseFree > 0) {
+              quantity = (quantity > 0 && !action.metadata?.sweepAll) ? Math.min(quantity, baseFree) : baseFree;
+              if (holding) {
+                holding.quantity = baseFree;
+              } else {
+                holding = {
+                  asset,
+                  quantity: baseFree,
+                  avgEntryPrice: tick.price,
+                  currentPrice: tick.price,
+                  value: baseFree * tick.price,
+                  unrealizedPnl: 0,
+                };
+                this.state.holdings.push(holding);
+              }
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[Bot ${this.config.name}] Error checking live balance for sell:`, e.message);
+        }
+      }
+
+      if (!holding || holding.quantity <= 0) {
+        this.log(`${prefix} No ${asset} holdings available to sell.`, 'info');
         return;
+      }
+
+      if (quantity <= 0 || quantity > holding.quantity) {
+        quantity = holding.quantity;
       }
     }
 
@@ -737,6 +830,30 @@ export class BotInstance extends EventEmitter {
 
       this.state.availableBalance -= filledQuantity * filledPrice;
 
+      // Record BUY trade
+      const trade: TradeRecord = {
+        id: `trade_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        symbol: order.symbol,
+        side: 'BUY',
+        quantity: filledQuantity,
+        price: filledPrice,
+        fee: filledQuantity * filledPrice * 0.001,
+        profit: 0,
+        executedAt: new Date(),
+      };
+      this.state.tradeHistory.push(trade);
+      this.deps.onTrade(this.id, trade);
+
+      // Emit grid fill event if applicable
+      if (order.gridLevel !== undefined) {
+        this.emit('grid_fill', {
+          botId: this.id,
+          gridLevel: order.gridLevel,
+          side: 'BUY',
+          profit: 0,
+        });
+      }
+
     } else if (order.side === 'SELL') {
       // Remove from holdings
       const holding = this.state.holdings.find(h => h.asset === asset);
@@ -751,9 +868,9 @@ export class BotInstance extends EventEmitter {
 
         this.state.availableBalance += filledQuantity * filledPrice;
 
-        // Record trade
+        // Record SELL trade
         const trade: TradeRecord = {
-          id: `trade_${Date.now()}`,
+          id: `trade_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           symbol: order.symbol,
           side: 'SELL',
           quantity: filledQuantity,
@@ -883,5 +1000,9 @@ export class BotInstance extends EventEmitter {
     }
 
     return stats;
+  }
+
+  getOpenOrders(): OpenOrder[] {
+    return this.state.openOrders;
   }
 }

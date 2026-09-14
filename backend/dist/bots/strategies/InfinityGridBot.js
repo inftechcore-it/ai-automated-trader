@@ -13,6 +13,8 @@ export class InfinityGridBot extends BaseBotStrategy {
     gridProfitCount = 0;
     lastPrice = 0;
     asset = '';
+    isStopLossActive = false;
+    lastStopLossLog = 0;
     validate(params) {
         const p = params;
         const errors = [];
@@ -44,22 +46,23 @@ export class InfinityGridBot extends BaseBotStrategy {
         let price = lowerPrice;
         let index = 0;
         // Create 50 initial grid levels (more will be added dynamically)
-        while (index < 50) {
+        for (let i = 0; i < 50; i++) {
             this.gridLevels.push({
                 price,
                 index,
                 type: 'buy',
                 filled: false,
             });
-            price = price * (1 + gridSpacingPercent / 100);
+            price *= (1 + gridSpacingPercent / 100);
             index++;
         }
         this.highestGridIndex = index - 1;
-        console.log(`[InfinityGrid] Initialized with ${this.gridLevels.length} levels, spacing: ${p.gridSpacingPercent}%`);
+        console.log(`[InfinityGrid] Initialized with 50 levels starting from ${lowerPrice}`);
     }
     async evaluate(tick, state) {
         const p = this.params;
         const actions = [];
+        const now = Date.now();
         if (!this.asset) {
             const { base } = parseSymbol(tick.symbol);
             this.asset = base;
@@ -70,8 +73,33 @@ export class InfinityGridBot extends BaseBotStrategy {
         const lowerPrice = toNum(p.lowerPrice);
         // Check stop loss
         if (stopLoss && currentPrice <= stopLoss) {
-            console.log(`[InfinityGrid] Stop loss triggered at ${currentPrice}`);
-            return this.createExitActions(state);
+            if (!this.isStopLossActive) {
+                this.isStopLossActive = true;
+                console.log(`[InfinityGrid] ⚠️ Stop loss triggered at $${currentPrice.toFixed(6)} (stop: $${stopLoss.toFixed(6)}). Liquidating open orders & holdings...`);
+                for (const grid of this.gridLevels) {
+                    grid.filled = false;
+                    grid.orderId = undefined;
+                    grid.type = 'buy';
+                }
+                return this.createExitActions(state, 'STOP_LOSS');
+            }
+            else {
+                if (now - this.lastStopLossLog > 30000) {
+                    this.lastStopLossLog = now;
+                    console.log(`[InfinityGrid] [STOP LOSS ACTIVE] Current price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Waiting for recovery...`);
+                }
+                return [{ action: 'hold' }];
+            }
+        }
+        // Price recovery above stop loss
+        if (this.isStopLossActive && currentPrice > stopLoss) {
+            this.isStopLossActive = false;
+            console.log(`[InfinityGrid] 🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming infinity grid cycle!`);
+            for (const grid of this.gridLevels) {
+                grid.filled = false;
+                grid.orderId = undefined;
+                grid.type = grid.price < currentPrice ? 'buy' : 'sell';
+            }
         }
         // Below lower price - nothing to do
         if (currentPrice < lowerPrice) {
@@ -123,8 +151,8 @@ export class InfinityGridBot extends BaseBotStrategy {
                 }
             }
         }
-        // Initial setup
-        if (state.openOrders.length === 0 && this.gridProfitCount === 0) {
+        // Initial / Recovery setup - place buy orders if no open orders
+        if (state.openOrders.length === 0) {
             const initialActions = this.createInitialOrders(currentPrice, currentGridIndex, state, p);
             actions.push(...initialActions);
         }
@@ -177,16 +205,27 @@ export class InfinityGridBot extends BaseBotStrategy {
         console.log(`[InfinityGrid] Placed ${actions.length} initial buy orders`);
         return actions;
     }
-    createExitActions(state) {
-        const actions = [{ action: 'cancel_all' }];
+    createExitActions(state, reason = 'STOP_LOSS') {
+        const actions = [{ action: 'cancel_all', metadata: { isExit: true, exitReason: reason } }];
+        let hasHoldings = false;
         for (const holding of state.holdings) {
             if (holding.quantity > 0) {
+                hasHoldings = true;
                 actions.push({
                     action: 'sell',
                     quantity: holding.quantity,
                     orderType: 'MARKET',
+                    metadata: { isExit: true, exitReason: reason },
                 });
             }
+        }
+        if (!hasHoldings) {
+            actions.push({
+                action: 'sell',
+                quantity: 0,
+                orderType: 'MARKET',
+                metadata: { isExit: true, exitReason: reason, sweepAll: true },
+            });
         }
         return actions;
     }
@@ -234,6 +273,7 @@ export class InfinityGridBot extends BaseBotStrategy {
         this.highestGridIndex = customState.highestGridIndex || 0;
         this.gridProfit = customState.gridProfit || 0;
         this.gridProfitCount = customState.gridProfitCount || 0;
+        this.isStopLossActive = customState.isStopLossActive || false;
     }
     getCustomState() {
         return {
@@ -241,6 +281,7 @@ export class InfinityGridBot extends BaseBotStrategy {
             highestGridIndex: this.highestGridIndex,
             gridProfit: this.gridProfit,
             gridProfitCount: this.gridProfitCount,
+            isStopLossActive: this.isStopLossActive,
         };
     }
 }

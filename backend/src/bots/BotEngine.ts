@@ -342,11 +342,32 @@ export class BotEngine extends EventEmitter {
   }
 
   async getBotOrders(botId: string, limit = 50): Promise<any[]> {
-    return this.prisma.botOrder.findMany({
+    const instance = this.bots.get(botId);
+    const openOrders = instance
+      ? instance.getOpenOrders().map(o => ({
+          id: o.id,
+          exchangeOrderId: o.exchangeOrderId || o.id,
+          symbol: o.symbol,
+          side: o.side,
+          type: o.type || 'LIMIT',
+          quantity: o.quantity,
+          price: o.price,
+          filledQuantity: o.filledQuantity || 0,
+          filledPrice: o.filledQuantity ? o.price : null,
+          status: o.status || 'OPEN',
+          fee: 0,
+          profit: 0,
+          createdAt: o.createdAt || new Date(),
+        }))
+      : [];
+
+    const dbOrders = await this.prisma.botOrder.findMany({
       where: { botConfigId: botId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+
+    return [...openOrders, ...dbOrders];
   }
 
   async getBotSnapshots(botId: string, limit = 168): Promise<any[]> {
