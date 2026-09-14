@@ -11,6 +11,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, ReferenceLine
 } from 'recharts';
+import GridInsightsSection from '../components/bots/GridInsightsSection';
 
 const api = (path, opts = {}) =>
   fetch(`${import.meta.env.VITE_API || 'http://localhost:5000'}/api${path}`, {
@@ -331,6 +332,9 @@ export default function BotDetail() {
         </div>
       </div>
 
+      {/* Strategy Grid Sizing & Coin Allocation Insights */}
+      <GridInsightsSection bot={bot} />
+
       {/* Equity Chart */}
       <div className="equity-section">
         <div className="section-header">
@@ -567,13 +571,20 @@ export default function BotDetail() {
           ) : (
             <div className="logs-list">
               {logs.map((log, idx) => {
-                const msg = (log.message || '').toLowerCase();
+                const rawMsg = log.message || '';
+                const msg = rawMsg.toLowerCase();
                 let tradeClass = '';
                 if (msg.includes('buy') && (msg.includes('#') || msg.includes('order') || msg.includes('filled'))) tradeClass = 'trade-buy';
                 else if (msg.includes('sell') || msg.includes('sold')) tradeClass = 'trade-sell';
                 else if (msg.includes('added')) tradeClass = 'trade-added';
                 else if (msg.includes('profit target')) tradeClass = 'trade-profit';
                 else if (msg.includes('stop loss')) tradeClass = 'trade-stoploss';
+
+                let isLive = rawMsg.startsWith('[LIVE]');
+                let isPaper = rawMsg.startsWith('[PAPER]');
+                let cleanMsg = isLive ? rawMsg.substring(6).trim() : isPaper ? rawMsg.substring(7).trim() : rawMsg;
+
+                const urlMatch = cleanMsg.match(/(https:\/\/[^\s]+)/);
 
                 return (
                   <div key={idx} className={`log-entry ${log.level || 'info'} ${tradeClass}`}>
@@ -583,7 +594,27 @@ export default function BotDetail() {
                     <span className={`log-level ${log.level || 'info'}`}>
                       {(log.level || 'INFO').toUpperCase()}
                     </span>
-                    <span className="log-message">{log.message}</span>
+                    <span className="log-message">
+                      {isLive && <span className="log-tag-live">LIVE ON-CHAIN</span>}
+                      {isPaper && <span className="log-tag-paper">PAPER</span>}
+                      {urlMatch ? (
+                        <>
+                          {cleanMsg.split(urlMatch[0])[0]}
+                          <a
+                            href={urlMatch[0]}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="log-explorer-link"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {urlMatch[0].includes('solscan.io') ? 'View on Solscan ↗' : 'View Explorer ↗'}
+                          </a>
+                          {cleanMsg.split(urlMatch[0])[1]}
+                        </>
+                      ) : (
+                        cleanMsg
+                      )}
+                    </span>
                   </div>
                 );
               })}

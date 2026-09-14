@@ -12,6 +12,9 @@ export class BotInstance extends EventEmitter {
     state;
     lastTickTime = 0;
     tickCount = 0;
+    isPausedForBalance = false;
+    lastLiveBalanceCheck = 0;
+    lastInsufficientBalanceLog = 0;
     snapshotInterval = null;
     constructor(deps) {
         super();
@@ -161,17 +164,43 @@ export class BotInstance extends EventEmitter {
         }
         this.tickCount++;
         this.lastTickTime = Date.now();
+        const now = Date.now();
         try {
+            // In LIVE mode, periodically sync live wallet balance every 15 seconds
+            if (this.config.mode === 'LIVE' && now - this.lastLiveBalanceCheck >= 15000) {
+                this.lastLiveBalanceCheck = now;
+                try {
+                    const adapter = await this.getAdapter();
+                    await this.syncLiveBalance(adapter);
+                }
+                catch {
+                    // ignore transient balance sync error
+                }
+            }
             // Sync orders with exchange every 20 ticks (~60 seconds at 3s polling)
             if (this.tickCount % 20 === 0 && this.state.openOrders.length > 0) {
                 await this.syncOrdersWithExchange();
             }
             // Update holdings with current price
             this.updateHoldingsPrice(tick);
+            // Check DEX / emulated limit orders for price triggers
+            await this.checkDexLimitOrders(tick);
+            // If paused due to insufficient balance, log a clean throttled heartbeat (once per 60s)
+            if (this.isPausedForBalance && this.config.mode === 'LIVE') {
+                if (now - this.lastInsufficientBalanceLog >= 60000) {
+                    this.lastInsufficientBalanceLog = now;
+                    this.log(`[LIVE] Order placement paused: Insufficient balance ($${this.state.availableBalance.toFixed(2)} available). Waiting for new balance deposit...`, 'warn');
+                }
+            }
             // Get actions from strategy
             const actions = await this.strategy.evaluate(tick, this.state);
             // Execute actions with a small throttle between them to avoid API rate limits (e.g. 429 Too many requests)
             for (const action of actions) {
+                // If paused for balance, block BUY actions completely to prevent continuously hitting exchange APIs
+                const isBuy = action.action === 'buy';
+                if (this.isPausedForBalance && isBuy) {
+                    continue;
+                }
                 await this.executeAction(action, tick);
                 await new Promise(r => setTimeout(r, 250));
             }
@@ -291,21 +320,82 @@ export class BotInstance extends EventEmitter {
             if (!Array.isArray(balances))
                 return;
             const symbolParts = (this.config.symbol || '').split('/');
-            const quoteAsset = (symbolParts[1] || 'USDT').toUpperCase();
+            const baseAsset = (symbolParts[0] || 'SOL').toUpperCase();
+            const quoteAsset = (symbolParts[1] || 'USDC').toUpperCase();
             const quoteBalObj = balances.find((b) => (b.asset || '').toUpperCase() === quoteAsset);
+            const baseBalObj = balances.find((b) => (b.asset || '').toUpperCase() === baseAsset);
             const freeAmount = quoteBalObj ? Number(quoteBalObj.free ?? quoteBalObj.total ?? 0) : 0;
-            this.log(`Live wallet balance for ${quoteAsset}: $${freeAmount.toFixed(2)} (Bot allocated investment: $${Number(this.config.investedAmount).toFixed(2)})`);
-            if (freeAmount <= 0) {
-                this.state.availableBalance = 0;
-                this.log(`⚠️ Live wallet has $0.00 ${quoteAsset}. Live orders will pause until funds are deposited into your wallet or bot mode is switched to Paper mode.`, 'warn');
+            const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
+            const previouslyPaused = this.isPausedForBalance;
+            const maxConfigured = Number(this.config.investedAmount) || 0;
+            // In LIVE mode, available quote balance is capped by actual free wallet balance
+            this.state.availableBalance = maxConfigured > 0 ? Math.min(maxConfigured, freeAmount) : freeAmount;
+            if (freeAmount < 0.50) {
+                if (!this.isPausedForBalance) {
+                    this.isPausedForBalance = true;
+                    this.log(`[LIVE] Wallet quote balance is $${freeAmount.toFixed(4)} ${quoteAsset}. Pausing order placement until balance is deposited.`, 'warn');
+                }
             }
-            else {
-                // Cap available balance by actual live free balance in wallet
-                this.state.availableBalance = Math.min(Number(this.config.investedAmount), freeAmount);
+            else if (previouslyPaused && freeAmount >= 1.0) {
+                this.isPausedForBalance = false;
+                this.log(`[LIVE] Live balance restored: ${freeAmount.toFixed(4)} ${quoteAsset}. Resuming orders.`);
             }
         }
         catch (error) {
             console.warn(`[Bot ${this.config.name}] Failed to sync live balance:`, error.message);
+        }
+    }
+    async checkDexLimitOrders(tick) {
+        const isPaper = this.config.mode === 'PAPER';
+        const prefix = isPaper ? '[PAPER]' : '[LIVE]';
+        for (const order of [...this.state.openOrders]) {
+            if (!order.price || order.status !== 'OPEN')
+                continue;
+            let triggered = false;
+            if (order.side === 'BUY' && tick.price <= order.price) {
+                triggered = true;
+            }
+            else if (order.side === 'SELL' && tick.price >= order.price) {
+                triggered = true;
+            }
+            if (triggered) {
+                if (!isPaper && order.side === 'BUY' && this.isPausedForBalance) {
+                    continue; // Skip triggering buy when balance is insufficient
+                }
+                this.log(`${prefix} Triggering limit order ${order.id}: ${order.side} ${order.quantity} @ $${order.price.toFixed(5)} (market: $${tick.price.toFixed(5)})`);
+                try {
+                    if (isPaper) {
+                        this.log(`${prefix} Order FILLED: ${order.quantity.toFixed(4)} @ $${tick.price.toFixed(5)}`);
+                        await this.processOrderFill(order, tick.price, order.quantity);
+                    }
+                    else {
+                        // Live swap execution
+                        const result = await this.executionEngine.placeOrder({
+                            exchange: this.config.exchangeName,
+                            symbol: this.config.symbol,
+                            side: order.side,
+                            type: 'MARKET',
+                            quantity: order.quantity,
+                            price: tick.price,
+                            dryRun: false,
+                        });
+                        const fillPrice = result.filledPrice || tick.price;
+                        const txInfo = result.explorerUrl ? ` | Explorer: ${result.explorerUrl}` : '';
+                        this.log(`[LIVE] Order FILLED: ${order.quantity.toFixed(4)} @ $${fillPrice.toFixed(5)}${txInfo}`);
+                        await this.processOrderFill(order, fillPrice, result.filledQuantity || order.quantity);
+                    }
+                }
+                catch (err) {
+                    const errMsg = err.message || '';
+                    if (errMsg.toLowerCase().includes('insufficient') || errMsg.toLowerCase().includes('balance')) {
+                        this.isPausedForBalance = true;
+                        this.log(`${prefix} Order trigger failed: insufficient balance. Pausing orders.`, 'warn');
+                    }
+                    else {
+                        this.log(`${prefix} Execution error on price trigger: ${errMsg}`, 'error');
+                    }
+                }
+            }
         }
     }
     async executeAction(action, tick) {
@@ -330,6 +420,9 @@ export class BotInstance extends EventEmitter {
         const side = action.action;
         const type = action.orderType || 'MARKET';
         const price = action.price || (type === 'MARKET' ? tick.price : undefined);
+        const isPaper = this.config.mode === 'PAPER';
+        const prefix = isPaper ? '[PAPER]' : '[LIVE]';
+        const isDex = (this.config.exchangeName || '').toLowerCase() === 'jupiter';
         // Validate quantity
         if (!action.quantity || action.quantity <= 0) {
             console.warn(`[Bot ${this.config.name}] Invalid quantity: ${action.quantity}`);
@@ -338,26 +431,27 @@ export class BotInstance extends EventEmitter {
         // Handle case where quantity is USD value (for market orders with investAmount flag)
         let quantity = action.quantity;
         if (action.metadata?.investAmount && type === 'MARKET') {
-            // Convert USD value to coin quantity using current price
             quantity = action.quantity / tick.price;
-            this.log(`Converting $${action.quantity.toFixed(2)} to ${quantity.toFixed(6)} coins @ $${tick.price}`);
+            this.log(`${prefix} Converting $${action.quantity.toFixed(2)} to ${quantity.toFixed(6)} coins @ $${tick.price}`);
         }
-        // Check minimum notional value (Binance DOGE/USDT minimum is $1, add buffer for safety)
-        const MIN_NOTIONAL = 1.05;
+        // Check minimum notional value
+        const MIN_NOTIONAL = 0.50;
         const orderValue = quantity * (price || tick.price);
         if (orderValue < MIN_NOTIONAL) {
-            this.log(`Order value $${orderValue.toFixed(2)} below minimum $${MIN_NOTIONAL}. Skipping.`, 'warn');
+            this.log(`${prefix} Order value $${orderValue.toFixed(2)} below minimum $${MIN_NOTIONAL}. Skipping.`, 'warn');
             return;
         }
-        this.log(`Placing ${side} order: ${quantity.toFixed(4)} @ $${price?.toFixed(5) || 'market'} (value: $${orderValue.toFixed(2)})`);
-        this.log(`Available balance: $${this.state.availableBalance.toFixed(2)}`);
         // Check if we have enough balance for buy
         if (side === 'BUY') {
             const cost = quantity * (price || tick.price);
-            this.log(`Order cost: $${cost.toFixed(2)}`);
             if (cost > this.state.availableBalance) {
-                this.log(`Insufficient balance for buy order`, 'warn');
-                return;
+                this.isPausedForBalance = true;
+                const now = Date.now();
+                if (now - this.lastInsufficientBalanceLog >= 30000) {
+                    this.lastInsufficientBalanceLog = now;
+                    this.log(`${prefix} Insufficient balance for buy order (need $${cost.toFixed(2)}, have $${this.state.availableBalance.toFixed(2)}). Pausing API calls until balance is restored.`, 'warn');
+                }
+                return; // Skip hitting the exchange API
             }
         }
         // Check if we have enough holdings for sell
@@ -366,10 +460,54 @@ export class BotInstance extends EventEmitter {
             const asset = parts[0] || '';
             const holding = this.state.holdings.find(h => h.asset === asset);
             if (!holding || holding.quantity < quantity) {
-                this.log(`Insufficient holdings for sell order`, 'warn');
+                this.log(`${prefix} Insufficient holdings for sell order`, 'warn');
                 return;
             }
         }
+        // Handle DEX Limit Orders (Jupiter):
+        // If LIMIT buy order is placed below current market price, register locally as OPEN until price reaches it
+        if (isDex && type === 'LIMIT' && price) {
+            if (side === 'BUY' && price < tick.price * 0.999) {
+                const orderId = `dex_limit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                const order = {
+                    id: orderId,
+                    exchangeOrderId: orderId,
+                    symbol: this.config.symbol,
+                    side: 'BUY',
+                    type: 'LIMIT',
+                    quantity,
+                    price,
+                    filledQuantity: 0,
+                    status: 'OPEN',
+                    gridLevel: action.gridLevel,
+                    createdAt: new Date(),
+                };
+                this.state.openOrders.push(order);
+                this.state.availableBalance -= quantity * price;
+                this.log(`${prefix} Registered Limit BUY order: ${quantity.toFixed(4)} @ $${price.toFixed(5)} (waiting for dip to target price)`);
+                return;
+            }
+            if (side === 'SELL' && price > tick.price * 1.001) {
+                const orderId = `dex_limit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                const order = {
+                    id: orderId,
+                    exchangeOrderId: orderId,
+                    symbol: this.config.symbol,
+                    side: 'SELL',
+                    type: 'LIMIT',
+                    quantity,
+                    price,
+                    filledQuantity: 0,
+                    status: 'OPEN',
+                    gridLevel: action.gridLevel,
+                    createdAt: new Date(),
+                };
+                this.state.openOrders.push(order);
+                this.log(`${prefix} Registered Limit SELL order: ${quantity.toFixed(4)} @ $${price.toFixed(5)} (waiting for target exit price)`);
+                return;
+            }
+        }
+        this.log(`${prefix} Placing ${side} order: ${quantity.toFixed(4)} @ $${price?.toFixed(5) || 'market'} (value: $${orderValue.toFixed(2)})`);
         try {
             const result = await this.executionEngine.placeOrder({
                 exchange: this.config.exchangeName,
@@ -378,7 +516,7 @@ export class BotInstance extends EventEmitter {
                 type,
                 quantity,
                 price,
-                dryRun: this.config.mode === 'PAPER',
+                dryRun: isPaper,
             });
             const order = {
                 id: result.orderId,
@@ -393,31 +531,44 @@ export class BotInstance extends EventEmitter {
                 gridLevel: action.gridLevel,
                 createdAt: new Date(),
             };
-            // For market orders or immediate fills
-            // Normalize status check (handle both 'FILLED' and 'filled')
             const isFilled = result.status?.toUpperCase() === 'FILLED' ||
                 result.status?.toUpperCase() === 'CLOSED' ||
                 (result.filledQuantity && result.filledQuantity >= quantity * 0.99);
             if (isFilled) {
                 const fillPrice = result.filledPrice || price || tick.price;
-                this.log(`Order FILLED: ${quantity.toFixed(4)} @ $${fillPrice.toFixed(5)}`);
+                const txInfo = result.explorerUrl ? ` | Explorer: ${result.explorerUrl}` : '';
+                this.log(`${prefix} Order FILLED: ${quantity.toFixed(4)} @ $${fillPrice.toFixed(5)}${txInfo}`);
                 await this.processOrderFill(order, fillPrice, result.filledQuantity || quantity);
             }
             else {
-                this.log(`Order OPEN: waiting for fill (status: ${result.status})`);
+                this.log(`${prefix} Order OPEN: waiting for fill (status: ${result.status})`);
                 this.state.openOrders.push(order);
                 if (side === 'BUY') {
                     this.state.availableBalance -= quantity * (price || tick.price);
                 }
             }
-            this.log(`Order placed: ${side} ${quantity.toFixed(4)} @ ${price?.toFixed(5) || 'market'}`);
         }
         catch (error) {
-            this.log(`Order failed: ${error.message}`, 'error');
-            this.deps.onError(this.id, `Order failed: ${error.message}`, 'error');
+            const errMsg = error.message || '';
+            const isBalanceError = errMsg.toLowerCase().includes('insufficient') ||
+                errMsg.toLowerCase().includes('balance') ||
+                errMsg.toLowerCase().includes('notional') ||
+                errMsg.toLowerCase().includes('funds');
+            if (isBalanceError) {
+                this.isPausedForBalance = true;
+                this.state.availableBalance = 0;
+                this.log(`${prefix} Order rejected by exchange due to insufficient balance. Pausing API order execution until new funds arrive.`, 'warn');
+            }
+            else {
+                this.log(`${prefix} Order failed: ${errMsg}`, 'error');
+                this.deps.onError(this.id, `Order failed: ${errMsg}`, 'error');
+            }
             // Notify strategy of error (for error handling/stopping)
             if ('onOrderError' in this.strategy && typeof this.strategy.onOrderError === 'function') {
-                this.strategy.onOrderError(error.message);
+                this.strategy.onOrderError(errMsg);
+            }
+            else if ('handleError' in this.strategy && typeof this.strategy.handleError === 'function') {
+                this.strategy.handleError(errMsg);
             }
         }
     }

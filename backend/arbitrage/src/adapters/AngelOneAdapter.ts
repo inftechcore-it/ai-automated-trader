@@ -11,6 +11,7 @@ import type {
   OrderParams,
   OrderResult,
   Trade,
+  OrderStatusType,
   TickerCallback,
   OrderBookCallback,
   SubscriptionHandle,
@@ -222,7 +223,7 @@ export class AngelOneAdapter extends BaseAdapter {
           last: meta.regularMarketPrice,
           volume: meta.regularMarketVolume || 0,
           change,
-          percentage: pct,
+          changePercent: pct,
           high: meta.regularMarketDayHigh || meta.regularMarketPrice,
           low: meta.regularMarketDayLow || meta.regularMarketPrice,
           timestamp: Date.now(),
@@ -238,6 +239,8 @@ export class AngelOneAdapter extends BaseAdapter {
       bid: 0,
       ask: 0,
       last: 0,
+      high: 0,
+      low: 0,
       volume: 0,
       timestamp: Date.now(),
     };
@@ -355,7 +358,8 @@ export class AngelOneAdapter extends BaseAdapter {
           type: params.type,
           price: params.price || 0,
           quantity: params.quantity,
-          status: 'FILLED',
+          filledQuantity: params.quantity,
+          status: 'filled' as OrderStatusType,
           timestamp: Date.now(),
         };
       }
@@ -370,7 +374,8 @@ export class AngelOneAdapter extends BaseAdapter {
       type: params.type,
       price: params.price || 0,
       quantity: params.quantity,
-      status: 'FILLED',
+      filledQuantity: params.quantity,
+      status: 'filled' as OrderStatusType,
       timestamp: Date.now(),
     };
   }
@@ -405,7 +410,7 @@ export class AngelOneAdapter extends BaseAdapter {
   }
 
   async getDepositAddress(asset: string, _network?: string): Promise<DepositAddress> {
-    return { asset, address: 'ANGEL_ONE_EQUITY_ACCOUNT', memo: undefined, network: 'INR' };
+    return { asset, address: 'ANGEL_ONE_EQUITY_ACCOUNT', network: 'INR', exchange: this.exchangeName };
   }
 
   async withdraw(_params: WithdrawalParams): Promise<WithdrawalResult> {
@@ -417,7 +422,6 @@ export class AngelOneAdapter extends BaseAdapter {
   }
 
   subscribeTicker(symbol: string, callback: TickerCallback): SubscriptionHandle {
-    const handleId = `sub_ticker_${Date.now()}`;
     const interval = setInterval(async () => {
       try {
         const ticker = await this.getTicker(symbol);
@@ -427,13 +431,11 @@ export class AngelOneAdapter extends BaseAdapter {
     this.pollingIntervals.push(interval);
 
     return {
-      id: handleId,
       unsubscribe: () => clearInterval(interval),
     };
   }
 
   subscribeOrderBook(symbol: string, callback: OrderBookCallback): SubscriptionHandle {
-    const handleId = `sub_ob_${Date.now()}`;
     const interval = setInterval(async () => {
       try {
         const ob = await this.getOrderBook(symbol);
@@ -443,7 +445,6 @@ export class AngelOneAdapter extends BaseAdapter {
     this.pollingIntervals.push(interval);
 
     return {
-      id: handleId,
       unsubscribe: () => clearInterval(interval),
     };
   }

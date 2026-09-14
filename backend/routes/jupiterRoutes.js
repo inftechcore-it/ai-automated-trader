@@ -82,16 +82,45 @@ router.post('/swap/order', async (req, res) => {
   }
 });
 
-// POST /api/jupiter/swap/execute
-router.post('/swap/execute', async (req, res) => {
+// GET /api/jupiter/wallet
+router.get('/wallet', async (req, res) => {
   try {
-    const { signedTransaction } = req.body;
-    if (!signedTransaction) {
-      return res.status(400).json({ success: false, error: 'signedTransaction is required' });
-    }
+    const config = jupiterAdapter.getConfig();
+    const balances = await jupiterAdapter.getBalances().catch(() => []);
+    const solBal = balances.find(b => b.asset === 'SOL');
 
-    const result = await jupiterAdapter.executeSwap({ signedTransaction });
-    res.json({ success: true, result });
+    res.json({
+      success: true,
+      configured: config.configured,
+      authenticated: config.hasWallet,
+      walletAddress: config.walletAddress,
+      solBalance: solBal ? solBal.free : 0,
+      balances,
+      rpcUrl: config.rpcUrl
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/jupiter/wallet/save
+router.post('/wallet/save', async (req, res) => {
+  try {
+    const { apiKey, rpcUrl, privateKey } = req.body;
+    jupiterAdapter.setCredentials(apiKey, rpcUrl, privateKey);
+    const config = jupiterAdapter.getConfig();
+    const balances = await jupiterAdapter.getBalances().catch(() => []);
+    const solBal = balances.find(b => b.asset === 'SOL');
+
+    res.json({
+      success: true,
+      message: 'Jupiter Solana credentials updated',
+      configured: config.configured,
+      authenticated: config.hasWallet,
+      walletAddress: config.walletAddress,
+      solBalance: solBal ? solBal.free : 0,
+      balances
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

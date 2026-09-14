@@ -3,7 +3,7 @@ import { ok, fail } from '../utils/apiResponse.js';
 import { placeOrder as executeOrder, cancelOrder as cancelOrderService, getOpenOrders as getOpenOrdersService } from '../services/tradeExecutor.js';
 
 export async function placeOrder(req, res) {
-  const { sessionId, symbol, exchangeName, orderType, side, quantity, price, stopPrice, takeProfitPrice, mode, notes } = req.body;
+  const { sessionId, symbol, exchangeName, orderType, side, quantity, price, stopPrice, takeProfitPrice, mode, notes, broker } = req.body;
 
   try {
     const order = await executeOrder({
@@ -18,7 +18,8 @@ export async function placeOrder(req, res) {
       stopPrice,
       takeProfitPrice,
       mode,
-      notes
+      notes,
+      broker
     });
     return ok(res, { order }, 201);
   } catch (error) {

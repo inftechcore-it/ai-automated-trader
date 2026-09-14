@@ -415,7 +415,8 @@ export async function searchSymbols(q = '', exchange = null) {
   return unique.slice(0, 30);
 }
 
-export async function placeLiveOrder({ userId, symbol, exchange, side, orderType, quantity, price, stopPrice }) {
+export async function placeLiveOrder(orderParams) {
+  const { userId, symbol, exchange, side, orderType, quantity, price, stopPrice, broker } = orderParams;
   const exLower = exchange?.toLowerCase();
 
   // Crypto exchanges
@@ -480,25 +481,39 @@ export async function placeLiveOrder({ userId, symbol, exchange, side, orderType
 
   // Indian stock exchanges
   if (['nse', 'bse'].includes(exLower)) {
-    if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
-      return angeloneAdapter.placeOrder({
-        symbol,
-        transactionType: side.toUpperCase(),
-        orderType: orderType.toUpperCase(),
-        productType: 'DELIVERY',
-        price: price || 0,
-        quantity,
-        exchange: exchange.toUpperCase()
+    const brokerChoice = (orderParams.broker || '').toLowerCase();
+
+    // Prefer Angel One if specified or if authenticated/configured
+    if (brokerChoice === 'angelone' || (!brokerChoice && (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()))) {
+      const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+      if (creds) {
+        angeloneAdapter.setCredentials(creds.apiKey, creds.clientCode, creds.password, creds.totpSecret);
+      }
+      if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
+        return angeloneAdapter.placeOrder({
+          symbol,
+          transactionType: side.toUpperCase(),
+          orderType: orderType.toUpperCase(),
+          productType: 'DELIVERY',
+          price: price || 0,
+          quantity,
+          exchange: exchange.toUpperCase()
+        });
+      }
+    }
+
+    // Upstox execution
+    if (brokerChoice === 'upstox' || (!brokerChoice && upstoxAdapter.isAuthenticated())) {
+      if (!upstoxAdapter.isAuthenticated()) {
+        throw createError('Upstox not connected. Please authenticate your Upstox account.', 401, 'BROKER_NOT_CONNECTED');
+      }
+
+      return upstoxAdapter.placeOrder({
+        symbol, side, orderType, quantity, price, stopPrice, exchange: exchange.toUpperCase()
       });
     }
 
-    if (!upstoxAdapter.isAuthenticated()) {
-      throw createError('No Indian broker connected (Angel One or Upstox required).', 401, 'BROKER_NOT_CONNECTED');
-    }
-
-    return upstoxAdapter.placeOrder({
-      symbol, side, orderType, quantity, price, stopPrice, exchange: exchange.toUpperCase()
-    });
+    throw createError('No Indian broker connected (Angel One or Upstox required).', 401, 'BROKER_NOT_CONNECTED');
   }
 
   // US stock exchanges
@@ -650,12 +665,26 @@ export async function getLiveOpenOrders(userId, exchange) {
 
 async function getUserBrokerCredentials(userId, exchangeName) {
   const [row] = await query(
-    'SELECT api_key, api_secret FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
+    'SELECT api_key, api_secret, additional_params FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
     { userId, exchangeName }
   );
 
   if (!row) return null;
-  return { apiKey: row.api_key, apiSecret: row.api_secret };
+  let additional = {};
+  try {
+    if (row.additional_params) {
+      additional = typeof row.additional_params === 'string' ? JSON.parse(row.additional_params) : row.additional_params;
+    }
+  } catch {}
+
+  return {
+    apiKey: row.api_key,
+    apiSecret: row.api_secret,
+    clientCode: additional.clientCode || row.api_secret,
+    password: additional.password || '',
+    totpSecret: additional.totpSecret || '',
+    ...additional
+  };
 }
 
 function mapOrderType(orderType, exchange) {

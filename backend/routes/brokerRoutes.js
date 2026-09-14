@@ -105,6 +105,46 @@ router.get('/alpaca/status', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/jupiter/status', requireAuth, async (req, res) => {
+  try {
+    const [dbRecord] = await query(
+      'SELECT api_key, api_secret, paper_mode, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :name AND is_active = 1',
+      { userId: req.user.id, name: 'Jupiter' }
+    );
+
+    const config = jupiterAdapter.getConfig();
+    const balances = await jupiterAdapter.getBalances().catch(() => []);
+    const solBal = balances.find(b => b.asset === 'SOL');
+
+    if (dbRecord) {
+      return ok(res, {
+        configured: true,
+        authenticated: config.hasWallet,
+        walletAddress: config.walletAddress,
+        solBalance: solBal ? solBal.free : 0,
+        balances,
+        rpcUrl: config.rpcUrl,
+        paperMode: !!dbRecord.paper_mode,
+        lastSynced: dbRecord.last_synced_at,
+        source: 'database'
+      });
+    }
+
+    return ok(res, {
+      configured: config.configured,
+      authenticated: config.hasWallet,
+      walletAddress: config.walletAddress,
+      solBalance: solBal ? solBal.free : 0,
+      balances,
+      rpcUrl: config.rpcUrl,
+      paperMode: false,
+      source: config.configured ? 'environment' : 'none'
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+});
+
 router.post(
   '/connect',
   requireAuth,
@@ -115,6 +155,8 @@ router.post(
   body('password').optional().isString(),
   body('totp').optional().isString(),
   body('totpSecret').optional().isString(),
+  body('privateKey').optional().isString(),
+  body('rpcUrl').optional().isString(),
   body('paperMode').optional().isBoolean(),
   body('useTestnet').optional().isBoolean(),
   validate,
@@ -127,6 +169,8 @@ router.post(
       password = '',
       totp = '',
       totpSecret = '',
+      privateKey = '',
+      rpcUrl = '',
       paperMode = false,
       useTestnet = false
     } = req.body;
@@ -149,10 +193,18 @@ router.post(
         validation = await pionexAdapter.validateCredentials(apiKey, apiSecret);
         exchangeType = 'crypto';
       } else if (exLower === 'jupiter') {
-        validation = { valid: true, permissions: ['swap', 'limit', 'dca'] };
+        const effectiveRpc = rpcUrl || 'https://api.mainnet-beta.solana.com';
+        const effectivePk = privateKey || apiSecret || '';
+        jupiterAdapter.setCredentials(apiKey, effectiveRpc, effectivePk);
+        const kp = jupiterAdapter.getKeypair();
+        validation = {
+          valid: true,
+          permissions: ['swap', 'limit', 'dca'],
+          hasWallet: !!kp,
+          walletAddress: kp ? kp.publicKey.toBase58() : null
+        };
         exchangeName = 'Jupiter';
         exchangeType = 'dex';
-        jupiterAdapter.setCredentials(apiKey);
       } else if (exLower === 'angelone') {
         const effectiveClientCode = clientCode || apiSecret;
         const effectiveTotp = totp || totpSecret;
@@ -160,11 +212,9 @@ router.post(
         exchangeName = 'AngelOne';
         exchangeType = 'stock';
       } else if (exLower === 'bybit') {
-        // Bybit validation - just store for now, validate later
         validation = { valid: true, permissions: ['spot'] };
         exchangeType = 'crypto';
       } else if (exLower === 'coinbase') {
-        // Coinbase validation - just store for now
         validation = { valid: true, permissions: ['wallet'] };
         exchangeType = 'crypto';
       } else if (['alpaca', 'nasdaq', 'nyse'].includes(exLower)) {
@@ -181,16 +231,32 @@ router.post(
       }
 
       // Store credentials in database
+      const storedSecret = exLower === 'jupiter' ? (privateKey || apiSecret) : (apiSecret || clientCode);
+      let additionalParams = null;
+      if (exLower === 'angelone') {
+        additionalParams = JSON.stringify({
+          clientCode: clientCode || apiSecret,
+          password,
+          totpSecret: totpSecret || totp
+        });
+      } else if (exLower === 'jupiter') {
+        additionalParams = JSON.stringify({
+          rpcUrl: rpcUrl || 'https://api.mainnet-beta.solana.com',
+          privateKey: privateKey || apiSecret
+        });
+      }
+
       await query(
-        `INSERT INTO exchange_accounts (user_id, exchange_name, exchange_type, api_key, api_secret, broker_type, paper_mode, is_active)
-         VALUES (:userId, :exchangeName, :exchangeType, :apiKey, :apiSecret, 'api', :paperMode, 1)
-         ON DUPLICATE KEY UPDATE api_key = :apiKey, api_secret = :apiSecret, paper_mode = :paperMode, is_active = 1`,
+        `INSERT INTO exchange_accounts (user_id, exchange_name, exchange_type, api_key, api_secret, additional_params, broker_type, paper_mode, is_active)
+         VALUES (:userId, :exchangeName, :exchangeType, :apiKey, :apiSecret, :additionalParams, 'api', :paperMode, 1)
+         ON DUPLICATE KEY UPDATE api_key = :apiKey, api_secret = :apiSecret, additional_params = :additionalParams, paper_mode = :paperMode, is_active = 1`,
         {
           userId: req.user.id,
           exchangeName,
           exchangeType,
           apiKey,
-          apiSecret: apiSecret || clientCode,
+          apiSecret: storedSecret,
+          additionalParams,
           paperMode: paperMode ? 1 : 0
         }
       );
@@ -201,7 +267,7 @@ router.post(
         apiSecret: apiSecret || clientCode,
         clientCode: clientCode || apiSecret,
         password,
-        totpSecret,
+        totpSecret: totpSecret || totp,
         paperMode
       });
 
@@ -236,7 +302,10 @@ router.delete(
 
       disconnectBroker(exchangeName);
 
-      // Clear adapter credentials if Alpaca
+      // Clear adapter credentials
+      if (exchangeName.toLowerCase() === 'angelone') {
+        angeloneAdapter.clearCredentials();
+      }
       if (exchangeName.toLowerCase() === 'alpaca') {
         alpacaAdapter.setCredentials(null, null, true);
       }

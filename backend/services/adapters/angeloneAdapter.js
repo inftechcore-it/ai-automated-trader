@@ -82,15 +82,26 @@ export function isAuthenticated() {
 }
 
 export function setCredentials(newApiKey, newClientCode, newPassword, newTotpSecret, newJwtToken = null, newFeedToken = null) {
-  if (newApiKey) apiKey = newApiKey;
-  if (newClientCode) clientCode = newClientCode;
-  if (newPassword) password = newPassword;
-  if (newTotpSecret) totpSecret = newTotpSecret;
-  if (newJwtToken) {
+  if (newApiKey !== undefined) apiKey = newApiKey || '';
+  if (newClientCode !== undefined) clientCode = newClientCode || '';
+  if (newPassword !== undefined) password = newPassword || '';
+  if (newTotpSecret !== undefined) totpSecret = newTotpSecret || '';
+  if (newJwtToken !== undefined) {
     jwtToken = newJwtToken;
-    tokenExpiry = Date.now() + 24 * 60 * 60 * 1000;
+    tokenExpiry = newJwtToken ? Date.now() + 24 * 60 * 60 * 1000 : null;
   }
-  if (newFeedToken) feedToken = newFeedToken;
+  if (newFeedToken !== undefined) feedToken = newFeedToken;
+}
+
+export function clearCredentials() {
+  apiKey = '';
+  clientCode = '';
+  password = '';
+  totpSecret = '';
+  jwtToken = null;
+  refreshToken = null;
+  feedToken = null;
+  tokenExpiry = null;
 }
 
 function getHeaders(customApiKey = null, customJwt = null) {
@@ -436,6 +447,34 @@ export async function getOrderBook() {
   }
 }
 
+export async function getOrderStatus(orderId) {
+  await ensureAuthenticated();
+  try {
+    const orders = await getOrderBook();
+    const order = orders.find(o => String(o.orderid) === String(orderId));
+    if (order) {
+      const statusLower = (order.status || order.orderstatus || '').toLowerCase();
+      return {
+        orderId: order.orderid,
+        status: statusLower,
+        tradingsymbol: order.tradingsymbol,
+        exchange: order.exchange,
+        quantity: parseInt(order.quantity || 0, 10),
+        filledShares: parseInt(order.filledshares || 0, 10),
+        unfilledShares: parseInt(order.unfilledshares || 0, 10),
+        price: parseFloat(order.price || 0),
+        averagePrice: parseFloat(order.averageprice || 0),
+        rejectionReason: order.text || order.rejectionreason || null,
+        raw: order
+      };
+    }
+    return { orderId, status: 'unknown', message: 'Order not found in orderbook' };
+  } catch (err) {
+    console.error(`[AngelOne] getOrderStatus error for ${orderId}:`, err.message);
+    throw new Error(err.response?.data?.message || err.message);
+  }
+}
+
 // ============ MARKET DATA & SCRIP MASTER ============
 
 export async function fetchScripMaster() {
@@ -625,4 +664,117 @@ export async function searchSymbols(queryStr, exchange = 'NSE') {
   ];
 
   return defaults.filter(d => d.symbol.includes(q) || d.name.toUpperCase().includes(q));
+}
+
+export async function getOHLCV(symbol, interval = '1d', limit = 100, exchange = 'NSE') {
+  const cleanSymbol = symbol.replace('-EQ', '').replace('.NS', '').replace('.BO', '').toUpperCase();
+  const exUpper = (exchange || 'NSE').toUpperCase();
+
+  // 1. Try Angel One SmartAPI historical candle data if authenticated
+  if (isAuthenticated()) {
+    try {
+      const resolved = await resolveSymbolToken(cleanSymbol, exUpper);
+      if (resolved.token && resolved.token !== '0') {
+        const intervalMap = {
+          '1m': 'ONE_MINUTE',
+          '3m': 'THREE_MINUTE',
+          '5m': 'FIVE_MINUTE',
+          '10m': 'TEN_MINUTE',
+          '15m': 'FIFTEEN_MINUTE',
+          '30m': 'THIRTY_MINUTE',
+          '1h': 'ONE_HOUR',
+          '1d': 'ONE_DAY'
+        };
+
+        const angelInterval = intervalMap[interval] || 'ONE_DAY';
+        const now = new Date();
+        const past = new Date();
+
+        if (interval === '1m' || interval === '5m' || interval === '15m') {
+          past.setDate(past.getDate() - 10);
+        } else if (interval === '1h') {
+          past.setDate(past.getDate() - 30);
+        } else {
+          past.setFullYear(past.getFullYear() - 1);
+        }
+
+        const formatAngelDate = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hr = String(d.getHours()).padStart(2, '0');
+          const min = String(d.getMinutes()).padStart(2, '0');
+          return `${y}-${m}-${day} ${hr}:${min}`;
+        };
+
+        const { data } = await axios.post(
+          `${BASE_URL}/rest/secure/angelbroking/historical/v1/getCandleData`,
+          {
+            exchange: exUpper,
+            symboltoken: resolved.token,
+            interval: angelInterval,
+            fromdate: formatAngelDate(past),
+            todate: formatAngelDate(now)
+          },
+          { headers: getHeaders(), timeout: 10000 }
+        );
+
+        if (data.status && Array.isArray(data.data) && data.data.length > 0) {
+          const candles = data.data.map(item => ({
+            time: typeof item[0] === 'string' ? item[0] : new Date(item[0]).toISOString(),
+            open: parseFloat(item[1] || 0),
+            high: parseFloat(item[2] || 0),
+            low: parseFloat(item[3] || 0),
+            close: parseFloat(item[4] || 0),
+            volume: parseInt(item[5] || 0, 10)
+          }));
+          return candles.slice(-limit);
+        }
+      }
+    } catch (err) {
+      console.warn(`[AngelOne] Historical API fallback to Yahoo for ${cleanSymbol}:`, err.message);
+    }
+  }
+
+  // 2. Fallback to Yahoo Finance for NSE / BSE candlestick data
+  try {
+    const yahooSymbol = `${cleanSymbol}.${exUpper === 'BSE' ? 'BO' : 'NS'}`;
+    const intervalMap = {
+      '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+      '1h': '1h', '4h': '1h', '1d': '1d', '1w': '1wk', '1M': '1mo'
+    };
+    const rangeMap = {
+      '1m': '1d', '5m': '5d', '15m': '5d', '30m': '1mo',
+      '1h': '1mo', '4h': '3mo', '1d': '1y', '1w': '2y', '1M': '5y'
+    };
+
+    const yahooInterval = intervalMap[interval] || '1d';
+    const range = rangeMap[interval] || '1y';
+
+    const { data } = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`, {
+      params: { interval: yahooInterval, range },
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
+    });
+
+    const result = data?.chart?.result?.[0];
+    if (result) {
+      const timestamps = result.timestamp || [];
+      const quote = result.indicators?.quote?.[0] || {};
+      const candles = timestamps.map((ts, i) => ({
+        time: new Date(ts * 1000).toISOString(),
+        open: Number((quote.open?.[i] || 0).toFixed(2)),
+        high: Number((quote.high?.[i] || 0).toFixed(2)),
+        low: Number((quote.low?.[i] || 0).toFixed(2)),
+        close: Number((quote.close?.[i] || 0).toFixed(2)),
+        volume: quote.volume?.[i] || 0
+      })).filter(c => c.open > 0);
+
+      if (candles.length > 0) return candles.slice(-limit);
+    }
+  } catch (yErr) {
+    console.error(`[AngelOne] Yahoo OHLCV fallback failed for ${cleanSymbol}:`, yErr.message);
+  }
+
+  return [];
 }

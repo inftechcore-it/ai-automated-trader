@@ -1,11 +1,11 @@
 import { query, transaction } from '../config/db.js';
 import { getQuote, placeLiveOrder, cancelLiveOrder } from './exchangeService.js';
 
-export async function placeOrder({ userId, sessionId, symbol, exchangeName, orderType, side, quantity, price, stopPrice, takeProfitPrice, mode, notes }) {
-  console.log('[TradeExecutor] placeOrder called:', { userId, sessionId, symbol, exchangeName, orderType, side, quantity, price, mode });
+export async function placeOrder({ userId, sessionId, symbol, exchangeName, orderType, side, quantity, price, stopPrice, takeProfitPrice, mode, notes, broker }) {
+  console.log('[TradeExecutor] placeOrder called:', { userId, sessionId, symbol, exchangeName, orderType, side, quantity, price, mode, broker });
 
   if (mode === 'live') {
-    const liveResult = await placeLiveOrder({ userId, symbol, exchange: exchangeName, side, orderType, quantity, price, stopPrice });
+    const liveResult = await placeLiveOrder({ userId, symbol, exchange: exchangeName, side, orderType, quantity, price, stopPrice, broker });
 
     // Store the live order in our database for tracking
     const [result] = await query(

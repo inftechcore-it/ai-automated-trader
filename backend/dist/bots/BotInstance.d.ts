@@ -19,6 +19,10 @@ interface ExecutionEngine {
         status: string;
         filledPrice?: number;
         filledQuantity?: number;
+        explorerUrl?: string;
+        txid?: string;
+        isLive?: boolean;
+        isPaper?: boolean;
     }>;
     cancelOrder(params: {
         exchange: string;
@@ -46,6 +50,9 @@ export declare class BotInstance extends EventEmitter {
     private state;
     private lastTickTime;
     private tickCount;
+    private isPausedForBalance;
+    private lastLiveBalanceCheck;
+    private lastInsufficientBalanceLog;
     private snapshotInterval;
     constructor(deps: BotInstanceDeps);
     get id(): string;
@@ -61,6 +68,7 @@ export declare class BotInstance extends EventEmitter {
     syncOrdersWithExchange(): Promise<void>;
     private loadExistingOrders;
     private syncLiveBalance;
+    private checkDexLimitOrders;
     private executeAction;
     private placeOrder;
     private cancelOrder;

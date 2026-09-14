@@ -101,7 +101,7 @@ router.get('/positions', requireAuth, async (req, res) => {
   }
 });
 
-// Orders
+// Orders list
 router.get('/orders', requireAuth, async (req, res) => {
   try {
     const orders = await angeloneAdapter.getOrderBook();
@@ -111,12 +111,75 @@ router.get('/orders', requireAuth, async (req, res) => {
   }
 });
 
+// Place order
+router.post(
+  '/orders/place',
+  requireAuth,
+  body('symbol').trim().notEmpty(),
+  body('exchange').optional().isString(),
+  body('side').isIn(['buy', 'sell', 'BUY', 'SELL']),
+  body('quantity').isFloat({ gt: 0 }),
+  body('orderType').optional().isString(),
+  body('productType').optional().isString(),
+  body('price').optional().isFloat(),
+  validate,
+  async (req, res) => {
+    try {
+      const { symbol, exchange = 'NSE', side, quantity, orderType = 'MARKET', productType = 'DELIVERY', price = 0 } = req.body;
+      const order = await angeloneAdapter.placeOrder({
+        symbol,
+        exchange,
+        transactionType: side.toUpperCase(),
+        orderType: orderType.toUpperCase(),
+        productType: productType.toUpperCase(),
+        quantity,
+        price
+      });
+      return ok(res, { message: 'Order placed successfully on Angel One', order }, 201);
+    } catch (err) {
+      return fail(res, 400, err.message);
+    }
+  }
+);
+
+// Cancel order
+router.post('/orders/:orderId/cancel', requireAuth, async (req, res) => {
+  try {
+    const result = await angeloneAdapter.cancelOrder(req.params.orderId, req.body.variety || 'NORMAL');
+    return ok(res, { message: 'Order cancellation submitted', ...result });
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+});
+
+// Order status
+router.get('/orders/:orderId/status', requireAuth, async (req, res) => {
+  try {
+    const order = await angeloneAdapter.getOrderStatus(req.params.orderId);
+    return ok(res, { order });
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+});
+
 // Live quote
 router.get('/quote/:symbol', requireAuth, async (req, res) => {
   try {
     const exchange = req.query.exchange || 'NSE';
     const quote = await angeloneAdapter.getQuote(req.params.symbol, exchange);
     return ok(res, { quote });
+  } catch (err) {
+    return fail(res, 500, err.message);
+  }
+});
+
+// Historical candles
+router.get('/candles', requireAuth, async (req, res) => {
+  try {
+    const { symbol, exchange = 'NSE', interval = '1d', limit = 100 } = req.query;
+    if (!symbol) return fail(res, 400, 'Symbol is required');
+    const candles = await angeloneAdapter.getOHLCV(symbol, interval, Number(limit), exchange);
+    return ok(res, { candles });
   } catch (err) {
     return fail(res, 500, err.message);
   }

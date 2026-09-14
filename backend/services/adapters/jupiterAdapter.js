@@ -9,8 +9,16 @@ let apiKey = env.jupiter?.apiKey || process.env.JUPITER_API_KEY || 'jup_e2548893
 let rpcUrl = env.jupiter?.rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 let privateKey = env.jupiter?.privateKey || process.env.SOLANA_WALLET_PRIVATE_KEY || '';
 
+// RPC list with official first
+const RPC_ENDPOINTS = [
+  rpcUrl,
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana-rpc.publicnode.com'
+].filter(Boolean);
+
 export function getKeypair() {
-  const pk = privateKey || process.env.SOLANA_WALLET_PRIVATE_KEY || '';
+  const pk = (privateKey || process.env.SOLANA_WALLET_PRIVATE_KEY || '').trim();
   if (!pk) return null;
   try {
     if (pk.startsWith('[') && pk.endsWith(']')) {
@@ -24,8 +32,21 @@ export function getKeypair() {
   }
 }
 
+export function getConnection(customRpc = null) {
+  const endpoint = customRpc || rpcUrl || 'https://api.mainnet-beta.solana.com';
+  return new Connection(endpoint, {
+    commitment: 'confirmed',
+    confirmTransactionInitialTimeout: 30000,
+    fetch: (url, opts) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+    }
+  });
+}
+
 export function getTokenDecimals(symbolOrMint) {
-  const upper = symbolOrMint.toUpperCase();
+  const upper = (symbolOrMint || '').toUpperCase();
   if (SOLANA_TOKENS[upper]) return SOLANA_TOKENS[upper].decimals;
   const match = Object.values(SOLANA_TOKENS).find(t => t.mint === symbolOrMint);
   if (match) return match.decimals;
@@ -117,9 +138,22 @@ export const SOLANA_TOKENS = {
   }
 };
 
-// Token cache
+// Token and price cache
 let tokenSearchCache = new Map();
 let priceCache = new Map();
+
+// API rate limit throttle queue
+let lastApiCallTime = 0;
+const MIN_API_INTERVAL_MS = 250;
+
+async function rateLimit() {
+  const now = Date.now();
+  const elapsed = now - lastApiCallTime;
+  if (elapsed < MIN_API_INTERVAL_MS) {
+    await new Promise(r => setTimeout(r, MIN_API_INTERVAL_MS - elapsed));
+  }
+  lastApiCallTime = Date.now();
+}
 
 function getHeaders() {
   const headers = {
@@ -137,22 +171,29 @@ export function isConfigured() {
 }
 
 export function isAuthenticated() {
-  return !!apiKey;
+  return !!getKeypair();
 }
 
 export function getConfig() {
+  const kp = getKeypair();
   return {
     configured: isConfigured(),
     hasApiKey: !!apiKey,
     rpcUrl,
-    hasWallet: !!privateKey
+    hasWallet: !!kp,
+    walletAddress: kp ? kp.publicKey.toBase58() : null
   };
 }
 
 export function setCredentials(newApiKey, newRpcUrl = null, newPrivateKey = null) {
-  if (newApiKey) apiKey = newApiKey;
-  if (newRpcUrl) rpcUrl = newRpcUrl;
-  if (newPrivateKey) privateKey = newPrivateKey;
+  if (newApiKey && typeof newApiKey === 'string') apiKey = newApiKey.trim();
+  if (newRpcUrl && typeof newRpcUrl === 'string') rpcUrl = newRpcUrl.trim();
+  if (newPrivateKey && typeof newPrivateKey === 'string') privateKey = newPrivateKey.trim();
+
+  const kp = getKeypair();
+  if (kp) {
+    console.log(`[JupiterAdapter] Solana wallet configured: ${kp.publicKey.toBase58()}`);
+  }
 }
 
 // Resolve token to mint address
@@ -184,6 +225,7 @@ export async function getPrice(mintOrSymbol) {
   }
 
   try {
+    await rateLimit();
     const url = `${JUPITER_BASE_URL}/price/v3?ids=${encodeURIComponent(mint)}`;
     const { data } = await axios.get(url, {
       headers: getHeaders(),
@@ -217,6 +259,7 @@ export async function getPrices(mintOrSymbols = []) {
   if (mints.length === 0) return {};
 
   try {
+    await rateLimit();
     const url = `${JUPITER_BASE_URL}/price/v3?ids=${encodeURIComponent(mints.join(','))}`;
     const { data } = await axios.get(url, {
       headers: getHeaders(),
@@ -252,31 +295,30 @@ export async function searchTokens(query = '') {
   }
 
   const needle = query.trim();
-  const cacheKey = `search:${needle.toLowerCase()}`;
-  if (tokenSearchCache.has(cacheKey)) {
-    return tokenSearchCache.get(cacheKey);
+  const cached = tokenSearchCache.get(needle.toLowerCase());
+  if (cached && Date.now() - cached.time < 60000) {
+    return cached.data;
   }
 
   try {
+    await rateLimit();
     const url = `${JUPITER_BASE_URL}/tokens/v2/search?query=${encodeURIComponent(needle)}`;
     const { data } = await axios.get(url, {
       headers: getHeaders(),
       timeout: 8000
     });
 
-    const items = Array.isArray(data) ? data : (data?.data || []);
-    const formatted = items.slice(0, 30).map(t => ({
+    const list = Array.isArray(data) ? data : (data?.data || []);
+    const formatted = list.map(t => ({
       symbol: t.symbol,
-      name: t.name || t.symbol,
-      mint: t.address || t.mint || t.id,
+      name: t.name,
+      mint: t.address || t.mint,
       decimals: t.decimals || 6,
       logoURI: t.logoURI || t.icon,
-      verified: t.verified || t.isVerified || false,
-      dailyVolume: t.daily_volume || t.volume24h || 0,
-      organicScore: t.organic_score || 0
+      verified: !!t.verified
     }));
 
-    tokenSearchCache.set(cacheKey, formatted);
+    tokenSearchCache.set(needle.toLowerCase(), { time: Date.now(), data: formatted });
     return formatted;
   } catch (err) {
     console.warn(`[JupiterAdapter] Tokens V2 search error for ${needle}:`, err.message);
@@ -306,70 +348,84 @@ export async function createSwapOrder({
   const outMint = resolveMint(outputMint) || outputMint;
   const takerPubkey = taker || userPublicKey;
 
-  try {
-    // 1. Get quote
-    const quoteUrl = `${JUPITER_BASE_URL}/swap/v2/quote`;
-    const { data: quoteResponse } = await axios.get(quoteUrl, {
-      headers: getHeaders(),
-      params: {
+  let retries = 2;
+  while (retries >= 0) {
+    try {
+      await rateLimit();
+
+      // 1. Get quote
+      const quoteUrl = `${JUPITER_BASE_URL}/swap/v2/quote`;
+      const { data: quoteResponse } = await axios.get(quoteUrl, {
+        headers: getHeaders(),
+        params: {
+          inputMint: inMint,
+          outputMint: outMint,
+          amount: amount.toString(),
+          slippageBps: slippageBps.toString(),
+          swapMode
+        },
+        timeout: 12000
+      });
+
+      let swapTransaction = null;
+      let lastValidBlockHeight = null;
+      let prioritizationFeeLamports = 0;
+
+      // 2. If taker / userPublicKey is provided, assemble transaction
+      if (takerPubkey) {
+        await rateLimit();
+        try {
+          const swapUrl = `${JUPITER_BASE_URL}/swap/v2/swap`;
+          const { data: swapResponse } = await axios.post(
+            swapUrl,
+            {
+              quoteResponse,
+              taker: takerPubkey,
+              wrapAndUnwrapSol: true
+            },
+            { headers: getHeaders(), timeout: 15000 }
+          );
+
+          swapTransaction = swapResponse.swapTransaction;
+          lastValidBlockHeight = swapResponse.lastValidBlockHeight;
+          prioritizationFeeLamports = swapResponse.prioritizationFeeLamports;
+        } catch (swapErr) {
+          console.warn('[JupiterAdapter] Transaction build warning:', swapErr.response?.data || swapErr.message);
+        }
+      }
+
+      return {
+        success: true,
         inputMint: inMint,
         outputMint: outMint,
-        amount: amount.toString(),
-        slippageBps: slippageBps.toString(),
-        swapMode
-      },
-      timeout: 12000
-    });
-
-    let swapTransaction = null;
-    let lastValidBlockHeight = null;
-    let prioritizationFeeLamports = 0;
-
-    // 2. If taker / userPublicKey is provided, assemble transaction
-    if (takerPubkey) {
-      try {
-        const swapUrl = `${JUPITER_BASE_URL}/swap/v2/swap`;
-        const { data: swapResponse } = await axios.post(
-          swapUrl,
-          {
-            quoteResponse,
-            taker: takerPubkey,
-            wrapAndUnwrapSol: true
-          },
-          { headers: getHeaders(), timeout: 15000 }
-        );
-
-        swapTransaction = swapResponse.swapTransaction;
-        lastValidBlockHeight = swapResponse.lastValidBlockHeight;
-        prioritizationFeeLamports = swapResponse.prioritizationFeeLamports;
-      } catch (swapErr) {
-        console.warn('[JupiterAdapter] Transaction build warning:', swapErr.response?.data || swapErr.message);
+        inAmount: quoteResponse.inAmount,
+        outAmount: quoteResponse.outAmount,
+        priceImpactPct: quoteResponse.priceImpactPct,
+        routePlan: quoteResponse.routePlan,
+        swapTransaction,
+        lastValidBlockHeight,
+        prioritizationFeeLamports,
+        quote: quoteResponse
+      };
+    } catch (err) {
+      const isRateLimited = err.response?.status === 429 || err.message?.includes('429') || err.message?.includes('Too many requests');
+      if (isRateLimited && retries > 0) {
+        console.warn(`[JupiterAdapter] Rate limited by Jupiter API. Backing off 800ms (retries left: ${retries})...`);
+        await new Promise(r => setTimeout(r, 800));
+        retries--;
+        continue;
       }
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message;
+      console.error('[JupiterAdapter] Swap order creation error:', msg);
+      throw new Error(`Jupiter Swap Error: ${typeof msg === 'object' ? JSON.stringify(msg) : msg}`);
     }
-
-    return {
-      success: true,
-      inputMint: inMint,
-      outputMint: outMint,
-      inAmount: quoteResponse.inAmount,
-      outAmount: quoteResponse.outAmount,
-      priceImpactPct: quoteResponse.priceImpactPct,
-      routePlan: quoteResponse.routePlan,
-      swapTransaction,
-      lastValidBlockHeight,
-      prioritizationFeeLamports,
-      quote: quoteResponse
-    };
-  } catch (err) {
-    const msg = err.response?.data?.message || err.response?.data?.error || err.message;
-    console.error('[JupiterAdapter] Swap order creation error:', msg);
-    throw new Error(`Jupiter Swap Error: ${typeof msg === 'object' ? JSON.stringify(msg) : msg}`);
   }
 }
 
 export async function executeSwap({ signedTransaction }) {
   const url = `${JUPITER_BASE_URL}/swap/v2/execute`;
   try {
+    await rateLimit();
     const { data } = await axios.post(
       url,
       { signedTransaction },
@@ -477,8 +533,8 @@ export async function searchSymbols(query = '', exchange = 'Jupiter') {
 }
 
 export async function placeOrder(orderParams) {
-  const { symbol, side, orderType, quantity, price, dryRun } = orderParams;
-  const [base, quote] = (symbol || 'SOL/USDC').toUpperCase().split('/');
+  const { symbol, side, orderType, quantity, price, dryRun = true } = orderParams;
+  const [base = 'SOL', quote = 'USDC'] = (symbol || 'SOL/USDC').toUpperCase().split('/');
   const isBuy = (side || 'buy').toLowerCase() === 'buy';
 
   const inputToken = isBuy ? (quote || 'USDC') : base;
@@ -488,7 +544,7 @@ export async function placeOrder(orderParams) {
   const outPriceObj = await getPrice(outputToken);
   const outPrice = outPriceObj.price || 1;
 
-  // Calculate raw input amount
+  // Calculate raw input amount in lowest unit
   let inAmountRaw;
   if (isBuy) {
     const quoteAmt = parseFloat(quantity) * (parseFloat(price) || outPrice);
@@ -497,41 +553,53 @@ export async function placeOrder(orderParams) {
     inAmountRaw = Math.round(parseFloat(quantity) * Math.pow(10, inDecimals));
   }
 
-  const kp = getKeypair();
+  const isLive = dryRun === false;
 
-  if (!dryRun && kp) {
+  if (isLive) {
+    const kp = getKeypair();
+    if (!kp) {
+      throw new Error('Cannot execute LIVE order on Jupiter: Solana wallet private key is missing. Please configure your Solana Private Key in the Exchanges settings.');
+    }
+
     // LIVE ON-CHAIN SWAP EXECUTION
-    const connection = new Connection(rpcUrl, 'confirmed');
+    const connection = getConnection();
 
     // 1. Check wallet SOL balance for network gas fees
-    const lamports = await connection.getBalance(kp.publicKey).catch(() => 0);
-    if (lamports < 5000) { // < 0.000005 SOL
-      throw new Error(`Insufficient SOL in wallet (${(lamports / 1e9).toFixed(5)} SOL) for Solana transaction gas. Please fund your wallet or switch to Paper mode.`);
+    const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
+      console.warn('[JupiterAdapter] Failed to fetch SOL balance:', err.message);
+      return 0;
+    });
+
+    const MIN_GAS_LAMPORTS = 5000000; // 0.005 SOL buffer for gas & rent
+    if (lamports < MIN_GAS_LAMPORTS) {
+      throw new Error(`Insufficient SOL in wallet (${(lamports / 1e9).toFixed(5)} SOL) for Solana transaction fees. Minimum 0.005 SOL required. Please fund your wallet or switch to Paper mode.`);
     }
 
     // 2. Check input token balance
-    const isInputSol = inputToken === resolveMint('SOL') || inputToken === 'So11111111111111111111111111111111111111112';
+    const isInputSol = inputToken === resolveMint('SOL') || inputToken === 'SOL' || inputToken === 'So11111111111111111111111111111111111111112';
     if (isInputSol) {
-      if (lamports < inAmountRaw + 5000) {
-        throw new Error(`Insufficient SOL in wallet. Need ${(inAmountRaw / 1e9).toFixed(4)} SOL + gas, but wallet only has ${(lamports / 1e9).toFixed(4)} SOL.`);
+      if (lamports < inAmountRaw + MIN_GAS_LAMPORTS) {
+        throw new Error(`Insufficient SOL in wallet. Need ${(inAmountRaw / 1e9).toFixed(4)} SOL + 0.005 SOL gas, but wallet has ${(lamports / 1e9).toFixed(4)} SOL.`);
       }
     } else {
       try {
+        const inputMintPubkey = resolveMint(inputToken) || inputToken;
         const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
-          mint: new PublicKey(inputToken)
+          mint: new PublicKey(inputMintPubkey)
         });
         const currentAmount = tokenAccounts.value.reduce((sum, a) => sum + (a.account.data.parsed.info.tokenAmount.amount || 0), 0);
         if (Number(currentAmount) < inAmountRaw) {
           const neededUi = inAmountRaw / Math.pow(10, inDecimals);
           const haveUi = Number(currentAmount) / Math.pow(10, inDecimals);
-          throw new Error(`Insufficient balance in wallet for ${isBuy ? quote : base}. Needed ${neededUi.toFixed(4)}, but wallet only has ${haveUi.toFixed(4)}.`);
+          throw new Error(`Insufficient balance for ${isBuy ? quote : base}. Needed ${neededUi.toFixed(4)}, but wallet has ${haveUi.toFixed(4)}.`);
         }
       } catch (tokenErr) {
         if (tokenErr.message.includes('Insufficient balance')) throw tokenErr;
       }
     }
 
-    console.log(`[JupiterAdapter] >>> EXECUTING LIVE ON-CHAIN SWAP: ${side} ${quantity} ${symbol} via Wallet ${kp.publicKey.toBase58()} <<<`);
+    console.log(`[JupiterAdapter] [LIVE] Executing on-chain swap: ${side} ${quantity} ${symbol} via Wallet ${kp.publicKey.toBase58()}`);
+
     const swapOrder = await createSwapOrder({
       inputMint: inputToken,
       outputMint: outputToken,
@@ -548,14 +616,14 @@ export async function placeOrder(orderParams) {
     const transaction = VersionedTransaction.deserialize(txBuf);
     transaction.sign([kp]);
 
-    // Send raw transaction to Solana network (with preflight check)
+    // Send raw transaction to Solana network
     const rawTx = transaction.serialize();
     const txid = await connection.sendRawTransaction(rawTx, {
       skipPreflight: false,
       maxRetries: 3
     });
 
-    console.log(`[JupiterAdapter] Live swap broadcasted! TXID: ${txid} | Explorer: https://solscan.io/tx/${txid}`);
+    console.log(`[JupiterAdapter] [LIVE] Swap broadcasted! TXID: ${txid} | Explorer: https://solscan.io/tx/${txid}`);
 
     return {
       orderId: txid,
@@ -571,26 +639,25 @@ export async function placeOrder(orderParams) {
       explorerUrl: `https://solscan.io/tx/${txid}`,
       txid,
       exchange: 'Jupiter',
+      isLive: true,
       timestamp: Date.now()
     };
   }
 
-  // If live mode explicitly requested without private key:
-  if (dryRun === false && !kp) {
-    throw new Error('Cannot execute LIVE order on Jupiter: Solana wallet private key is missing. Please add SOLANA_WALLET_PRIVATE_KEY to backend/.env');
-  }
-
-  // Paper Mode: simulated fill with live market quotes
+  // Paper Mode: explicitly marked simulation
+  const fillPrice = parseFloat(price) || outPrice;
   return {
     orderId: `paper_jup_${Date.now()}`,
     symbol: `${base}/${quote}`,
     side: (side || 'buy').toUpperCase(),
     type: (orderType || 'market').toUpperCase(),
     quantity: parseFloat(quantity),
-    price: parseFloat(price) || outPrice,
+    price: fillPrice,
+    avgFillPrice: fillPrice,
     status: 'FILLED',
     filledQuantity: parseFloat(quantity),
     exchange: 'Jupiter',
+    isPaper: true,
     timestamp: Date.now()
   };
 }
@@ -610,35 +677,45 @@ export async function getBalances() {
   }
 
   try {
-    const connection = new Connection(rpcUrl, 'confirmed');
-    const lamports = await connection.getBalance(kp.publicKey);
+    const connection = getConnection();
+    const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
+      console.warn('[JupiterAdapter] Solana RPC getBalance warning:', err.message);
+      return 0;
+    });
+
     const solBalance = lamports / 1e9;
-    const solPrice = (await getPrice('SOL')).price || 0;
+    const solPriceObj = await getPrice('SOL').catch(() => ({ price: 0 }));
+    const solPrice = solPriceObj.price || 0;
 
     const balances = [
       { asset: 'SOL', free: solBalance, locked: 0, total: solBalance, usdValue: solBalance * solPrice }
     ];
 
-    // Fetch SPL token balances (USDC, JUP, etc.)
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
-      programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-    });
+    // Query SPL token accounts (USDC, JUP, etc.) with timeout
+    try {
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
+        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+      });
 
-    for (const { account } of tokenAccounts.value) {
-      const parsedInfo = account.data.parsed.info;
-      const mintAddress = parsedInfo.mint;
-      const tokenAmount = parsedInfo.tokenAmount.uiAmount || 0;
-      if (tokenAmount > 0) {
-        const symbol = Object.keys(SOLANA_TOKENS).find(k => SOLANA_TOKENS[k].mint === mintAddress) || mintAddress.substring(0, 6);
-        const price = (await getPrice(mintAddress)).price || 0;
-        balances.push({
-          asset: symbol,
-          free: tokenAmount,
-          locked: 0,
-          total: tokenAmount,
-          usdValue: tokenAmount * price
-        });
+      for (const { account } of tokenAccounts.value) {
+        const parsedInfo = account.data.parsed.info;
+        const mintAddress = parsedInfo.mint;
+        const tokenAmount = parsedInfo.tokenAmount.uiAmount || 0;
+        if (tokenAmount > 0) {
+          const symbol = Object.keys(SOLANA_TOKENS).find(k => SOLANA_TOKENS[k].mint === mintAddress) || mintAddress.substring(0, 6);
+          const priceObj = await getPrice(mintAddress).catch(() => ({ price: 0 }));
+          const price = priceObj.price || 0;
+          balances.push({
+            asset: symbol,
+            free: tokenAmount,
+            locked: 0,
+            total: tokenAmount,
+            usdValue: tokenAmount * price
+          });
+        }
       }
+    } catch (tokenErr) {
+      console.warn('[JupiterAdapter] Error querying SPL token accounts:', tokenErr.message);
     }
 
     return balances;

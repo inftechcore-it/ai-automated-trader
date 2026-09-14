@@ -38,6 +38,8 @@ export class GridBot extends BaseBotStrategy {
   private lastError = '';
   private insufficientBalance = false;
   private lastBalanceCheck = 0;
+  private lastStatusLog = 0;
+  private lastRangeLog = 0;
   private isStopped = false;  // Only true when stop loss or take profit is hit
 
   validate(params: BotParams): ValidationResult {
@@ -153,9 +155,12 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    // Show balance status in tick log
-    const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
-    this.log(`Tick: $${tick.price.toFixed(6)} | Balance: $${state.availableBalance.toFixed(2)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}`);
+    // Show balance status in tick log (throttled to once every 30 seconds to avoid spam)
+    if (now - this.lastStatusLog > 30000) {
+      this.lastStatusLog = now;
+      const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
+      this.log(`Tick: $${tick.price.toFixed(6)} | Balance: $${state.availableBalance.toFixed(2)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}`);
+    }
 
     if (!this.asset) {
       const { base, quote } = parseSymbol(tick.symbol);
@@ -182,7 +187,10 @@ export class GridBot extends BaseBotStrategy {
 
     // Check if price is in range
     if (currentPrice < lowerPrice || currentPrice > upperPrice) {
-      this.log(`Price $${currentPrice.toFixed(6)} outside range [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
+      if (now - this.lastRangeLog > 30000) {
+        this.lastRangeLog = now;
+        this.log(`Price $${currentPrice.toFixed(6)} outside grid range [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
+      }
       return [{ action: 'hold' }];
     }
 
@@ -248,8 +256,12 @@ export class GridBot extends BaseBotStrategy {
 
     // Initial order setup - skip if insufficient balance
     if (state.openOrders.length === 0 && this.gridProfitCount === 0) {
-      if (this.insufficientBalance) {
-        this.log(`Skipping initial orders - insufficient balance`, 'warn');
+      if (this.insufficientBalance || state.availableBalance < investmentPerGrid) {
+        this.insufficientBalance = true;
+        if (now - this.lastBalanceCheck > 30000) {
+          this.lastBalanceCheck = now;
+          this.log(`Skipping initial grid setup: Insufficient balance (need $${investmentPerGrid.toFixed(2)}, have $${state.availableBalance.toFixed(2)}). Waiting for funds...`, 'warn');
+        }
       } else {
         this.log(`Setting up initial orders at price $${currentPrice.toFixed(6)}`);
         const initialActions = this.createInitialOrders(currentPrice, currentGridIndex, state, maxBuysPerLevel);

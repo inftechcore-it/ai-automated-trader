@@ -113,11 +113,11 @@ export class JupiterAdapter extends BaseAdapter {
           bid: finalPrice * 0.9995,
           ask: finalPrice * 1.0005,
           last: finalPrice,
-          volume: 500000,
-          change: parseFloat(payload[baseMint]?.priceChange24h || 0),
-          percentage: parseFloat(payload[baseMint]?.priceChange24h || 0),
           high: finalPrice * 1.03,
           low: finalPrice * 0.97,
+          volume: 500000,
+          change: parseFloat(payload[baseMint]?.priceChange24h || 0),
+          changePercent: parseFloat(payload[baseMint]?.priceChange24h || 0),
           timestamp: Date.now()
         };
       }
@@ -131,6 +131,8 @@ export class JupiterAdapter extends BaseAdapter {
       bid: 0,
       ask: 0,
       last: 0,
+      high: 0,
+      low: 0,
       volume: 0,
       timestamp: Date.now()
     };
@@ -190,13 +192,14 @@ export class JupiterAdapter extends BaseAdapter {
     const norm = this.normalizeSymbol(params.symbol);
     try {
       const { placeOrder } = await import('../../../services/adapters/jupiterAdapter.js');
+      const isDryRun = (params as any).dryRun === true;
       const result = await placeOrder({
         symbol: norm,
         side: params.side,
         orderType: params.type,
         quantity: params.quantity,
         price: params.price,
-        dryRun: (params as any).dryRun
+        dryRun: isDryRun
       });
       return {
         orderId: result.orderId || `JUP_${Date.now()}`,
@@ -205,36 +208,33 @@ export class JupiterAdapter extends BaseAdapter {
         type: params.type,
         price: result.price || params.price || 0,
         quantity: params.quantity,
-        status: (result.status || 'FILLED') as any,
-        timestamp: Date.now()
-      };
+        filledQuantity: result.filledQuantity || params.quantity,
+        status: 'filled' as OrderStatusType,
+        timestamp: Date.now(),
+        ...(result.txid ? { txid: result.txid, explorerUrl: result.explorerUrl } : {})
+      } as any;
     } catch (err: any) {
       console.error('[JupiterAdapter] Order execution failed:', err.message);
       throw err;
     }
   }
 
-  async cancelOrder(orderId: string, symbol: string): Promise<boolean> {
-    return true;
+  async cancelOrder(orderId: string, symbol: string): Promise<void> {
+    // Jupiter swaps are immediate once broadcasted
   }
 
   async getOrder(orderId: string, symbol: string): Promise<Order> {
     return {
-      id: orderId,
-      exchangeOrderId: orderId,
+      orderId,
       symbol: this.normalizeSymbol(symbol),
-      exchange: this.exchangeName,
       side: 'buy',
       type: 'market',
       status: 'filled',
       price: 0,
       quantity: 1,
       filledQuantity: 1,
-      remainingQuantity: 0,
-      fee: 0,
-      feeAsset: 'USDC',
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
   }
 
@@ -242,14 +242,13 @@ export class JupiterAdapter extends BaseAdapter {
     return [];
   }
 
-  async getTrades(symbol: string, limit = 50): Promise<Trade[]> {
+  async getTradeHistory(symbol: string, limit = 50): Promise<Trade[]> {
     const ticker = await this.getTicker(symbol);
     return [
       {
-        id: `trade_${Date.now()}`,
+        tradeId: `trade_${Date.now()}`,
         orderId: `order_${Date.now()}`,
         symbol: this.normalizeSymbol(symbol),
-        exchange: this.exchangeName,
         side: 'buy',
         price: ticker.last,
         quantity: 1,
@@ -260,11 +259,12 @@ export class JupiterAdapter extends BaseAdapter {
     ];
   }
 
-  async getDepositAddress(asset: string): Promise<DepositAddress> {
+  async getDepositAddress(asset: string, network?: string): Promise<DepositAddress> {
     return {
       asset,
       address: 'SolanaWalletAddress1111111111111111111111111',
-      network: 'SOL'
+      network: network || 'SOL',
+      exchange: this.exchangeName
     };
   }
 
@@ -273,14 +273,19 @@ export class JupiterAdapter extends BaseAdapter {
       withdrawalId: `wd_jup_${Date.now()}`,
       asset: params.asset,
       amount: params.amount,
+      address: params.address,
+      network: params.network || 'SOL',
       fee: 0.0005,
       status: 'completed',
       timestamp: Date.now()
     };
   }
 
+  async getWithdrawalFee(asset: string, network?: string): Promise<number> {
+    return 0.0005;
+  }
+
   subscribeTicker(symbol: string, callback: TickerCallback): SubscriptionHandle {
-    const handle = `sub_jup_ticker_${Date.now()}`;
     const interval = setInterval(async () => {
       try {
         const ticker = await this.getTicker(symbol);
@@ -291,14 +296,11 @@ export class JupiterAdapter extends BaseAdapter {
     }, 3000);
 
     return {
-      id: handle,
-      symbol,
       unsubscribe: () => clearInterval(interval)
     };
   }
 
   subscribeOrderBook(symbol: string, callback: OrderBookCallback): SubscriptionHandle {
-    const handle = `sub_jup_ob_${Date.now()}`;
     const interval = setInterval(async () => {
       try {
         const ob = await this.getOrderBook(symbol);
@@ -309,9 +311,11 @@ export class JupiterAdapter extends BaseAdapter {
     }, 3000);
 
     return {
-      id: handle,
-      symbol,
       unsubscribe: () => clearInterval(interval)
     };
+  }
+
+  async close(): Promise<void> {
+    // No-op
   }
 }

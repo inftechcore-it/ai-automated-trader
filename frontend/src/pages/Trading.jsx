@@ -4,7 +4,7 @@ import {
   AlertTriangle, FlaskConical, TrendingUp, TrendingDown, RefreshCw,
   Search, Wallet, X, Clock, Activity, BarChart2,
   Target, XCircle, CheckCircle, Link2, Star, ArrowUpRight, ArrowDownRight,
-  Plus, Minus, Eye, ExternalLink, Zap
+  Plus, Minus, Eye, ExternalLink, Zap, KeyRound
 } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { api, errorMessage } from '../api.js';
@@ -48,6 +48,24 @@ export default function Trading() {
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState({});
+  const [selectedIndianBroker, setSelectedIndianBroker] = useState('AngelOne'); // 'AngelOne' | 'Upstox'
+  
+  // Angel One State
+  const [angeloneStatus, setAngeloneStatus] = useState({ configured: false, authenticated: false });
+  const [angeloneFunds, setAngeloneFunds] = useState({ net: 0, availableCash: 0, collateral: 0, utilizedMargin: 0 });
+  const [angelonePositions, setAngelonePositions] = useState([]);
+  const [angeloneHoldings, setAngeloneHoldings] = useState([]);
+  const [showAngelConnectModal, setShowAngelConnectModal] = useState(false);
+  const [connectingAngel, setConnectingAngel] = useState(false);
+  const [angelForm, setAngelForm] = useState({
+    apiKey: 'AThErGZk',
+    clientCode: '',
+    password: '',
+    totpSecret: '',
+    totp: ''
+  });
+
+  // Upstox State
   const [upstoxStatus, setUpstoxStatus] = useState({ configured: false, authenticated: false, tokenExpired: false });
   const [upstoxFunds, setUpstoxFunds] = useState(null);
   const [upstoxPositions, setUpstoxPositions] = useState([]);
@@ -59,43 +77,44 @@ export default function Trading() {
   const [pendingOrder, setPendingOrder] = useState(null);
   const [orderStatus, setOrderStatus] = useState(null);
 
-  // Supported exchanges
+  // Supported exchanges (Only real exchanges, NOT brokers)
   const exchanges = [
-    { name: 'NSE', type: 'stock', currency: 'INR', broker: 'AngelOne' },
-    { name: 'BSE', type: 'stock', currency: 'INR', broker: 'AngelOne' },
-    { name: 'AngelOne', type: 'stock', currency: 'INR', broker: 'AngelOne' },
-    { name: 'Pionex', type: 'crypto', currency: 'USD', broker: 'Pionex' },
-    { name: 'Jupiter', type: 'dex', currency: 'USD', broker: 'Jupiter' },
+    { name: 'NSE', type: 'stock', currency: 'INR', description: 'National Stock Exchange of India' },
+    { name: 'BSE', type: 'stock', currency: 'INR', description: 'Bombay Stock Exchange' },
     { name: 'NASDAQ', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'NYSE', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'Binance', type: 'crypto', currency: 'USD', broker: 'Binance' },
-    { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' }
+    { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' },
+    { name: 'Pionex', type: 'crypto', currency: 'USD', broker: 'Pionex' },
+    { name: 'Jupiter', type: 'dex', currency: 'USD', broker: 'Jupiter' }
   ];
 
   const currentExchange = exchanges.find(e => e.name === exchangeName) || exchanges[0];
-  const currencySymbol = currentExchange.currency === 'INR' ? '₹' : '$';
+  const isIndianExchange = ['NSE', 'BSE'].includes(exchangeName);
+  const currencySymbol = isIndianExchange ? '₹' : '$';
+
+  const isAngelConnected = !!(angeloneStatus.authenticated || angeloneStatus.configured);
+  const isUpstoxConnected = !!upstoxStatus.authenticated;
+  const isSelectedIndianBrokerConnected = isIndianExchange && (
+    (selectedIndianBroker === 'AngelOne' && isAngelConnected) ||
+    (selectedIndianBroker === 'Upstox' && isUpstoxConnected)
+  );
 
   function isLiveBrokerConnected(exchange) {
     const ex = exchanges.find(e => e.name === exchange);
     if (!ex) return false;
-    const broker = ex.broker.toLowerCase();
-    if (broker === 'alpaca') {
-      return brokerStatus.alpaca?.connected && !brokerStatus.alpaca?.paperMode;
+    if (['NSE', 'BSE'].includes(exchange)) {
+      return isSelectedIndianBrokerConnected || isAngelConnected || isUpstoxConnected;
     }
-    if (broker === 'angelone') {
-      return !!brokerStatus.angelone?.connected || brokerStatus.angeloneConfigured || brokerStatus.angeloneAuthenticated;
+    const broker = (ex.broker || ex.name).toLowerCase();
+    if (broker === 'alpaca') {
+      return !!brokerStatus.alpaca?.connected && !brokerStatus.alpaca?.paperMode;
     }
     if (broker === 'jupiter') {
       return !!brokerStatus.jupiterConfigured || !!brokerStatus.jupiter?.connected;
     }
-    if (broker === 'upstox') {
-      return upstoxStatus.authenticated;
-    }
     return !!brokerStatus[broker]?.connected;
   }
-
-  const isIndianExchange = ['NSE', 'BSE', 'AngelOne'].includes(exchangeName);
-  const needsUpstoxConnection = isIndianExchange && mode === 'live' && !brokerStatus.angelone?.connected && !brokerStatus.angeloneAuthenticated && !upstoxStatus.authenticated;
 
   const currentBrokerConnected = isLiveBrokerConnected(exchangeName);
 
@@ -103,6 +122,7 @@ export default function Trading() {
   useEffect(() => {
     loadConnections();
     loadBrokerStatus();
+    loadAngelOneStatus();
     loadUpstoxStatus();
     loadWallet();
     loadPositions();
@@ -113,12 +133,22 @@ export default function Trading() {
     if (searchParams.get('upstox_connected') === 'true') {
       setMessage({ text: 'Successfully connected to Upstox! NSE/BSE live trading is now available.', type: 'success' });
       setSearchParams({});
+      setSelectedIndianBroker('Upstox');
       loadUpstoxStatus();
     } else if (searchParams.get('upstox_error')) {
       setMessage({ text: `Upstox connection failed: ${searchParams.get('upstox_error')}`, type: 'error' });
       setSearchParams({});
     }
   }, []);
+
+  // Auto-switch to connected broker if available
+  useEffect(() => {
+    if (isAngelConnected && !isUpstoxConnected) {
+      setSelectedIndianBroker('AngelOne');
+    } else if (!isAngelConnected && isUpstoxConnected) {
+      setSelectedIndianBroker('Upstox');
+    }
+  }, [angeloneStatus.authenticated, angeloneStatus.configured, upstoxStatus.authenticated]);
 
   // Load Upstox data when authenticated
   useEffect(() => {
@@ -128,6 +158,15 @@ export default function Trading() {
       loadUpstoxHoldings();
     }
   }, [upstoxStatus.authenticated]);
+
+  // Load Angel One data when authenticated or configured
+  useEffect(() => {
+    if (angeloneStatus.authenticated || angeloneStatus.configured) {
+      loadAngelOneFunds();
+      loadAngelOnePositions();
+      loadAngelOneHoldings();
+    }
+  }, [angeloneStatus.authenticated, angeloneStatus.configured]);
 
   // Load quote when symbol changes
   useEffect(() => {
@@ -188,6 +227,9 @@ export default function Trading() {
       if (response.data.upstoxAuthenticated) {
         status.upstox = { connected: true };
       }
+      if (response.data.angeloneAuthenticated || response.data.angeloneConfigured) {
+        status.angelone = { connected: true };
+      }
       try {
         const alpacaRes = await api.get('/api/broker/alpaca/status');
         if (alpacaRes.data.configured) {
@@ -200,6 +242,93 @@ export default function Trading() {
     }
   }
 
+  // ============ ANGEL ONE METHODS ============
+  async function loadAngelOneStatus() {
+    try {
+      const response = await api.get('/api/broker/angelone/status');
+      setAngeloneStatus({
+        configured: !!response.data.configured,
+        authenticated: !!response.data.authenticated,
+        source: response.data.source
+      });
+      if (response.data.authenticated || response.data.configured) {
+        loadAngelOneFunds();
+        loadAngelOneHoldings();
+        loadAngelOnePositions();
+      }
+    } catch {
+      setAngeloneStatus({ configured: false, authenticated: false });
+    }
+  }
+
+  async function loadAngelOneFunds() {
+    try {
+      const response = await api.get('/api/angelone/funds');
+      setAngeloneFunds(response.data.funds || { net: 0, availableCash: 0, collateral: 0, utilizedMargin: 0 });
+    } catch (err) {
+      console.error('Failed to load Angel One funds:', err);
+    }
+  }
+
+  async function loadAngelOneHoldings() {
+    try {
+      const response = await api.get('/api/angelone/holdings');
+      setAngeloneHoldings(response.data.holdings || []);
+    } catch (err) {
+      console.error('Failed to load Angel One holdings:', err);
+    }
+  }
+
+  async function loadAngelOnePositions() {
+    try {
+      const response = await api.get('/api/angelone/positions');
+      setAngelonePositions(response.data.positions || []);
+    } catch (err) {
+      console.error('Failed to load Angel One positions:', err);
+    }
+  }
+
+  async function handleConnectAngelOne(e) {
+    e.preventDefault();
+    setConnectingAngel(true);
+    setMessage({ text: '', type: '' });
+    try {
+      const payload = {
+        exchange: 'AngelOne',
+        apiKey: angelForm.apiKey,
+        clientCode: angelForm.clientCode,
+        password: angelForm.password,
+        totpSecret: angelForm.totpSecret,
+        totp: angelForm.totp
+      };
+      await api.post('/api/broker/connect', payload);
+      setMessage({ text: 'Angel One SmartAPI connected successfully!', type: 'success' });
+      setShowAngelConnectModal(false);
+      setSelectedIndianBroker('AngelOne');
+      loadAngelOneStatus();
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    } finally {
+      setConnectingAngel(false);
+    }
+  }
+
+  async function disconnectAngelOne() {
+    try {
+      await api.delete('/api/broker/disconnect/AngelOne');
+      setAngeloneStatus({ configured: false, authenticated: false });
+      setAngeloneFunds({ net: 0, availableCash: 0, collateral: 0, utilizedMargin: 0 });
+      setAngelonePositions([]);
+      setAngeloneHoldings([]);
+      setMessage({ text: 'Disconnected from Angel One', type: 'success' });
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    }
+  }
+
+  // ============ UPSTOX METHODS ============
   async function loadUpstoxStatus() {
     try {
       const response = await api.get('/api/upstox/status');
@@ -226,6 +355,7 @@ export default function Trading() {
       setUpstoxPositions([]);
       setUpstoxHoldings([]);
       setMessage({ text: 'Disconnected from Upstox', type: 'success' });
+      loadBrokerStatus();
     } catch (error) {
       setMessage({ text: errorMessage(error), type: 'error' });
     }
@@ -277,6 +407,7 @@ export default function Trading() {
     }
   }
 
+  // ============ GENERAL TRADING METHODS ============
   async function loadWallet() {
     try {
       const response = await api.get('/api/wallet/summary');
@@ -424,9 +555,16 @@ export default function Trading() {
       return;
     }
 
-    if (mode === 'live' && isIndianExchange && !upstoxStatus.authenticated) {
-      setMessage({ text: 'Please connect your Upstox account for live trading on NSE/BSE', type: 'error' });
-      return;
+    if (mode === 'live' && isIndianExchange) {
+      if (selectedIndianBroker === 'AngelOne' && !isAngelConnected) {
+        setMessage({ text: 'Please connect Angel One SmartAPI for live trading on NSE/BSE', type: 'error' });
+        setShowAngelConnectModal(true);
+        return;
+      }
+      if (selectedIndianBroker === 'Upstox' && !isUpstoxConnected) {
+        setMessage({ text: 'Please connect your Upstox account for live trading on NSE/BSE', type: 'error' });
+        return;
+      }
     }
 
     const orderData = {
@@ -436,6 +574,7 @@ export default function Trading() {
       side,
       quantity: Number(qty),
       mode,
+      broker: isIndianExchange ? selectedIndianBroker : undefined,
       price: orderType !== 'market' ? Number(price) : quote?.price,
       stopPrice: (orderType === 'stop_loss' || orderType === 'stop_limit') ? Number(stopPrice) : undefined,
       takeProfitPrice: orderType === 'take_profit' ? Number(takeProfitPrice || price) : undefined
@@ -460,21 +599,37 @@ export default function Trading() {
 
       let response;
       if (orderData.mode === 'live' && isIndianExchange) {
-        response = await api.post('/api/upstox/orders/place', {
-          symbol: orderData.symbol,
-          exchange: orderData.exchangeName,
-          side: orderData.side,
-          quantity: orderData.quantity,
-          orderType: orderData.orderType,
-          price: orderData.price,
-          stopPrice: orderData.stopPrice,
-          product: 'D'
-        });
-
-        const orderId = response.data.order?.orderId || response.data.order?.order_id;
-        if (orderId) {
-          setOrderStatus({ orderId, status: 'submitted', message: 'Order submitted, checking status...' });
-          pollOrderStatus(orderId);
+        if (selectedIndianBroker === 'AngelOne') {
+          response = await api.post('/api/angelone/orders/place', {
+            symbol: orderData.symbol,
+            exchange: orderData.exchangeName,
+            side: orderData.side,
+            quantity: orderData.quantity,
+            orderType: orderData.orderType,
+            price: orderData.price,
+            productType: 'DELIVERY'
+          });
+          const orderId = response.data.order?.orderId || response.data.order?.orderid;
+          if (orderId) {
+            setOrderStatus({ orderId, status: 'submitted', message: 'Order submitted to Angel One, checking status...' });
+            pollAngelOrderStatus(orderId);
+          }
+        } else {
+          response = await api.post('/api/upstox/orders/place', {
+            symbol: orderData.symbol,
+            exchange: orderData.exchangeName,
+            side: orderData.side,
+            quantity: orderData.quantity,
+            orderType: orderData.orderType,
+            price: orderData.price,
+            stopPrice: orderData.stopPrice,
+            product: 'D'
+          });
+          const orderId = response.data.order?.orderId || response.data.order?.order_id;
+          if (orderId) {
+            setOrderStatus({ orderId, status: 'submitted', message: 'Order submitted to Upstox, checking status...' });
+            pollUpstoxOrderStatus(orderId);
+          }
         }
       } else {
         response = await api.post('/api/orders/place', payload);
@@ -488,9 +643,16 @@ export default function Trading() {
       loadPositions();
       loadOpenOrders();
       loadRecentTrades();
-      if (isIndianExchange && upstoxStatus.authenticated) {
-        loadUpstoxFunds();
-        loadUpstoxPositions();
+      if (isIndianExchange) {
+        if (selectedIndianBroker === 'AngelOne') {
+          loadAngelOneFunds();
+          loadAngelOnePositions();
+          loadAngelOneHoldings();
+        } else if (upstoxStatus.authenticated) {
+          loadUpstoxFunds();
+          loadUpstoxPositions();
+          loadUpstoxHoldings();
+        }
       }
     } catch (error) {
       if (!handleUpstoxTokenExpiry(error)) {
@@ -502,7 +664,43 @@ export default function Trading() {
     }
   }
 
-  async function pollOrderStatus(orderId) {
+  async function pollAngelOrderStatus(orderId) {
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setOrderStatus(prev => ({ ...prev, status: 'unknown', message: 'Angel One order placed (status check complete)' }));
+        return;
+      }
+      attempts++;
+
+      try {
+        const response = await api.get(`/api/angelone/orders/${orderId}/status`);
+        const order = response.data.order;
+        const status = order?.status?.toLowerCase();
+
+        if (['complete', 'filled', 'executed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'filled', message: 'Angel One order executed successfully!' });
+          setMessage({ text: 'Angel One order executed successfully!', type: 'success' });
+          loadAngelOneFunds();
+          loadAngelOnePositions();
+        } else if (['rejected', 'cancelled', 'failed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'failed', message: order.rejectionReason || 'Order rejected' });
+          setMessage({ text: `Angel One order failed: ${order.rejectionReason || 'Unknown error'}`, type: 'error' });
+        } else {
+          setOrderStatus({ orderId, status: 'pending', message: `Order ${status || 'placed'}...` });
+          setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        console.error('Angel One status poll error:', error);
+      }
+    };
+
+    poll();
+  }
+
+  async function pollUpstoxOrderStatus(orderId) {
     let attempts = 0;
     const maxAttempts = 10;
 
@@ -530,7 +728,6 @@ export default function Trading() {
         }
       } catch (error) {
         console.error('Order status poll failed:', error);
-        setOrderStatus(prev => ({ ...prev, status: 'unknown', message: 'Failed to check order status' }));
       }
     };
 
@@ -594,14 +791,21 @@ export default function Trading() {
 
   const total = Number(qty || 0) * Number(price || quote?.price || 0);
 
-  // Use Upstox funds for live Indian trading, paper wallet otherwise
-  const isLiveIndian = mode === 'live' && isIndianExchange && upstoxStatus.authenticated;
-  const buyingPower = isLiveIndian
-    ? (upstoxFunds?.equity?.availableMargin || 0)
-    : (wallet?.balance || 0);
+  // Live funds based on active broker
+  const isLiveIndian = mode === 'live' && isIndianExchange && isSelectedIndianBrokerConnected;
+  let buyingPower = wallet?.balance || 0;
+
+  if (isLiveIndian) {
+    if (selectedIndianBroker === 'AngelOne') {
+      buyingPower = angeloneFunds?.availableCash || angeloneFunds?.net || 0;
+    } else if (selectedIndianBroker === 'Upstox') {
+      buyingPower = upstoxFunds?.equity?.availableMargin || upstoxFunds?.totalAvailable || 0;
+    }
+  }
+
   const canAfford = side === 'buy' ? buyingPower >= total : true;
   const isPositive = quote?.change >= 0;
-  const displayCurrency = isLiveIndian ? '₹' : '$';
+  const displayCurrency = isIndianExchange ? '₹' : '$';
 
   return (
     <div className="trading-page-v2">
@@ -635,34 +839,91 @@ export default function Trading() {
             </Link>
           )}
         </div>
-
-        {/* Upstox Connection Status for Indian Exchanges */}
-        {isIndianExchange && (
-          <div className={`upstox-status-bar ${upstoxStatus.authenticated ? 'connected' : ''}`}>
-            {upstoxStatus.authenticated ? (
-              <>
-                <CheckCircle size={14} />
-                <span>Upstox Connected</span>
-                <Badge tone="green" small>LIVE</Badge>
-                <button className="btn-disconnect-small" onClick={disconnectUpstox}>Disconnect</button>
-              </>
-            ) : upstoxStatus.configured ? (
-              <>
-                <AlertTriangle size={14} />
-                <span>Connect Upstox for live trading</span>
-                <button className="btn-connect-upstox" onClick={connectUpstox}>
-                  <ExternalLink size={12} /> Connect Upstox
-                </button>
-              </>
-            ) : (
-              <>
-                <AlertTriangle size={14} />
-                <span>Upstox not configured</span>
-              </>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Indian Broker Selection Bar (Only shown for NSE & BSE) */}
+      {isIndianExchange && (
+        <div className="indian-broker-toolbar">
+          <div className="broker-toolbar-label">
+            <span>Trade on {exchangeName} via:</span>
+          </div>
+
+          <div className="broker-pills-list">
+            {/* Angel One Broker Pill */}
+            <div
+              className={`broker-pill-item ${selectedIndianBroker === 'AngelOne' ? 'active' : ''} ${isAngelConnected ? 'connected' : ''}`}
+              onClick={() => setSelectedIndianBroker('AngelOne')}
+            >
+              <div className="broker-pill-header">
+                <strong>Angel One</strong>
+                {angeloneStatus.authenticated ? (
+                  <Badge tone="green" small><CheckCircle size={10} /> Active</Badge>
+                ) : angeloneStatus.configured ? (
+                  <Badge tone="blue" small><CheckCircle size={10} /> Configured</Badge>
+                ) : (
+                  <Badge tone="yellow" small><KeyRound size={10} /> Connect</Badge>
+                )}
+              </div>
+              <span className="broker-pill-desc">SmartAPI (NSE/BSE)</span>
+              <div className="broker-pill-actions" onClick={e => e.stopPropagation()}>
+                {isAngelConnected ? (
+                  <button className="btn-disconnect-small" onClick={disconnectAngelOne}>Disconnect</button>
+                ) : (
+                  <button className="btn-connect-pill angel" onClick={() => setShowAngelConnectModal(true)}>
+                    <KeyRound size={11} /> Connect
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Upstox Broker Pill */}
+            <div
+              className={`broker-pill-item ${selectedIndianBroker === 'Upstox' ? 'active' : ''} ${isUpstoxConnected ? 'connected' : ''}`}
+              onClick={() => setSelectedIndianBroker('Upstox')}
+            >
+              <div className="broker-pill-header">
+                <strong>Upstox</strong>
+                {upstoxStatus.authenticated ? (
+                  <Badge tone="green" small><CheckCircle size={10} /> Connected</Badge>
+                ) : (
+                  <Badge tone="yellow" small><KeyRound size={10} /> Connect</Badge>
+                )}
+              </div>
+              <span className="broker-pill-desc">OAuth (NSE/BSE)</span>
+              <div className="broker-pill-actions" onClick={e => e.stopPropagation()}>
+                {isUpstoxConnected ? (
+                  <button className="btn-disconnect-small" onClick={disconnectUpstox}>Disconnect</button>
+                ) : (
+                  <button className="btn-connect-pill upstox" onClick={connectUpstox}>
+                    <ExternalLink size={11} /> Connect
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Live warning banner if active broker is not connected */}
+          {mode === 'live' && !isSelectedIndianBrokerConnected && (
+            <div className="indian-broker-warning">
+              <AlertTriangle size={15} />
+              <span>
+                Connect <strong>{selectedIndianBroker === 'AngelOne' ? 'Angel One SmartAPI' : 'Upstox'}</strong> for live trading on {exchangeName}.
+              </span>
+              <div className="warning-buttons">
+                {selectedIndianBroker === 'AngelOne' ? (
+                  <button className="btn-action-warning angel" onClick={() => setShowAngelConnectModal(true)}>
+                    <KeyRound size={12} /> Connect Angel One
+                  </button>
+                ) : (
+                  <button className="btn-action-warning upstox" onClick={connectUpstox}>
+                    <ExternalLink size={12} /> Connect Upstox
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search Section */}
       <div className="search-section">
@@ -673,9 +934,12 @@ export default function Trading() {
               <>
                 <strong>{symbol}</strong>
                 <Badge small>{exchangeName}</Badge>
+                {isIndianExchange && (
+                  <span className="search-broker-tag">via {selectedIndianBroker === 'AngelOne' ? 'Angel One' : 'Upstox'}</span>
+                )}
               </>
             ) : (
-              'Search for stocks, crypto...'
+              `Search for ${exchangeName} stocks...`
             )}
           </span>
           {symbol && (
@@ -703,40 +967,34 @@ export default function Trading() {
               <Search size={18} />
               <input
                 type="text"
-                placeholder={`Search ${exchangeName} stocks...`}
+                placeholder={`Search ${exchangeName} stocks (e.g. RELIANCE, TCS, INFY)...`}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 autoFocus
               />
-              {searchLoading && <RefreshCw size={16} className="spin" />}
-              <button className="btn-close" onClick={() => setShowSearch(false)}>
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowSearch(false)}><X size={18} /></button>
             </div>
-            <div className="search-results">
-              {searchResults.length > 0 ? (
-                searchResults.map(s => (
-                  <div key={`${s.symbol}-${s.exchange}`} className="search-result-item" onClick={() => selectSymbol(s)}>
-                    <div className="result-info">
-                      <span className="result-symbol">{s.symbol}</span>
-                      <span className="result-name">{s.name}</span>
+            <div className="search-modal-results">
+              {searchLoading ? (
+                <div className="search-loading"><RefreshCw size={20} className="spin" /> Searching {exchangeName}...</div>
+              ) : searchResults.length > 0 ? (
+                searchResults.map(res => (
+                  <div key={res.symbol} className="search-result-item" onClick={() => selectSymbol(res)}>
+                    <div className="result-main">
+                      <strong>{res.symbol}</strong>
+                      <span>{res.name}</span>
                     </div>
-                    <Badge small>{s.exchange}</Badge>
+                    <Badge small>{res.exchange || exchangeName}</Badge>
                   </div>
                 ))
-              ) : searchQuery ? (
-                <div className="search-empty">{searchLoading ? 'Searching...' : `No results for "${searchQuery}"`}</div>
+              ) : searchQuery.length >= 1 ? (
+                <div className="search-empty">No results found for "{searchQuery}" on {exchangeName}</div>
               ) : (
                 <div className="search-hints">
-                  <p>Popular searches:</p>
-                  <div className="hint-chips">
-                    {(exchangeName === 'NSE' || exchangeName === 'BSE'
-                      ? ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK']
-                      : ['Binance', 'Pionex', 'Kraken'].includes(exchangeName)
-                        ? ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT']
-                        : ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-                    ).map(s => (
-                      <button key={s} onClick={() => { setSearchQuery(s); }}>{s}</button>
+                  <span className="hints-title">Popular {exchangeName} Stocks:</span>
+                  <div className="quick-tags">
+                    {(isIndianExchange ? ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'ITC'] : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA']).map(tag => (
+                      <button key={tag} onClick={() => selectSymbol({ symbol: tag })}>{tag}</button>
                     ))}
                   </div>
                 </div>
@@ -746,255 +1004,140 @@ export default function Trading() {
         </div>
       )}
 
-      {/* Main Content */}
-      {symbol && quote ? (
-        <div className="trading-content">
-          {/* Quote Header */}
-          <div className="quote-header">
-            <div className="quote-info">
-              <h1>{quote.symbol}</h1>
-              <span className="quote-exchange">{quote.exchange}</span>
-            </div>
-            <div className="quote-price-section">
-              <span className="current-price">{currencySymbol}{formatPrice(quote.price)}</span>
-              <div className={`price-change ${isPositive ? 'gain' : 'loss'}`}>
-                {isPositive ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
-                <span>
-                  {isPositive ? '+' : ''}{currencySymbol}{formatPrice(Math.abs(quote.change))}
-                  ({isPositive ? '+' : ''}{quote.changePercent?.toFixed(2)}%)
-                </span>
+      {/* Symbol Loaded View */}
+      {symbol ? (
+        <div className="trading-content-grid">
+          {/* Main Chart & Trading Panel */}
+          <div className="trading-main">
+            {/* Stock Header */}
+            <div className="symbol-header-card">
+              <div className="symbol-meta">
+                <div className="title-row">
+                  <h2>{symbol}</h2>
+                  <Badge tone="blue">{exchangeName}</Badge>
+                  {isIndianExchange && (
+                    <Badge tone="neutral" small>{selectedIndianBroker}</Badge>
+                  )}
+                </div>
+                <span className="company-name">{quote?.name || quote?.description || symbol}</span>
+              </div>
+
+              <div className="symbol-pricing">
+                <div className="price-main">
+                  <span className="current-price">
+                    {currencySymbol}{formatPrice(quote?.price)}
+                  </span>
+                  {quote?.change !== undefined && (
+                    <span className={`change-pill ${isPositive ? 'positive' : 'negative'}`}>
+                      {isPositive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                      {isPositive ? '+' : ''}{formatPrice(quote.change)} ({quote.changePercent?.toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+                <div className="price-sub">
+                  <span>Open: {currencySymbol}{formatPrice(quote?.open)}</span>
+                  <span>High: {currencySymbol}{formatPrice(quote?.high)}</span>
+                  <span>Low: {currencySymbol}{formatPrice(quote?.low)}</span>
+                  <span>Prev Close: {currencySymbol}{formatPrice(quote?.close)}</span>
+                </div>
               </div>
             </div>
-            <div className="quote-stats">
-              <div className="stat">
-                <span className="label">Open</span>
-                <span className="value">{currencySymbol}{formatPrice(quote.open)}</span>
+
+            {/* Chart Area */}
+            <div className="chart-card">
+              <div className="chart-controls">
+                <div className="interval-buttons">
+                  {['1m', '5m', '15m', '1h', '1d', '1w'].map(int => (
+                    <button
+                      key={int}
+                      className={chartInterval === int ? 'active' : ''}
+                      onClick={() => setChartInterval(int)}
+                    >
+                      {int.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-refresh" onClick={loadChart} disabled={loading.chart}>
+                  <RefreshCw size={14} className={loading.chart ? 'spin' : ''} />
+                </button>
               </div>
-              <div className="stat">
-                <span className="label">High</span>
-                <span className="value gain">{currencySymbol}{formatPrice(quote.high24h)}</span>
-              </div>
-              <div className="stat">
-                <span className="label">Low</span>
-                <span className="value loss">{currencySymbol}{formatPrice(quote.low24h)}</span>
-              </div>
-              <div className="stat">
-                <span className="label">Volume</span>
-                <span className="value">{(quote.volume24h || 0).toLocaleString()}</span>
+
+              <div className="chart-wrapper">
+                {loading.chart ? (
+                  <div className="chart-loading"><RefreshCw size={24} className="spin" /> Loading chart...</div>
+                ) : chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0.4} />
+                          <stop offset="95%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1d2938" />
+                      <XAxis dataKey="time" tickFormatter={formatChartTime} stroke="#6b7a90" fontSize={11} />
+                      <YAxis domain={['auto', 'auto']} stroke="#6b7a90" fontSize={11} tickFormatter={val => `${currencySymbol}${formatPrice(val)}`} />
+                      <Tooltip
+                        contentStyle={{ background: '#0a0f15', border: '1px solid #223044', borderRadius: '8px' }}
+                        labelFormatter={formatChartTime}
+                        formatter={val => [`${currencySymbol}${formatPrice(val)}`, 'Price']}
+                      />
+                      <Area type="monotone" dataKey="close" stroke={isPositive ? '#00ff88' : '#ff4757'} fillOpacity={1} fill="url(#colorPrice)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty">No historical candle data available for {symbol}</div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Trading Layout */}
-          <div className="trading-layout">
-            {/* Left Panel - Chart & Data */}
-            <div className="trading-left">
-              {/* Tabs */}
-              <div className="data-tabs">
-                <button className={activeTab === 'chart' ? 'active' : ''} onClick={() => setActiveTab('chart')}>
-                  <BarChart2 size={14} /> Chart
+          {/* Right Side: Order Entry & Active Wallet */}
+          <div className="trading-sidebar">
+            {/* Order Placement Form */}
+            <div className="order-entry-card">
+              <div className="side-toggle">
+                <button className={`buy-btn ${side === 'buy' ? 'active' : ''}`} onClick={() => setSide('buy')}>
+                  BUY
                 </button>
-                <button className={activeTab === 'orderbook' ? 'active' : ''} onClick={() => setActiveTab('orderbook')}>
-                  <Activity size={14} /> Order Book
-                </button>
-                <button className={activeTab === 'trades' ? 'active' : ''} onClick={() => setActiveTab('trades')}>
-                  <Clock size={14} /> Trades
+                <button className={`sell-btn ${side === 'sell' ? 'active' : ''}`} onClick={() => setSide('sell')}>
+                  SELL
                 </button>
               </div>
 
-              {/* Chart Panel */}
-              {activeTab === 'chart' && (
-                <div className="chart-panel">
-                  <div className="chart-header">
-                    <div className="chart-intervals">
-                      {['1m', '5m', '15m', '1h', '1d', '1w'].map(int => (
-                        <button
-                          key={int}
-                          className={chartInterval === int ? 'active' : ''}
-                          onClick={() => setChartInterval(int)}
-                        >
-                          {int}
-                        </button>
-                      ))}
-                    </div>
-                    <button className="btn-refresh" onClick={loadChart} disabled={loading.chart}>
-                      <RefreshCw size={14} className={loading.chart ? 'spin' : ''} />
-                    </button>
-                  </div>
-                  <div className="chart-container">
-                    {chartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={350}>
-                        <AreaChart data={chartData}>
-                          <defs>
-                            <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1d2938" />
-                          <XAxis
-                            dataKey="time"
-                            tickFormatter={formatChartTime}
-                            stroke="#6b7a90"
-                            fontSize={11}
-                            tickLine={false}
-                          />
-                          <YAxis
-                            domain={['auto', 'auto']}
-                            stroke="#6b7a90"
-                            fontSize={11}
-                            tickLine={false}
-                            tickFormatter={(v) => formatPrice(v)}
-                          />
-                          <Tooltip
-                            contentStyle={{ background: '#101720', border: '1px solid #223044', borderRadius: '8px' }}
-                            labelFormatter={(t) => new Date(t).toLocaleString()}
-                            formatter={(v) => [`${currencySymbol}${formatPrice(v)}`, 'Price']}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="close"
-                            stroke={isPositive ? '#00ff88' : '#ff4757'}
-                            fillOpacity={1}
-                            fill="url(#colorPrice)"
-                            strokeWidth={2}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="chart-empty">
-                        {loading.chart ? <RefreshCw size={24} className="spin" /> : 'No chart data available'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Order Book Panel */}
-              {activeTab === 'orderbook' && (
-                <div className="orderbook-panel">
-                  <div className="orderbook-container">
-                    <div className="orderbook-side asks">
-                      <div className="orderbook-title">Asks (Sell)</div>
-                      {orderBook.asks.slice(0, 10).reverse().map((ask, i) => (
-                        <div key={i} className="orderbook-row" onClick={() => setPrice(String(ask.price))}>
-                          <span className="price loss">{currencySymbol}{formatPrice(ask.price)}</span>
-                          <span className="qty">{ask.quantity.toFixed(4)}</span>
-                          <div className="depth-bar ask" style={{ width: `${Math.min(100, ask.quantity * 10)}%` }} />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="orderbook-spread">
-                      <span>Spread: {currencySymbol}{formatPrice((orderBook.asks[0]?.price || 0) - (orderBook.bids[0]?.price || 0))}</span>
-                    </div>
-                    <div className="orderbook-side bids">
-                      <div className="orderbook-title">Bids (Buy)</div>
-                      {orderBook.bids.slice(0, 10).map((bid, i) => (
-                        <div key={i} className="orderbook-row" onClick={() => setPrice(String(bid.price))}>
-                          <span className="price gain">{currencySymbol}{formatPrice(bid.price)}</span>
-                          <span className="qty">{bid.quantity.toFixed(4)}</span>
-                          <div className="depth-bar bid" style={{ width: `${Math.min(100, bid.quantity * 10)}%` }} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Recent Trades Panel */}
-              {activeTab === 'trades' && (
-                <div className="trades-panel">
-                  <div className="trades-header">
-                    <span>Price</span>
-                    <span>Amount</span>
-                    <span>Time</span>
-                  </div>
-                  <div className="trades-list">
-                    {recentTrades.map((trade, i) => (
-                      <div key={i} className={`trade-row ${trade.side}`}>
-                        <span className={trade.side === 'buy' ? 'gain' : 'loss'}>
-                          {currencySymbol}{formatPrice(trade.price)}
-                        </span>
-                        <span>{trade.quantity.toFixed(4)}</span>
-                        <span>{formatTime(trade.time)}</span>
-                      </div>
-                    ))}
-                    {recentTrades.length === 0 && <div className="empty">No recent trades</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right Panel - Order Form */}
-            <div className="trading-right">
-              <div className="order-form-panel">
-                <div className="form-header">
-                  <h3>Place Order</h3>
-                  <Badge tone={mode === 'paper' ? 'yellow' : 'green'}>
-                    {mode === 'paper' ? 'Paper' : 'Live'}
-                  </Badge>
-                </div>
-
-                {mode === 'live' && !currentBrokerConnected && (
-                  <div className="broker-warning">
-                    <AlertTriangle size={14} />
-                    <span>Connect {currentExchange.broker} for live trading</span>
-                    <Link to="/exchanges">Connect</Link>
-                  </div>
-                )}
-
-                {/* Side Toggle */}
-                <div className="side-toggle">
-                  <button className={side === 'buy' ? 'active buy' : ''} onClick={() => setSide('buy')}>
-                    <Plus size={14} /> Buy
+              <div className="order-types">
+                {['market', 'limit', 'stop_loss'].map(t => (
+                  <button
+                    key={t}
+                    className={orderType === t ? 'active' : ''}
+                    onClick={() => setOrderType(t)}
+                  >
+                    {t.replace('_', ' ').toUpperCase()}
                   </button>
-                  <button className={side === 'sell' ? 'active sell' : ''} onClick={() => setSide('sell')}>
-                    <Minus size={14} /> Sell
-                  </button>
-                </div>
+                ))}
+              </div>
 
-                {/* Order Type */}
-                <div className="form-group">
-                  <label>
-                    <InfoLabel label="Order Type" tip="Market: Execute immediately. Limit: Wait for your price." />
-                  </label>
-                  <select value={orderType} onChange={e => setOrderType(e.target.value)}>
-                    <option value="market">Market Order</option>
-                    <option value="limit">Limit Order</option>
-                    <option value="stop_loss">Stop Loss</option>
-                    <option value="stop_limit">Stop Limit</option>
-                  </select>
-                </div>
-
-                {/* Quantity */}
-                <div className="form-group">
+              <div className="form-inputs">
+                <div className="input-group">
                   <label>Quantity</label>
-                  <div className="qty-input">
-                    <button onClick={() => setQty(String(Math.max(0, Number(qty) - 1)))}>-</button>
-                    <input type="number" value={qty} onChange={e => setQty(e.target.value)} min="0" step="1" />
-                    <button onClick={() => setQty(String(Number(qty) + 1))}>+</button>
+                  <div className="qty-control">
+                    <button onClick={() => setQty(String(Math.max(1, Number(qty) - 1)))}><Minus size={12} /></button>
+                    <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} />
+                    <button onClick={() => setQty(String(Number(qty) + 1))}><Plus size={12} /></button>
                   </div>
                 </div>
 
-                {/* Price */}
                 {orderType !== 'market' && (
-                  <div className="form-group">
-                    <label>{orderType === 'limit' ? 'Limit Price' : 'Price'}</label>
-                    <div className="price-input">
-                      <span className="currency">{currencySymbol}</span>
-                      <input type="number" value={price} onChange={e => setPrice(e.target.value)} min="0" step="0.01" />
-                    </div>
+                  <div className="input-group">
+                    <label>Limit Price ({currencySymbol})</label>
+                    <input type="number" step="0.05" value={price} onChange={e => setPrice(e.target.value)} placeholder="0.00" />
                   </div>
                 )}
 
-                {/* Stop Price */}
-                {(orderType === 'stop_loss' || orderType === 'stop_limit') && (
-                  <div className="form-group">
-                    <label>Stop Price</label>
-                    <div className="price-input">
-                      <span className="currency">{currencySymbol}</span>
-                      <input type="number" value={stopPrice} onChange={e => setStopPrice(e.target.value)} min="0" step="0.01" />
-                    </div>
+                {orderType === 'stop_loss' && (
+                  <div className="input-group">
+                    <label>Stop Price ({currencySymbol})</label>
+                    <input type="number" step="0.05" value={stopPrice} onChange={e => setStopPrice(e.target.value)} placeholder="0.00" />
                   </div>
                 )}
 
@@ -1005,202 +1148,118 @@ export default function Trading() {
                     <strong>{currencySymbol}{formatPrice(total)}</strong>
                   </div>
                   <div className="summary-row">
-                    <span>Available</span>
+                    <span>Available ({isIndianExchange ? (selectedIndianBroker === 'AngelOne' ? 'Angel One' : 'Upstox') : 'Wallet'})</span>
                     <span className={canAfford ? 'gain' : 'loss'}>
                       {displayCurrency}{formatPrice(buyingPower)}
                     </span>
                   </div>
-                  {isLiveIndian && upstoxStatus.authenticated && (
-                    <div className="summary-row upstox-status">
-                      <span><CheckCircle size={12} /> Upstox Connected</span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Place Order Button */}
                 <button
                   className={`place-order-btn ${side}`}
-                  onClick={needsUpstoxConnection ? connectUpstox : placeOrder}
-                  disabled={placingOrder || !symbol || (side === 'buy' && !canAfford && !needsUpstoxConnection)}
+                  onClick={placeOrder}
+                  disabled={placingOrder || !symbol || (side === 'buy' && !canAfford && mode === 'live')}
                 >
                   {placingOrder && <RefreshCw size={16} className="spin" />}
-                  {needsUpstoxConnection
-                    ? 'Connect Upstox to Trade'
-                    : mode === 'live' && !currentBrokerConnected
-                      ? 'Connect Broker'
-                      : `${side === 'buy' ? 'Buy' : 'Sell'} ${symbol}`}
+                  {mode === 'live' && isIndianExchange && !isSelectedIndianBrokerConnected
+                    ? `Connect ${selectedIndianBroker === 'AngelOne' ? 'Angel One' : 'Upstox'} to Trade`
+                    : `${side === 'buy' ? 'Buy' : 'Sell'} ${symbol} (${mode.toUpperCase()})`}
                 </button>
 
                 {message.text && (
                   <div className={`form-message ${message.type}`}>{message.text}</div>
                 )}
               </div>
+            </div>
 
-              {/* Wallet Card */}
-              <div className="wallet-card">
-                <div className="wallet-header">
-                  <h4>
-                    <Wallet size={14} />
-                    {isLiveIndian ? 'Upstox Account' : mode === 'paper' ? 'Paper Wallet' : 'Live Wallet'}
-                  </h4>
-                  {mode === 'paper' && (
-                    <button className="btn-reset" onClick={resetWallet} disabled={loading.resetWallet}>
-                      <RefreshCw size={12} className={loading.resetWallet ? 'spin' : ''} />
-                    </button>
-                  )}
-                  {isLiveIndian && (
-                    <button className="btn-refresh-small" onClick={loadUpstoxFunds}>
-                      <RefreshCw size={12} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Upstox Funds - Live Indian Trading */}
-                {isLiveIndian ? (
-                  upstoxFunds ? (
-                    <div className="wallet-body upstox">
-                      <div className="wallet-row">
-                        <span>Available Margin</span>
-                        <strong className="gain">₹{formatPrice(upstoxFunds.equity?.availableMargin)}</strong>
-                      </div>
-                      <div className="wallet-row">
-                        <span>Used Margin</span>
-                        <strong>₹{formatPrice(upstoxFunds.equity?.usedMargin)}</strong>
-                      </div>
-                      <div className="wallet-row">
-                        <span>Payin</span>
-                        <strong>₹{formatPrice(upstoxFunds.equity?.payin)}</strong>
-                      </div>
-                      <div className="wallet-row total">
-                        <span>Total Available</span>
-                        <strong className="gain">₹{formatPrice(upstoxFunds.totalAvailable)}</strong>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="wallet-loading">Loading Upstox funds...</div>
-                  )
-                ) : (
-                  /* Paper/Other Wallet */
-                  wallet ? (
-                    <div className="wallet-body">
-                      <div className="wallet-row">
-                        <span>Cash</span>
-                        <strong>${formatPrice(wallet.balance)}</strong>
-                      </div>
-                      <div className="wallet-row">
-                        <span>Portfolio</span>
-                        <strong>${formatPrice(wallet.portfolioValue)}</strong>
-                      </div>
-                      <div className="wallet-row total">
-                        <span>Total</span>
-                        <strong>${formatPrice(wallet.totalEquity)}</strong>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="wallet-loading">Loading...</div>
-                  )
+            {/* Wallet & Balance Card */}
+            <div className="wallet-card">
+              <div className="wallet-header">
+                <h4>
+                  <Wallet size={14} />
+                  {isLiveIndian
+                    ? (selectedIndianBroker === 'AngelOne' ? 'Angel One Account (RMS)' : 'Upstox Account')
+                    : mode === 'paper' ? 'Paper Wallet' : 'Live Wallet'}
+                </h4>
+                {mode === 'paper' && (
+                  <button className="btn-reset" onClick={resetWallet} disabled={loading.resetWallet}>
+                    <RefreshCw size={12} className={loading.resetWallet ? 'spin' : ''} />
+                  </button>
+                )}
+                {isLiveIndian && (
+                  <button
+                    className="btn-refresh-small"
+                    onClick={selectedIndianBroker === 'AngelOne' ? loadAngelOneFunds : loadUpstoxFunds}
+                  >
+                    <RefreshCw size={12} />
+                  </button>
                 )}
               </div>
-            </div>
-          </div>
 
-          {/* Bottom Section - Positions & Orders */}
-          <div className="trading-bottom">
-            <div className="bottom-panel">
-              <div className="panel-header">
-                <h3>
-                  <Activity size={14} />
-                  {isLiveIndian ? 'Holdings & Positions' : 'Positions'}
-                  ({isLiveIndian ? (upstoxHoldings.length + upstoxPositions.length) : positions.length})
-                </h3>
-                <button className="btn-refresh" onClick={isLiveIndian ? () => { loadUpstoxHoldings(); loadUpstoxPositions(); } : loadPositions}>
-                  <RefreshCw size={12} className={loading.positions ? 'spin' : ''} />
-                </button>
-              </div>
-
-              {/* Upstox Holdings & Positions */}
+              {/* Live Indian Funds */}
               {isLiveIndian ? (
-                (upstoxHoldings.length > 0 || upstoxPositions.length > 0) ? (
-                  <div className="positions-list">
-                    {upstoxHoldings.map((h, idx) => (
-                      <div key={`h-${idx}`} className="position-row">
-                        <div className="position-info">
-                          <span className="symbol">{h.symbol}</span>
-                          <span className="qty">{h.quantity} @ ₹{formatPrice(h.avgPrice)}</span>
-                          <Badge small tone="blue">Holding</Badge>
-                        </div>
-                        <div className={`position-pnl ${h.pnl >= 0 ? 'gain' : 'loss'}`}>
-                          <span>{h.pnl >= 0 ? '+' : ''}₹{formatPrice(h.pnl)}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {upstoxPositions.map((p, idx) => (
-                      <div key={`p-${idx}`} className="position-row">
-                        <div className="position-info">
-                          <span className="symbol">{p.symbol}</span>
-                          <span className="qty">{p.quantity} @ ₹{formatPrice(p.avgPrice)}</span>
-                          <Badge small tone="yellow">Intraday</Badge>
-                        </div>
-                        <div className={`position-pnl ${p.pnl >= 0 ? 'gain' : 'loss'}`}>
-                          <span>{p.pnl >= 0 ? '+' : ''}₹{formatPrice(p.pnl)}</span>
-                          <small>({p.pnlPercent?.toFixed(2)}%)</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">No holdings or positions</div>
-                )
-              ) : (
-                /* Paper/Other Positions */
-                positions.length > 0 ? (
-                  <div className="positions-list">
-                    {positions.map(pos => (
-                      <div key={pos.id} className="position-row">
-                        <div className="position-info">
-                          <span className="symbol">{pos.symbol}</span>
-                          <span className="qty">{pos.quantity} @ ${formatPrice(pos.avgPrice)}</span>
-                        </div>
-                        <div className={`position-pnl ${pos.unrealizedPnl >= 0 ? 'gain' : 'loss'}`}>
-                          <span>{pos.unrealizedPnl >= 0 ? '+' : ''}${formatPrice(pos.unrealizedPnl)}</span>
-                          <small>({pos.unrealizedPnlPercent?.toFixed(2)}%)</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">No open positions</div>
-                )
-              )}
-            </div>
-
-            <div className="bottom-panel">
-              <div className="panel-header">
-                <h3><Target size={14} /> Open Orders ({openOrders.length})</h3>
-                <button className="btn-refresh" onClick={loadOpenOrders}>
-                  <RefreshCw size={12} />
-                </button>
-              </div>
-              {openOrders.length > 0 ? (
-                <div className="orders-list">
-                  {openOrders.map(order => (
-                    <div key={order.id} className="order-row">
-                      <div className="order-info">
-                        <span className={`side ${order.side}`}>{order.side.toUpperCase()}</span>
-                        <span className="symbol">{order.symbol}</span>
-                        <Badge small>{order.order_type}</Badge>
-                      </div>
-                      <div className="order-details">
-                        <span>{order.quantity} @ ${formatPrice(order.price || order.stop_price)}</span>
-                        <button className="btn-cancel" onClick={() => cancelOrder(order.id)}>
-                          <XCircle size={14} />
-                        </button>
-                      </div>
+                selectedIndianBroker === 'AngelOne' ? (
+                  <div className="wallet-body angel">
+                    <div className="wallet-row">
+                      <span>Available Cash</span>
+                      <strong className="gain">₹{formatPrice(angeloneFunds?.availableCash || angeloneFunds?.net)}</strong>
                     </div>
-                  ))}
-                </div>
+                    <div className="wallet-row">
+                      <span>Collateral Margin</span>
+                      <strong>₹{formatPrice(angeloneFunds?.collateral)}</strong>
+                    </div>
+                    <div className="wallet-row">
+                      <span>Utilized Margin</span>
+                      <strong>₹{formatPrice(angeloneFunds?.utilizedMargin)}</strong>
+                    </div>
+                    <div className="wallet-row total">
+                      <span>Net Available</span>
+                      <strong className="gain">₹{formatPrice(angeloneFunds?.net || angeloneFunds?.availableCash)}</strong>
+                    </div>
+                  </div>
+                ) : upstoxFunds ? (
+                  <div className="wallet-body upstox">
+                    <div className="wallet-row">
+                      <span>Available Margin</span>
+                      <strong className="gain">₹{formatPrice(upstoxFunds.equity?.availableMargin)}</strong>
+                    </div>
+                    <div className="wallet-row">
+                      <span>Used Margin</span>
+                      <strong>₹{formatPrice(upstoxFunds.equity?.usedMargin)}</strong>
+                    </div>
+                    <div className="wallet-row">
+                      <span>Payin</span>
+                      <strong>₹{formatPrice(upstoxFunds.equity?.payin)}</strong>
+                    </div>
+                    <div className="wallet-row total">
+                      <span>Total Available</span>
+                      <strong className="gain">₹{formatPrice(upstoxFunds.totalAvailable)}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="wallet-loading">Loading Upstox funds...</div>
+                )
               ) : (
-                <div className="empty-state">No open orders</div>
+                /* Paper/Other Wallet */
+                wallet ? (
+                  <div className="wallet-body">
+                    <div className="wallet-row">
+                      <span>Cash</span>
+                      <strong>{displayCurrency}{formatPrice(wallet.balance)}</strong>
+                    </div>
+                    <div className="wallet-row">
+                      <span>Portfolio</span>
+                      <strong>{displayCurrency}{formatPrice(wallet.portfolioValue)}</strong>
+                    </div>
+                    <div className="wallet-row total">
+                      <span>Total Equity</span>
+                      <strong>{displayCurrency}{formatPrice(wallet.totalEquity)}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="wallet-loading">Loading wallet...</div>
+                )
               )}
             </div>
           </div>
@@ -1208,13 +1267,162 @@ export default function Trading() {
       ) : (
         <div className="no-symbol-state">
           <Search size={64} />
-          <h2>Select a Stock to Trade</h2>
-          <p>Search for stocks, ETFs, or crypto to view charts and place orders</p>
+          <h2>Select a Stock to Trade on {exchangeName}</h2>
+          <p>Search Indian stocks, ETFs, or crypto to view live charts and place orders</p>
           <button className="btn-search" onClick={() => setShowSearch(true)}>
             <Search size={16} /> Search Symbols
           </button>
         </div>
       )}
+
+      {/* Bottom Section - Positions, Holdings, and Open Orders */}
+      <div className="trading-bottom">
+        <div className="bottom-panel">
+          <div className="panel-header">
+            <h3>
+              <Activity size={14} />
+              {isLiveIndian
+                ? `${selectedIndianBroker === 'AngelOne' ? 'Angel One' : 'Upstox'} Holdings & Positions`
+                : 'Positions'}
+              ({isLiveIndian
+                ? (selectedIndianBroker === 'AngelOne'
+                  ? angeloneHoldings.length + angelonePositions.length
+                  : upstoxHoldings.length + upstoxPositions.length)
+                : positions.length})
+            </h3>
+            <button
+              className="btn-refresh"
+              onClick={
+                isLiveIndian
+                  ? (selectedIndianBroker === 'AngelOne'
+                    ? () => { loadAngelOneHoldings(); loadAngelOnePositions(); }
+                    : () => { loadUpstoxHoldings(); loadUpstoxPositions(); })
+                  : loadPositions
+              }
+            >
+              <RefreshCw size={12} className={loading.positions ? 'spin' : ''} />
+            </button>
+          </div>
+
+          {isLiveIndian ? (
+            selectedIndianBroker === 'AngelOne' ? (
+              (angeloneHoldings.length > 0 || angelonePositions.length > 0) ? (
+                <div className="positions-list">
+                  {angeloneHoldings.map((h, idx) => (
+                    <div key={`ah-${idx}`} className="position-row">
+                      <div className="position-info">
+                        <span className="symbol">{h.tradingsymbol || h.symbol}</span>
+                        <span className="qty">{h.quantity} @ ₹{formatPrice(h.averageprice || h.avgPrice)}</span>
+                        <Badge small tone="blue">Holding</Badge>
+                      </div>
+                      <div className={`position-pnl ${h.pnl >= 0 ? 'gain' : 'loss'}`}>
+                        <span>{h.pnl >= 0 ? '+' : ''}₹{formatPrice(h.pnl)}</span>
+                        <small>({h.pnlPercentage?.toFixed(2) || '0.00'}%)</small>
+                      </div>
+                    </div>
+                  ))}
+                  {angelonePositions.map((p, idx) => (
+                    <div key={`ap-${idx}`} className="position-row">
+                      <div className="position-info">
+                        <span className="symbol">{p.tradingsymbol || p.symbol}</span>
+                        <span className="qty">{p.netqty || p.quantity} @ ₹{formatPrice(p.ltp)}</span>
+                        <Badge small tone="yellow">Position</Badge>
+                      </div>
+                      <div className={`position-pnl ${p.pnl >= 0 ? 'gain' : 'loss'}`}>
+                        <span>{p.pnl >= 0 ? '+' : ''}₹{formatPrice(p.pnl)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">No Angel One holdings or open positions</div>
+              )
+            ) : (
+              (upstoxHoldings.length > 0 || upstoxPositions.length > 0) ? (
+                <div className="positions-list">
+                  {upstoxHoldings.map((h, idx) => (
+                    <div key={`uh-${idx}`} className="position-row">
+                      <div className="position-info">
+                        <span className="symbol">{h.symbol}</span>
+                        <span className="qty">{h.quantity} @ ₹{formatPrice(h.avgPrice)}</span>
+                        <Badge small tone="blue">Holding</Badge>
+                      </div>
+                      <div className={`position-pnl ${h.pnl >= 0 ? 'gain' : 'loss'}`}>
+                        <span>{h.pnl >= 0 ? '+' : ''}₹{formatPrice(h.pnl)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {upstoxPositions.map((p, idx) => (
+                    <div key={`up-${idx}`} className="position-row">
+                      <div className="position-info">
+                        <span className="symbol">{p.symbol}</span>
+                        <span className="qty">{p.quantity} @ ₹{formatPrice(p.avgPrice)}</span>
+                        <Badge small tone="yellow">Intraday</Badge>
+                      </div>
+                      <div className={`position-pnl ${p.pnl >= 0 ? 'gain' : 'loss'}`}>
+                        <span>{p.pnl >= 0 ? '+' : ''}₹{formatPrice(p.pnl)}</span>
+                        <small>({p.pnlPercent?.toFixed(2)}%)</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">No Upstox holdings or positions</div>
+              )
+            )
+          ) : (
+            /* Paper Positions */
+            positions.length > 0 ? (
+              <div className="positions-list">
+                {positions.map(pos => (
+                  <div key={pos.id} className="position-row">
+                    <div className="position-info">
+                      <span className="symbol">{pos.symbol}</span>
+                      <span className="qty">{pos.quantity} @ {displayCurrency}{formatPrice(pos.avgPrice)}</span>
+                    </div>
+                    <div className={`position-pnl ${pos.unrealizedPnl >= 0 ? 'gain' : 'loss'}`}>
+                      <span>{pos.unrealizedPnl >= 0 ? '+' : ''}{displayCurrency}{formatPrice(pos.unrealizedPnl)}</span>
+                      <small>({pos.unrealizedPnlPercent?.toFixed(2)}%)</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No open positions</div>
+            )
+          )}
+        </div>
+
+        <div className="bottom-panel">
+          <div className="panel-header">
+            <h3><Target size={14} /> Open Orders ({openOrders.length})</h3>
+            <button className="btn-refresh" onClick={loadOpenOrders}>
+              <RefreshCw size={12} />
+            </button>
+          </div>
+          {openOrders.length > 0 ? (
+            <div className="orders-list">
+              {openOrders.map(order => (
+                <div key={order.id} className="order-row">
+                  <div className="order-info">
+                    <span className={`side ${order.side}`}>{order.side.toUpperCase()}</span>
+                    <span className="symbol">{order.symbol}</span>
+                    <Badge small>{order.order_type}</Badge>
+                  </div>
+                  <div className="order-details">
+                    <span>{order.quantity} @ {displayCurrency}{formatPrice(order.price || order.stop_price)}</span>
+                    <button className="btn-cancel" onClick={() => cancelOrder(order.id)}>
+                      <XCircle size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">No open orders</div>
+          )}
+        </div>
+      </div>
 
       {/* Order Confirmation Modal for Live Trading */}
       {showOrderConfirm && pendingOrder && (
@@ -1226,7 +1434,7 @@ export default function Trading() {
             </div>
             <div className="modal-content">
               <p className="warning-text">
-                You are about to place a <strong>LIVE</strong> order that will execute with real money.
+                You are about to place a <strong>LIVE</strong> order on <strong>{pendingOrder.exchangeName}</strong> via <strong>{pendingOrder.broker || selectedIndianBroker}</strong> that will execute with real money.
               </p>
               <div className="order-details">
                 <div className="detail-row">
@@ -1244,6 +1452,10 @@ export default function Trading() {
                   <span>{pendingOrder.exchangeName}</span>
                 </div>
                 <div className="detail-row">
+                  <span>Broker</span>
+                  <span>{pendingOrder.broker || selectedIndianBroker}</span>
+                </div>
+                <div className="detail-row">
                   <span>Quantity</span>
                   <span>{pendingOrder.quantity}</span>
                 </div>
@@ -1253,11 +1465,11 @@ export default function Trading() {
                 </div>
                 <div className="detail-row">
                   <span>Est. Price</span>
-                  <span>₹{formatPrice(pendingOrder.price)}</span>
+                  <span>{displayCurrency}{formatPrice(pendingOrder.price)}</span>
                 </div>
                 <div className="detail-row total">
                   <span>Est. Total</span>
-                  <span>₹{formatPrice(pendingOrder.quantity * pendingOrder.price)}</span>
+                  <span>{displayCurrency}{formatPrice(pendingOrder.quantity * pendingOrder.price)}</span>
                 </div>
               </div>
             </div>
@@ -1281,6 +1493,77 @@ export default function Trading() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Angel One Connect Modal */}
+      {showAngelConnectModal && (
+        <div className="modal-overlay" onClick={() => setShowAngelConnectModal(false)}>
+          <div className="modal-content-box angel-connect-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-row">
+                <KeyRound size={20} className="text-primary" />
+                <h3>Connect Angel One SmartAPI</h3>
+              </div>
+              <button className="btn-close" onClick={() => setShowAngelConnectModal(false)}>
+                <XCircle size={20} />
+              </button>
+            </div>
+            <p className="modal-hint">
+              Enter your Angel One SmartAPI credentials to enable live trading on NSE & BSE.
+            </p>
+            <form onSubmit={handleConnectAngelOne} className="form">
+              <div className="form-group">
+                <label>SmartAPI Key</label>
+                <input
+                  type="password"
+                  placeholder="Enter SmartAPI Key"
+                  value={angelForm.apiKey}
+                  onChange={e => setAngelForm({ ...angelForm, apiKey: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Client Code / User ID</label>
+                <input
+                  type="text"
+                  placeholder="e.g. S1234567"
+                  value={angelForm.clientCode}
+                  onChange={e => setAngelForm({ ...angelForm, clientCode: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>PIN / Password</label>
+                <input
+                  type="password"
+                  placeholder="Enter 4-digit PIN or password"
+                  value={angelForm.password}
+                  onChange={e => setAngelForm({ ...angelForm, password: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>TOTP Secret Key (or 6-digit TOTP)</label>
+                <input
+                  type="password"
+                  placeholder="Base32 TOTP secret key for automatic 2FA"
+                  value={angelForm.totpSecret}
+                  onChange={e => setAngelForm({ ...angelForm, totpSecret: e.target.value, totp: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="form-actions">
+                <button type="submit" className="btn-primary" disabled={connectingAngel}>
+                  {connectingAngel ? <><RefreshCw size={14} className="spin" /> Authenticating...</> : <><KeyRound size={14} /> Connect & Login</>}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setShowAngelConnectModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

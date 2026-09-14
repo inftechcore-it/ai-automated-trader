@@ -410,17 +410,19 @@ export class BotEngine extends EventEmitter {
             placeOrder: async (params) => {
                 if (params.dryRun) {
                     // Paper trading - simulate fill
+                    const fillPrice = params.price || (params.type === 'MARKET' ? await this.getMarketPrice(params.exchange, params.symbol) : params.price);
                     return {
                         orderId: `paper_${Date.now()}`,
                         status: 'FILLED',
-                        filledPrice: params.price || params.type === 'MARKET' ? await this.getMarketPrice(params.exchange, params.symbol) : params.price,
+                        filledPrice: fillPrice,
                         filledQuantity: params.quantity,
+                        isPaper: true,
                     };
                 }
                 // Live trading - use real adapter
                 const { getAdapter } = await import('../../arbitrage/dist/adapters/index.js');
                 const adapter = await getAdapter(params.exchange);
-                console.log(`[BotEngine] Placing LIVE order: ${params.side} ${params.quantity} ${params.symbol} @ ${params.price || 'market'}`);
+                console.log(`[BotEngine] [LIVE] Placing order: ${params.side} ${params.quantity} ${params.symbol} @ ${params.price || 'market'}`);
                 try {
                     const order = await adapter.placeOrder({
                         symbol: params.symbol,
@@ -428,20 +430,24 @@ export class BotEngine extends EventEmitter {
                         type: params.type.toLowerCase(),
                         quantity: params.quantity,
                         price: params.price,
+                        dryRun: false,
                     });
-                    console.log(`[BotEngine] Order result:`, order);
+                    console.log(`[BotEngine] [LIVE] Order result:`, order);
                     // Normalize status to uppercase for consistency
                     const normalizedStatus = (order.status || 'open').toUpperCase();
                     const isFilled = normalizedStatus === 'FILLED' || normalizedStatus === 'CLOSED';
                     return {
-                        orderId: order.orderId || order.id,
+                        orderId: order.orderId || order.id || order.txid,
                         status: isFilled ? 'FILLED' : normalizedStatus,
                         filledPrice: order.avgFillPrice || order.average || order.price || params.price,
                         filledQuantity: isFilled ? params.quantity : (order.filledQuantity || order.filled || 0),
+                        txid: order.txid,
+                        explorerUrl: order.explorerUrl,
+                        isLive: true,
                     };
                 }
                 catch (error) {
-                    console.error(`[BotEngine] LIVE order failed:`, error.message);
+                    console.error(`[BotEngine] [LIVE] Order failed:`, error.message);
                     throw error;
                 }
             },

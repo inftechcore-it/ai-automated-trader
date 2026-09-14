@@ -22,6 +22,8 @@ export default function Exchanges() {
     password: '',
     totpSecret: '',
     totp: '',
+    privateKey: '',
+    rpcUrl: 'https://api.mainnet-beta.solana.com',
     paperMode: false,
     useTestnet: false
   });
@@ -116,11 +118,8 @@ export default function Exchanges() {
 
   async function loadJupiterStatus() {
     try {
-      const response = await api.get('/api/jupiter/status');
-      setJupiterStatus({
-        configured: response.data.configured,
-        config: response.data.config
-      });
+      const response = await api.get('/api/broker/jupiter/status');
+      setJupiterStatus(response.data);
     } catch {
       setJupiterStatus({ configured: false });
     }
@@ -181,6 +180,8 @@ export default function Exchanges() {
         password: form.password,
         totpSecret: form.totpSecret,
         totp: form.totp,
+        privateKey: form.privateKey,
+        rpcUrl: form.rpcUrl,
         paperMode: form.paperMode,
         useTestnet: form.useTestnet
       };
@@ -194,6 +195,8 @@ export default function Exchanges() {
         password: '',
         totpSecret: '',
         totp: '',
+        privateKey: '',
+        rpcUrl: 'https://api.mainnet-beta.solana.com',
         paperMode: false,
         useTestnet: false
       });
@@ -203,6 +206,7 @@ export default function Exchanges() {
       loadConnected();
       loadAlpacaStatus();
       loadAngelOneStatus();
+      loadJupiterStatus();
     } catch (error) {
       setMessage({ text: errorMessage(error), type: 'error' });
     } finally {
@@ -313,13 +317,33 @@ export default function Exchanges() {
     }
 
     if (exchange.type === 'crypto' || exchange.type === 'dex' || ['Alpaca', 'AngelOne', 'Jupiter'].includes(exchange.name)) {
+      if (action === 'reconfigure' || action === 'connect') {
+        setConnectExchange(exchange);
+        setForm({
+          ...form,
+          exchangeName: exchange.name,
+          exchangeType: exchange.type,
+          apiKey: exchange.name === 'Jupiter'
+            ? (form.apiKey || 'jup_e254889340b2c9eff161bbda9832fd12b299927ce7ec7d4ac025fdd99c0db00d')
+            : exchange.name === 'AngelOne'
+            ? (form.apiKey || 'AThErGZk')
+            : form.apiKey,
+          rpcUrl: jupiterStatus.rpcUrl || 'https://api.mainnet-beta.solana.com',
+          privateKey: '',
+          paperMode: false
+        });
+        setShowConnectForm(true);
+        setSelectedExchange(null);
+        return;
+      }
+
       // Check if already connected (for Alpaca/AngelOne/Jupiter, check configured/live)
       const isConnected = exchange.name === 'Alpaca'
         ? alpacaStatus.configured && !alpacaStatus.paperMode
         : exchange.name === 'AngelOne'
         ? angeloneStatus.authenticated
         : exchange.name === 'Jupiter'
-        ? (jupiterStatus.configured || connected.some(c => c.exchangeName.toLowerCase() === 'jupiter'))
+        ? (jupiterStatus.authenticated || jupiterStatus.configured)
         : connected.some(c => c.exchangeName.toLowerCase() === exchange.name.toLowerCase());
       if (!isConnected) {
         setConnectExchange(exchange);
@@ -332,6 +356,8 @@ export default function Exchanges() {
             : exchange.name === 'AngelOne'
             ? (form.apiKey || 'AThErGZk')
             : form.apiKey,
+          rpcUrl: jupiterStatus.rpcUrl || 'https://api.mainnet-beta.solana.com',
+          privateKey: '',
           paperMode: false
         });
         setShowConnectForm(true);
@@ -358,6 +384,8 @@ export default function Exchanges() {
       setMessage({ text: `Disconnected from ${exchangeName}`, type: 'success' });
       loadConnected();
       loadAlpacaStatus();
+      loadAngelOneStatus();
+      loadJupiterStatus();
     } catch (error) {
       setMessage({ text: errorMessage(error), type: 'error' });
     } finally {
@@ -387,8 +415,8 @@ export default function Exchanges() {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   }
 
-  const cryptoExchanges = supported.filter(e => e.type === 'crypto' || e.type === 'dex');
-  const stockExchanges = supported.filter(e => e.type === 'stock');
+  const cryptoExchanges = supported.filter(e => (e.type === 'crypto' || e.type === 'dex') && !['Jupiter'].includes(e.name));
+  const stockExchanges = supported.filter(e => e.type === 'stock' && !['AngelOne', 'Alpaca'].includes(e.name));
 
   // Simple sparkline chart
   function Sparkline({ data, width = 200, height = 60 }) {
@@ -639,10 +667,72 @@ export default function Exchanges() {
           <div className="grid two">
             {/* Crypto Exchanges */}
             <section className="panel">
-              <h2>Crypto Exchanges</h2>
-              <p className="panel-hint">Connect your exchange API keys to enable live trading and portfolio sync</p>
+              <h2>Crypto & Solana DEX</h2>
+              <p className="panel-hint">Connect exchange API keys or Solana wallet for live trading and portfolio sync</p>
+
+              {/* Jupiter Solana DEX Dedicated Card */}
+              <div
+                className={`broker-card clickable ${jupiterStatus.authenticated ? 'connected live' : jupiterStatus.configured ? 'connected' : ''}`}
+                onClick={() => handleExchangeClick({ name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator' }, 'connect')}
+              >
+                <div className="broker-card-header">
+                  <strong>Jupiter DEX (Solana)</strong>
+                  {jupiterStatus.authenticated ? (
+                    <Badge tone="green" small><CheckCircle size={10} /> Active (Wallet Connected)</Badge>
+                  ) : jupiterStatus.configured ? (
+                    <Badge tone="blue" small><CheckCircle size={10} /> Configured (Public RPC)</Badge>
+                  ) : (
+                    <Badge tone="yellow" small><KeyRound size={10} /> Connect Wallet</Badge>
+                  )}
+                </div>
+                <span>Solana Decentralized Exchange Aggregator (Price V3, Live Swaps, Emulated Limit Bots)</span>
+
+                {jupiterStatus.walletAddress && (
+                  <div className="broker-detail-stats">
+                    <div className="stat-chip">
+                      <span className="chip-label">Wallet:</span>
+                      <span className="chip-val mono">
+                        {jupiterStatus.walletAddress.slice(0, 4)}...{jupiterStatus.walletAddress.slice(-4)}
+                      </span>
+                    </div>
+                    <div className="stat-chip">
+                      <span className="chip-label">SOL Gas:</span>
+                      <span className={`chip-val ${jupiterStatus.solBalance < 0.005 ? 'text-warn' : 'text-success'}`}>
+                        {Number(jupiterStatus.solBalance || 0).toFixed(4)} SOL
+                      </span>
+                    </div>
+                    {jupiterStatus.solBalance < 0.005 && (
+                      <div className="gas-warning-chip">
+                        <AlertTriangle size={12} /> Low gas (min 0.005 SOL needed for live on-chain swaps)
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {jupiterStatus.configured || jupiterStatus.authenticated ? (
+                  <div className="broker-actions" onClick={e => e.stopPropagation()}>
+                    <button
+                      className="btn-small browse"
+                      onClick={() => handleExchangeClick({ name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator' }, 'reconfigure')}
+                    >
+                      <KeyRound size={12} /> Configure Wallet / RPC
+                    </button>
+                    <button
+                      className="btn-small disconnect"
+                      onClick={() => disconnectExchange('Jupiter')}
+                      disabled={loading['disconnect_Jupiter']}
+                    >
+                      {loading['disconnect_Jupiter'] ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <div className="card-action">Click to configure Solana RPC & Wallet</div>
+                )}
+              </div>
+
               <div className="exchange-list">
-                {cryptoExchanges.map((ex) => {
+                {cryptoExchanges.filter(e => e.name !== 'Jupiter').map((ex) => {
                   const isConnected = connected.some(c => c.exchangeName.toLowerCase() === ex.name.toLowerCase());
                   return (
                     <div
@@ -778,13 +868,13 @@ export default function Exchanges() {
                 {stockExchanges.map((ex) => {
                   const isIndian = ['NSE', 'BSE'].includes(ex.name);
                   const isUS = ['NASDAQ', 'NYSE'].includes(ex.name);
-                  const needsUpstox = isIndian && !angeloneStatus.configured && !angeloneStatus.authenticated && upstoxStatus.configured && !upstoxStatus.authenticated;
                   const isLive = (isIndian && (angeloneStatus.authenticated || angeloneStatus.configured || upstoxStatus.authenticated)) || (isUS && alpacaStatus.configured);
+                  const needsBroker = isIndian && !angeloneStatus.configured && !angeloneStatus.authenticated && !upstoxStatus.authenticated;
 
                   return (
                     <div
                       key={ex.name}
-                      className={`exchange-card clickable stock ${needsUpstox ? 'needs-auth' : ''}`}
+                      className={`exchange-card clickable stock ${needsBroker ? 'needs-auth' : ''}`}
                       onClick={() => handleExchangeClick(ex, 'browse')}
                     >
                       <div className="exchange-card-header">
@@ -796,9 +886,9 @@ export default function Exchanges() {
                         </div>
                       </div>
                       <span>{ex.description}</span>
-                      {needsUpstox ? (
+                      {needsBroker ? (
                         <div className="card-action warning">
-                          <ExternalLink size={14} /> Connect broker for live data
+                          <ExternalLink size={14} /> Connect Angel One or Upstox
                         </div>
                       ) : (
                         <div className="card-action">
@@ -880,13 +970,37 @@ export default function Exchanges() {
                       <input
                         type="text"
                         placeholder="https://api.mainnet-beta.solana.com"
-                        value={form.apiSecret || 'https://api.mainnet-beta.solana.com'}
-                        onChange={(e) => setForm({ ...form, apiSecret: e.target.value })}
+                        value={form.rpcUrl}
+                        onChange={(e) => setForm({ ...form, rpcUrl: e.target.value })}
+                      />
+                      <small className="form-hint">Official Solana RPC: <code>https://api.mainnet-beta.solana.com</code> or Helius / QuickNode</small>
+                    </div>
+                    <div className="form-group">
+                      <label>Solana Wallet Private Key (Base58)</label>
+                      <input
+                        type="password"
+                        placeholder="Base58 private key from Phantom/Solflare (e.g. 5K... or JSON array)"
+                        value={form.privateKey}
+                        onChange={(e) => setForm({ ...form, privateKey: e.target.value })}
+                        autoComplete="off"
+                      />
+                      <small className="form-hint">
+                        Required for live on-chain swaps. Leave blank if only paper trading.
+                      </small>
+                    </div>
+                    <div className="form-group">
+                      <label>Jupiter API Key (Optional)</label>
+                      <input
+                        type="password"
+                        placeholder="Optional: jup_..."
+                        value={form.apiKey}
+                        onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                        autoComplete="off"
                       />
                     </div>
                     <div className="form-note info">
                       <AlertTriangle size={14} />
-                      <span>Jupiter Developer API provides high-speed Price V3, Tokens V2 discovery, and Swap V2 meta-aggregation on Solana.</span>
+                      <span><strong>Live On-Chain Trading Notice:</strong> Live bot orders execute real swaps on Solana DEX via Jupiter Aggregator. Please ensure your wallet has at least 0.01 SOL to cover transaction network fees.</span>
                     </div>
                   </>
                 ) : (

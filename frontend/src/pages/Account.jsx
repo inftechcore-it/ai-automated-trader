@@ -165,43 +165,76 @@ export default function Account() {
           </div>
         </div>
 
-        {/* Indian Rupee Funds (Upstox) */}
+        {/* Indian Rupee Funds (Angel One / Upstox) */}
         <div className="fund-card">
           <div className="fund-header">
             <h2>Indian Rupee Funds</h2>
             <span className="badge badge-live">Live</span>
           </div>
           <div className="fund-body">
-            {summary?.indianFunds?.upstox?.connected ? (
+            {summary?.indianFunds?.angelone?.connected || summary?.indianFunds?.upstox?.connected ? (
               <>
-                <div className="fund-row">
-                  <span>Positions Value</span>
-                  <span className="value">{formatCurrency(summary.indianFunds.upstox.positionsValue, 'INR')}</span>
-                </div>
-                <div className="fund-row">
-                  <span>Holdings Value</span>
-                  <span className="value">{formatCurrency(summary.indianFunds.upstox.holdingsValue, 'INR')}</span>
-                </div>
-                <div className="fund-row total">
-                  <span>Total Value</span>
-                  <span className="value">{formatCurrency(summary.indianFunds.upstox.totalValue, 'INR')}</span>
-                </div>
-                <div className="fund-meta">
-                  <span>Positions: {summary.indianFunds.upstox.positionsCount}</span>
-                  <span>Holdings: {summary.indianFunds.upstox.holdingsCount}</span>
-                </div>
+                {summary?.indianFunds?.angelone?.connected && (
+                  <div className="broker-fund-subgroup">
+                    <div className="subgroup-title">
+                      <strong>Angel One SmartAPI</strong>
+                      <span className="text-success text-xs">Connected</span>
+                    </div>
+                    <div className="fund-row">
+                      <span>Available Cash</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.angelone.cash, 'INR')}</span>
+                    </div>
+                    <div className="fund-row">
+                      <span>Holdings Value</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.angelone.holdingsValue, 'INR')}</span>
+                    </div>
+                    <div className="fund-row">
+                      <span>Total Value</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.angelone.totalINR, 'INR')}</span>
+                    </div>
+                  </div>
+                )}
+                {summary?.indianFunds?.upstox?.connected && (
+                  <div className="broker-fund-subgroup mt-2">
+                    <div className="subgroup-title">
+                      <strong>Upstox</strong>
+                      <span className="text-success text-xs">Connected</span>
+                    </div>
+                    <div className="fund-row">
+                      <span>Positions Value</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.upstox.positionsValue, 'INR')}</span>
+                    </div>
+                    <div className="fund-row">
+                      <span>Holdings Value</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.upstox.holdingsValue, 'INR')}</span>
+                    </div>
+                    <div className="fund-row total">
+                      <span>Total Value</span>
+                      <span className="value">{formatCurrency(summary.indianFunds.upstox.totalValue, 'INR')}</span>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <div className="fund-empty">
-                <p>Upstox not connected</p>
-                <small>{summary?.indianFunds?.upstox?.error}</small>
-                <a href="/api/upstox/auth" className="btn btn-sm btn-primary mt-2">Connect Upstox</a>
+                <p>No Indian broker connected</p>
+                <small>Connect Angel One or Upstox to view your INR balance</small>
+                <div className="flex gap-2 justify-center mt-2">
+                  <a href="/exchanges" className="btn btn-sm btn-primary">Connect Angel One</a>
+                  <a href="/api/upstox/auth" className="btn btn-sm btn-secondary">Connect Upstox</a>
+                </div>
               </div>
             )}
           </div>
           <div className="fund-footer">
-            <span className={`status ${summary?.indianFunds?.upstox?.connected ? 'connected' : 'disconnected'}`}>
-              {summary?.indianFunds?.upstox?.connected ? 'Connected to Upstox' : 'Not Connected'}
+            <span className={`status ${(summary?.indianFunds?.angelone?.connected || summary?.indianFunds?.upstox?.connected) ? 'connected' : 'disconnected'}`}>
+              {summary?.indianFunds?.angelone?.connected && summary?.indianFunds?.upstox?.connected
+                ? 'Connected to Angel One & Upstox'
+                : summary?.indianFunds?.angelone?.connected
+                  ? 'Connected to Angel One'
+                  : summary?.indianFunds?.upstox?.connected
+                    ? 'Connected to Upstox'
+                    : 'Not Connected'}
             </span>
             <span className="exchanges">NSE, BSE</span>
           </div>
