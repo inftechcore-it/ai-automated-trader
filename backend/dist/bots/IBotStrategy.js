@@ -22,7 +22,9 @@ export class BaseBotStrategy {
         else {
             console.log(`${prefix} ${message}`);
         }
-        this.logCallback?.(message, level);
+        if (this.logCallback) {
+            this.logCallback(message, level);
+        }
     }
     async initialize(params, adapter, initialState) {
         this.params = params;
@@ -54,6 +56,9 @@ export class BaseBotStrategy {
         // Override in subclasses
     }
     onOrderCancelled(orderId) {
+        // Override in subclasses
+    }
+    onOrderPlaced(orderId, gridLevel, price, side) {
         // Override in subclasses
     }
     recordAction(action) {

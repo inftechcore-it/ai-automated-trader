@@ -69,6 +69,11 @@ export interface IBotStrategy {
    * Handle order cancellation
    */
   onOrderCancelled(orderId: string): void;
+
+  /**
+   * Handle order placement notification
+   */
+  onOrderPlaced?(orderId: string, gridLevel?: number, price?: number, side?: string): void;
 }
 
 /**
@@ -103,7 +108,9 @@ export abstract class BaseBotStrategy implements IBotStrategy {
     } else {
       console.log(`${prefix} ${message}`);
     }
-    this.logCallback?.(message, level);
+    if (this.logCallback) {
+      this.logCallback(message, level);
+    }
   }
 
   abstract validate(params: BotParams): ValidationResult;
@@ -154,6 +161,10 @@ export abstract class BaseBotStrategy implements IBotStrategy {
   }
 
   onOrderCancelled(orderId: string): void {
+    // Override in subclasses
+  }
+
+  onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void {
     // Override in subclasses
   }
 

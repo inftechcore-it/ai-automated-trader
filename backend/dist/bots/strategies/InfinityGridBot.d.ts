@@ -20,11 +20,12 @@ export declare class InfinityGridBot extends BaseBotStrategy {
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
     private findGridIndex;
     private extendGridIfNeeded;
-    private createInitialOrders;
     private createExitActions;
     private calculateQuantity;
     private calculateSellQuantity;
     onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+    onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void;
+    onOrderCancelled(orderId: string): void;
     protected getMetrics(): Record<string, number>;
     restoreState(customState: Record<string, any>): void;
     getCustomState(): Record<string, any>;

@@ -107,54 +107,79 @@ export class InfinityGridBot extends BaseBotStrategy {
         }
         // Extend grid upward if needed
         await this.extendGridIfNeeded(currentPrice, p);
-        // Find current grid position
-        const currentGridIndex = this.findGridIndex(currentPrice);
-        // Process grid levels
+        // Process grid levels for BUY and SELL orders
+        const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
+        const totalHoldingQty = holding?.quantity || 0;
+        const lockedHoldingQty = state.openOrders
+            .filter(o => o.side === 'SELL')
+            .reduce((sum, o) => sum + (o.quantity - (o.filledQuantity || 0)), 0);
+        let availableHoldingQty = Math.max(0, totalHoldingQty - lockedHoldingQty);
+        const levelsToFill = 10;
+        const totalInvestment = toNum(p.totalInvestment);
+        const investmentPerGrid = totalInvestment / levelsToFill;
+        // Synchronize grid order IDs with live open orders
         for (const grid of this.gridLevels) {
-            if (grid.orderId && !grid.filled)
+            const openOrder = state.openOrders.find(o => Math.abs(Number(o.price || 0) - grid.price) < grid.price * (toNum(p.gridSpacingPercent) / 100) * 0.45);
+            grid.orderId = openOrder ? openOrder.id : undefined;
+            if (openOrder) {
+                grid.type = openOrder.side.toLowerCase() === 'sell' ? 'sell' : 'buy';
+                grid.filled = false;
+            }
+        }
+        // A. SELL & AUTO-SELL LOGIC
+        for (const grid of this.gridLevels) {
+            if (grid.price <= lowerPrice)
                 continue;
-            if (grid.index < currentGridIndex) {
-                // Grid is below current price
-                if (grid.type === 'sell' && grid.filled) {
-                    // Place new buy order
-                    const quantity = this.calculateQuantity(grid.price, p.totalInvestment, state);
-                    if (quantity > 0) {
+            // Case 1: Market price reached or surpassed sell target level (currentPrice >= grid.price)
+            if (currentPrice >= grid.price && availableHoldingQty > 0 && !grid.orderId) {
+                const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
+                if (sellQty > 0) {
+                    actions.push({
+                        action: 'sell',
+                        quantity: sellQty,
+                        price: currentPrice,
+                        orderType: 'MARKET',
+                        gridLevel: grid.index,
+                    });
+                    availableHoldingQty -= sellQty;
+                    console.log(`[InfinityGrid] 🎯 Auto-Sell Triggered at Grid #${grid.index} (Price $${currentPrice.toFixed(6)} >= Target $${grid.price.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
+                }
+            }
+            // Case 2: Grid level is above current price (grid.price > currentPrice)
+            else if (grid.price > currentPrice && availableHoldingQty > 0 && !grid.orderId) {
+                const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
+                if (sellQty * grid.price >= 0.50) {
+                    actions.push({
+                        action: 'sell',
+                        quantity: sellQty,
+                        price: grid.price,
+                        orderType: 'LIMIT',
+                        gridLevel: grid.index,
+                    });
+                    availableHoldingQty -= sellQty;
+                    grid.type = 'sell';
+                    console.log(`[InfinityGrid] Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
+                }
+            }
+        }
+        // B. BUY & DIP BUY LOGIC
+        for (const grid of this.gridLevels) {
+            if (grid.price < currentPrice && !grid.orderId) {
+                if (state.availableBalance >= investmentPerGrid) {
+                    const buyQty = (investmentPerGrid * 1.02) / grid.price;
+                    if (buyQty * grid.price >= 0.50) {
                         actions.push({
                             action: 'buy',
-                            quantity,
+                            quantity: buyQty,
                             price: grid.price,
                             orderType: 'LIMIT',
                             gridLevel: grid.index,
                         });
                         grid.type = 'buy';
-                        grid.filled = false;
+                        console.log(`[InfinityGrid] Placing limit BUY on dip at Grid #${grid.index}: ${buyQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
                     }
                 }
             }
-            else if (grid.index > currentGridIndex) {
-                // Grid is above current price
-                if (grid.type === 'buy' && grid.filled) {
-                    // Place new sell order
-                    const holding = state.holdings.find(h => h.asset === this.asset);
-                    const quantity = this.calculateSellQuantity(holding?.quantity || 0);
-                    if (quantity > 0) {
-                        actions.push({
-                            action: 'sell',
-                            quantity,
-                            price: grid.price,
-                            orderType: 'LIMIT',
-                            gridLevel: grid.index,
-                        });
-                        grid.type = 'sell';
-                        grid.filled = false;
-                    }
-                }
-            }
-        }
-        // Initial / Recovery setup - place buy orders if no open orders
-        if (state.openOrders.length === 0) {
-            const initialActions = this.createInitialOrders(currentPrice, currentGridIndex, state, p);
-            actions.push(...initialActions);
         }
         return actions.length > 0 ? actions : [{ action: 'hold' }];
     }
@@ -162,14 +187,12 @@ export class InfinityGridBot extends BaseBotStrategy {
         const p = this.params;
         const lowerPrice = toNum(p.lowerPrice);
         const gridSpacingPercent = toNum(p.gridSpacingPercent);
-        // Calculate index based on percentage spacing
         return Math.floor(Math.log(price / lowerPrice) / Math.log(1 + gridSpacingPercent / 100));
     }
     async extendGridIfNeeded(currentPrice, p) {
         const currentIndex = this.findGridIndex(currentPrice);
         const lowerPrice = toNum(p.lowerPrice);
         const gridSpacingPercent = toNum(p.gridSpacingPercent);
-        // Extend if within 5 levels of highest
         while (currentIndex >= this.highestGridIndex - 5) {
             this.highestGridIndex++;
             const newPrice = lowerPrice * Math.pow(1 + gridSpacingPercent / 100, this.highestGridIndex);
@@ -180,30 +203,6 @@ export class InfinityGridBot extends BaseBotStrategy {
                 filled: false,
             });
         }
-    }
-    createInitialOrders(currentPrice, currentGridIndex, state, p) {
-        const actions = [];
-        const levelsToFill = 10;
-        const totalInvestment = toNum(p.totalInvestment);
-        const investmentPerGrid = totalInvestment / levelsToFill;
-        // Place buy orders below current price
-        let count = 0;
-        for (const grid of this.gridLevels) {
-            if (grid.index < currentGridIndex && count < levelsToFill) {
-                const quantity = investmentPerGrid / grid.price;
-                actions.push({
-                    action: 'buy',
-                    quantity,
-                    price: grid.price,
-                    orderType: 'LIMIT',
-                    gridLevel: grid.index,
-                });
-                grid.type = 'buy';
-                count++;
-            }
-        }
-        console.log(`[InfinityGrid] Placed ${actions.length} initial buy orders`);
-        return actions;
     }
     createExitActions(state, reason = 'STOP_LOSS') {
         const actions = [{ action: 'cancel_all', metadata: { isExit: true, exitReason: reason } }];
@@ -239,17 +238,41 @@ export class InfinityGridBot extends BaseBotStrategy {
         return holdingQuantity / 10;
     }
     onOrderFilled(orderId, filledPrice, filledQuantity) {
+        const p = this.params;
+        const gridSpacingPercent = toNum(p?.gridSpacingPercent) || 0.5;
+        let grid = this.gridLevels.find(g => g.orderId === orderId);
+        if (!grid && filledPrice > 0) {
+            grid = this.gridLevels.find(g => Math.abs(g.price - filledPrice) < g.price * (gridSpacingPercent / 100) * 0.45);
+        }
+        if (grid) {
+            grid.filled = true;
+            if (grid.type === 'buy') {
+                console.log(`[InfinityGrid] BUY filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)}`);
+            }
+            else if (grid.type === 'sell') {
+                const profit = filledQuantity * filledPrice * (gridSpacingPercent / 100);
+                this.gridProfit += profit;
+                this.gridProfitCount++;
+                console.log(`[InfinityGrid] SELL filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} | Profit: +$${profit.toFixed(4)}`);
+            }
+        }
+    }
+    onOrderPlaced(orderId, gridLevel, price, side) {
+        const p = this.params;
+        const gridSpacingPercent = toNum(p?.gridSpacingPercent) || 0.5;
+        const grid = gridLevel !== undefined && this.gridLevels[gridLevel]
+            ? this.gridLevels[gridLevel]
+            : this.gridLevels.find(g => price && Math.abs(g.price - price) < g.price * (gridSpacingPercent / 100) * 0.45);
+        if (grid) {
+            grid.orderId = orderId;
+            grid.type = side?.toLowerCase() === 'sell' ? 'sell' : 'buy';
+            grid.filled = false;
+        }
+    }
+    onOrderCancelled(orderId) {
         const grid = this.gridLevels.find(g => g.orderId === orderId);
-        if (!grid)
-            return;
-        grid.filled = true;
-        if (grid.type === 'sell') {
-            const p = this.params;
-            const gridSpacingPercent = toNum(p.gridSpacingPercent);
-            const profit = filledQuantity * filledPrice * (gridSpacingPercent / 100);
-            this.gridProfit += profit;
-            this.gridProfitCount++;
-            console.log(`[InfinityGrid] Grid ${grid.index} profit: ${profit.toFixed(4)}`);
+        if (grid) {
+            grid.orderId = undefined;
         }
     }
     getMetrics() {

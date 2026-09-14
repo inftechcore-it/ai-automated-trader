@@ -46,6 +46,10 @@ export interface IBotStrategy {
      * Handle order cancellation
      */
     onOrderCancelled(orderId: string): void;
+    /**
+     * Handle order placement notification
+     */
+    onOrderPlaced?(orderId: string, gridLevel?: number, price?: number, side?: string): void;
 }
 /**
  * Base class with common functionality for strategies
@@ -76,6 +80,7 @@ export declare abstract class BaseBotStrategy implements IBotStrategy {
     cleanup(): Promise<void>;
     onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
     onOrderCancelled(orderId: string): void;
+    onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void;
     protected recordAction(action: BotAction): void;
     protected validateNumber(value: any, name: string, min?: number, max?: number): string | null;
 }

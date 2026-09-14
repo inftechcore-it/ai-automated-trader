@@ -253,148 +253,102 @@ export class GridBot extends BaseBotStrategy {
       return [{ action: 'hold' }];
     }
 
-    const currentGridIndex = Math.floor((currentPrice - lowerPrice) / this.gridSpacing);
+    // 3. Process grid levels for BUY and SELL orders
+    const gridCount = toNum(p.gridCount);
+    const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
+    const totalHoldingQty = holding?.quantity || 0;
+    const lockedHoldingQty = state.openOrders
+      .filter(o => o.side === 'SELL')
+      .reduce((sum, o) => sum + (o.quantity - (o.filledQuantity || 0)), 0);
+    let availableHoldingQty = Math.max(0, totalHoldingQty - lockedHoldingQty);
 
-    // Process grid levels for buy/sell signals
+    // Synchronize grid order IDs with live open orders
     for (const grid of this.gridLevels) {
-      if (grid.orderId && !grid.filled) continue;
+      const openOrder = state.openOrders.find(o =>
+        Math.abs(Number(o.price || 0) - grid.price) < this.gridSpacing * 0.45
+      );
+      grid.orderId = openOrder ? openOrder.id : undefined;
+      if (openOrder) {
+        grid.type = openOrder.side.toLowerCase() === 'sell' ? 'sell' : 'buy';
+        grid.filled = false;
+      }
+    }
 
-      if (grid.index < currentGridIndex) {
-        // Price is above this grid - check if we should buy
-        if (grid.type === 'sell' && grid.filled) {
-          // Skip buy if insufficient balance
-          if (this.insufficientBalance) {
-            continue;
+    // A. SELL & AUTO-SELL LOGIC (Grid 1 to gridCount)
+    // Check all grid levels above lower price that act as Sell Targets
+    for (let i = 1; i <= gridCount; i++) {
+      const grid = this.gridLevels[i];
+      if (!grid) continue;
+
+      // Case 1: Market price reached or surpassed this sell target level (currentPrice >= grid.price)
+      // If we have unallocated holdings, trigger immediate AUTO-SELL to lock in profit!
+      if (currentPrice >= grid.price && availableHoldingQty > 0 && !grid.orderId) {
+        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
+        if (sellQty > 0) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: currentPrice,
+            orderType: 'MARKET',
+            gridLevel: grid.index,
+          });
+          availableHoldingQty -= sellQty;
+          this.log(`🎯 Auto-Sell Triggered at Grid #${grid.index} ($${grid.price.toFixed(6)} target reached at $${currentPrice.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
+          // Mark lower buy grid as ready for dip re-entry
+          const lowerBuyGrid = this.gridLevels[grid.index - 1];
+          if (lowerBuyGrid) {
+            lowerBuyGrid.buyCount = 0;
+            lowerBuyGrid.filled = false;
           }
+        }
+      }
+      // Case 2: Grid level is above current price (grid.price > currentPrice)
+      // Place a LIMIT SELL order so exchange will automatically fill it when price reaches it
+      else if (grid.price > currentPrice && availableHoldingQty > 0 && !grid.orderId) {
+        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
+        if (sellQty * grid.price >= 0.50) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: grid.price,
+            orderType: 'LIMIT',
+            gridLevel: grid.index,
+          });
+          availableHoldingQty -= sellQty;
+          grid.type = 'sell';
+          this.log(`Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
+        }
+      }
+    }
 
-          // Check max buys per level
-          if (grid.buyCount >= maxBuysPerLevel) {
-            this.log(`Grid ${grid.index} reached max buys (${maxBuysPerLevel}), skipping to next grid`);
-            continue;
-          }
+    // B. BUY & DIP BUY LOGIC (Grid 0 to gridCount - 1)
+    // Check all grid levels below current price that act as Buy Levels
+    for (let i = 0; i < gridCount; i++) {
+      const grid = this.gridLevels[i];
+      if (!grid) continue;
 
-          // Check balance before placing buy
-          if (state.availableBalance < investmentPerGrid) {
-            this.insufficientBalance = true;
-            this.log(`Insufficient balance for Grid ${grid.index} buy. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}`, 'warn');
-            continue;
-          }
-
-          const quantity = this.calculateQuantity(grid.price, state);
-          if (quantity > 0) {
+      if (grid.price < currentPrice && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
+        if (!this.insufficientBalance && state.availableBalance >= investmentPerGrid) {
+          const buyQty = (investmentPerGrid * 1.02) / grid.price;
+          if (buyQty * grid.price >= 0.50) {
             actions.push({
               action: 'buy',
-              quantity,
+              quantity: buyQty,
               price: grid.price,
               orderType: 'LIMIT',
               gridLevel: grid.index,
             });
             grid.type = 'buy';
-            grid.filled = false;
+            this.log(`Placing limit BUY on dip at Grid #${grid.index}: ${buyQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
           }
-        }
-      } else if (grid.index > currentGridIndex) {
-        // Price is below this grid - check if we should sell
-        if (grid.type === 'buy' && grid.filled) {
-          const holding = state.holdings.find(h => h.asset === this.asset);
-          const quantity = this.calculateSellQuantity(holding?.quantity || 0);
-          if (quantity > 0) {
-            actions.push({
-              action: 'sell',
-              quantity,
-              price: grid.price,
-              orderType: 'LIMIT',
-              gridLevel: grid.index,
-            });
-            grid.type = 'sell';
-            grid.filled = false;
-          }
-        }
-      }
-    }
-
-    // Initial / recovery order setup - place initial buy orders if no open orders
-    if (state.openOrders.length === 0) {
-      if (this.insufficientBalance || state.availableBalance < investmentPerGrid) {
-        this.insufficientBalance = true;
-        if (now - this.lastBalanceCheck > 30000) {
-          this.lastBalanceCheck = now;
-          this.log(`Waiting for balance to place grid orders (need $${investmentPerGrid.toFixed(2)}, have $${state.availableBalance.toFixed(2)})...`, 'warn');
-        }
-      } else {
-        this.log(`Setting up initial grid orders at price $${currentPrice.toFixed(6)}`);
-        const initialActions = this.createInitialOrders(currentPrice, currentGridIndex, state, maxBuysPerLevel);
-        actions.push(...initialActions);
-      }
-    } else if (state.openOrders.length > 0 && this.gridProfitCount === 0) {
-      for (const order of state.openOrders) {
-        const matchingGrid = this.gridLevels.find(g => Math.abs(g.price - toNum(order.price)) < 0.00001);
-        if (matchingGrid) {
-          matchingGrid.orderId = order.id;
-          matchingGrid.type = order.side?.toLowerCase() === 'buy' ? 'buy' : 'sell';
         }
       }
     }
 
     if (actions.length > 0) {
-      this.log(`Placing ${actions.length} orders: ${actions.map(a => `${a.action} @ $${a.price?.toFixed(6) || 'market'}`).join(', ')}`);
+      this.log(`Placing ${actions.length} grid actions: ${actions.map(a => `${a.action.toUpperCase()} ${a.quantity?.toFixed(4)} @ $${a.price?.toFixed(6) || 'market'}`).join(', ')}`);
     }
     return actions.length > 0 ? actions : [{ action: 'hold' }];
-  }
-
-  private createInitialOrders(currentPrice: number, currentGridIndex: number, state: BotState, maxBuysPerLevel: number): BotAction[] {
-    const p = this.params as GridBotParams;
-    const actions: BotAction[] = [];
-
-    const totalInvestment = toNum(p.totalInvestment);
-    const gridCount = toNum(p.gridCount);
-    const investmentPerGrid = totalInvestment / gridCount;
-
-    // Binance minimum notional is ~$5 for most pairs
-    const MIN_NOTIONAL = 5.0;
-    if (investmentPerGrid < MIN_NOTIONAL) {
-      this.lastError = `Investment per grid ($${investmentPerGrid.toFixed(2)}) is below Binance minimum ($${MIN_NOTIONAL}). Increase investment to $${(MIN_NOTIONAL * gridCount).toFixed(0)} or reduce grid count.`;
-      this.log(this.lastError, 'error');
-      this.insufficientBalance = true;
-      return [];
-    }
-
-    // Check available balance
-    if (state.availableBalance < investmentPerGrid) {
-      this.insufficientBalance = true;
-      this.log(`Insufficient balance. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}. Waiting for balance...`, 'warn');
-      return [];
-    }
-
-    this.log(`Investment per grid: $${investmentPerGrid.toFixed(2)}`);
-
-    let buyOrderCount = 0;
-    for (const grid of this.gridLevels) {
-      if (grid.price < currentPrice) {
-        // Check max buys per level
-        if (grid.buyCount >= maxBuysPerLevel) {
-          this.log(`Grid ${grid.index} ($${grid.price.toFixed(6)}) already has ${grid.buyCount} buys, skipping`);
-          continue;
-        }
-
-        const quantity = (investmentPerGrid * 1.05) / grid.price;
-        actions.push({
-          action: 'buy',
-          quantity,
-          price: grid.price,
-          orderType: 'LIMIT',
-          gridLevel: grid.index,
-        });
-        grid.type = 'buy';
-        buyOrderCount++;
-        this.log(`BUY order at Grid ${grid.index}: $${grid.price.toFixed(6)} x ${quantity.toFixed(2)}`);
-      } else if (grid.price > currentPrice) {
-        grid.type = 'sell';
-      }
-    }
-
-    this.log(`Placed ${buyOrderCount} initial BUY orders below current price`);
-    return actions;
   }
 
   private createExitActions(state: BotState, reason: string = 'STOP_LOSS'): BotAction[] {
@@ -450,19 +404,30 @@ export class GridBot extends BaseBotStrategy {
   }
 
   onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void {
-    const grid = this.gridLevels.find(g => g.orderId === orderId);
-    if (!grid) return;
+    let grid = this.gridLevels.find(g => g.orderId === orderId);
+    if (!grid && filledPrice > 0) {
+      grid = this.gridLevels.find(g => Math.abs(g.price - filledPrice) < this.gridSpacing * 0.45);
+    }
 
-    grid.filled = true;
-
-    if (grid.type === 'buy') {
-      grid.buyCount++;
-      this.log(`BUY filled at Grid ${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)} (buy #${grid.buyCount})`);
-    } else if (grid.type === 'sell') {
-      const profit = filledQuantity * this.gridSpacing;
-      this.gridProfit += profit;
-      this.gridProfitCount++;
-      this.log(`SELL filled at Grid ${grid.index}: $${filledPrice.toFixed(6)} | Profit: $${profit.toFixed(4)} | Total cycles: ${this.gridProfitCount}`);
+    if (grid) {
+      grid.filled = true;
+      if (grid.type === 'buy') {
+        grid.buyCount++;
+        this.log(`BUY filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)} (buy #${grid.buyCount}). Next sell target: Grid #${Math.min(grid.index + 1, this.gridLevels.length - 1)}`);
+      } else if (grid.type === 'sell') {
+        const profit = filledQuantity * this.gridSpacing;
+        this.gridProfit += profit;
+        this.gridProfitCount++;
+        this.log(`SELL filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} | Profit: +$${profit.toFixed(4)} | Total cycles: ${this.gridProfitCount}`);
+        // Reset lower buy level so it can buy on dip again
+        const lowerGrid = this.gridLevels[grid.index - 1];
+        if (lowerGrid) {
+          lowerGrid.buyCount = 0;
+          lowerGrid.filled = false;
+        }
+      }
+    } else {
+      this.log(`Order filled: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)}`);
     }
 
     this.customState.gridProfit = this.gridProfit;
@@ -471,6 +436,25 @@ export class GridBot extends BaseBotStrategy {
     this.customState.lastError = this.lastError;
     this.customState.isStopLossActive = this.isStopLossActive;
     this.customState.isTakeProfitActive = this.isTakeProfitActive;
+  }
+
+  onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void {
+    const grid = gridLevel !== undefined && this.gridLevels[gridLevel]
+      ? this.gridLevels[gridLevel]
+      : this.gridLevels.find(g => price && Math.abs(g.price - price) < this.gridSpacing * 0.45);
+
+    if (grid) {
+      grid.orderId = orderId;
+      grid.type = side?.toLowerCase() === 'sell' ? 'sell' : 'buy';
+      grid.filled = false;
+    }
+  }
+
+  onOrderCancelled(orderId: string): void {
+    const grid = this.gridLevels.find(g => g.orderId === orderId);
+    if (grid) {
+      grid.orderId = undefined;
+    }
   }
 
   // Called when order fails

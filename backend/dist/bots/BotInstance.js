@@ -639,6 +639,9 @@ export class BotInstance extends EventEmitter {
                 if (side === 'BUY') {
                     this.state.availableBalance -= quantity * (price || tick.price);
                 }
+                if (typeof this.strategy.onOrderPlaced === 'function') {
+                    this.strategy.onOrderPlaced(order.id, action.gridLevel, price, side);
+                }
             }
         }
         catch (error) {

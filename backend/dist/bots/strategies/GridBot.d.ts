@@ -27,11 +27,12 @@ export declare class GridBot extends BaseBotStrategy {
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     handleError(error: string): void;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
-    private createInitialOrders;
     private createExitActions;
     private calculateQuantity;
     private calculateSellQuantity;
     onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+    onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void;
+    onOrderCancelled(orderId: string): void;
     onOrderError(error: string): void;
     protected getMetrics(): Record<string, number>;
     restoreState(customState: Record<string, any>): void;
