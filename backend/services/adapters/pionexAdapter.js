@@ -18,6 +18,16 @@ export function initFromEnv() {
   return false;
 }
 
+export function setCredentials(apiKey, apiSecret) {
+  defaultCredentials = { apiKey, apiSecret };
+  console.log('[Pionex] Credentials updated');
+}
+
+export function clearCredentials() {
+  defaultCredentials = null;
+  console.log('[Pionex] Credentials cleared');
+}
+
 export function isConfigured() {
   return !!(defaultCredentials?.apiKey && defaultCredentials?.apiSecret);
 }
@@ -47,13 +57,15 @@ function buildQueryString(params) {
   return sorted.map(key => `${key}=${params[key]}`).join('&');
 }
 
-function normalizeSymbol(symbol) {
-  // Convert BTC/USDT to BTC_USDT (Pionex uses underscore)
+export function normalizeSymbol(symbol) {
+  // Convert BTC/USDT or btc_usdt to BTC_USDT (Pionex uses underscore)
+  if (!symbol) return 'BTC_USDT';
   return symbol.replace('/', '_').toUpperCase();
 }
 
-function denormalizeSymbol(symbol) {
+export function denormalizeSymbol(symbol) {
   // Convert BTC_USDT to BTC/USDT
+  if (!symbol) return '';
   return symbol.replace('_', '/');
 }
 
@@ -71,16 +83,23 @@ export async function getQuote(symbol) {
   }
 
   const ticker = data.data.tickers[0];
+  const open = Number(ticker.open) || Number(ticker.close);
+  const close = Number(ticker.close);
+  const change = close - open;
+  const changePercent = open > 0 ? ((change / open) * 100).toFixed(2) : '0.00';
+
   return {
-    symbol,
+    symbol: denormalizeSymbol(ticker.symbol) || symbol,
     exchange: 'Pionex',
-    price: Number(ticker.close),
-    change: Number(ticker.close) - Number(ticker.open),
-    changePercent: ((Number(ticker.close) - Number(ticker.open)) / Number(ticker.open) * 100).toFixed(2),
+    price: close,
+    open: open,
+    change: change,
+    changePercent: Number(changePercent),
     high24h: Number(ticker.high),
     low24h: Number(ticker.low),
     volume24h: Number(ticker.volume),
-    timestamp: new Date().toISOString()
+    amount24h: Number(ticker.amount || 0),
+    timestamp: new Date(ticker.time || Date.now()).toISOString()
   };
 }
 
@@ -88,7 +107,7 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
   // Map interval to Pionex format
   const intervalMap = {
     '1m': '1M', '5m': '5M', '15m': '15M', '30m': '30M',
-    '1h': '60M', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D'
+    '1h': '60M', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D', '1w': '1W'
   };
   const pionexInterval = intervalMap[interval] || '60M';
 
@@ -116,42 +135,152 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
   }));
 }
 
+export async function getOrderBook(symbol, depth = 10) {
+  const pionexSymbol = normalizeSymbol(symbol);
+  const url = `${BASE_URL}/api/v1/market/depth`;
+  const { data } = await axios.get(url, {
+    params: { symbol: pionexSymbol, limit: Math.min(depth, 50) },
+    timeout: 5000
+  });
+
+  if (!data.result || !data.data) {
+    throw new Error(`Failed to fetch order book for ${symbol}`);
+  }
+
+  const bids = (data.data.bids || []).map(([p, q]) => ({
+    price: parseFloat(p),
+    quantity: parseFloat(q),
+    total: parseFloat((parseFloat(p) * parseFloat(q)).toFixed(2))
+  }));
+
+  const asks = (data.data.asks || []).map(([p, q]) => ({
+    price: parseFloat(p),
+    quantity: parseFloat(q),
+    total: parseFloat((parseFloat(p) * parseFloat(q)).toFixed(2))
+  }));
+
+  let bidCumulative = 0;
+  let askCumulative = 0;
+  bids.forEach(b => {
+    bidCumulative += b.quantity;
+    b.cumulative = Number(bidCumulative.toFixed(4));
+  });
+  asks.forEach(a => {
+    askCumulative += a.quantity;
+    a.cumulative = Number(askCumulative.toFixed(4));
+  });
+
+  const bestBid = bids[0]?.price || 0;
+  const bestAsk = asks[0]?.price || 0;
+
+  return {
+    symbol,
+    exchange: 'Pionex',
+    bids,
+    asks,
+    spread: bestAsk && bestBid ? Number((bestAsk - bestBid).toFixed(2)) : 0,
+    spreadPercent: bestAsk && bestBid ? Number((((bestAsk - bestBid) / bestAsk) * 100).toFixed(4)) : 0,
+    timestamp: new Date().toISOString()
+  };
+}
+
+export async function getRecentTrades(symbol, limit = 20) {
+  const pionexSymbol = normalizeSymbol(symbol);
+  const url = `${BASE_URL}/api/v1/market/trades`;
+  const { data } = await axios.get(url, {
+    params: { symbol: pionexSymbol, limit: Math.min(limit, 50) },
+    timeout: 5000
+  });
+
+  if (!data.result || !data.data?.trades) {
+    return [];
+  }
+
+  return (data.data.trades || []).map(t => ({
+    id: t.tradeId || `trade_${t.timestamp}`,
+    price: parseFloat(t.price),
+    quantity: parseFloat(t.size),
+    side: t.side.toLowerCase(),
+    time: new Date(t.timestamp).toISOString()
+  }));
+}
+
 // Symbol cache
 let symbolsCache = null;
 let symbolsCacheTime = 0;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-export async function searchSymbols(query) {
-  // Refresh cache if needed
-  if (!symbolsCache || Date.now() - symbolsCacheTime > CACHE_TTL) {
-    const url = `${BASE_URL}/api/v1/common/symbols`;
-    const { data } = await axios.get(url, {
-      params: { type: 'SPOT' },
-      timeout: 10000
-    });
+const POPULAR_PIONEX_SYMBOLS = [
+  { symbol: 'BTC/USDT', name: 'Bitcoin', baseAsset: 'BTC', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'ETH/USDT', name: 'Ethereum', baseAsset: 'ETH', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'SOL/USDT', name: 'Solana', baseAsset: 'SOL', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'BNB/USDT', name: 'BNB', baseAsset: 'BNB', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'XRP/USDT', name: 'XRP', baseAsset: 'XRP', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'DOGE/USDT', name: 'Dogecoin', baseAsset: 'DOGE', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'ADA/USDT', name: 'Cardano', baseAsset: 'ADA', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'AVAX/USDT', name: 'Avalanche', baseAsset: 'AVAX', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'LINK/USDT', name: 'Chainlink', baseAsset: 'LINK', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'NEAR/USDT', name: 'NEAR Protocol', baseAsset: 'NEAR', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'SUI/USDT', name: 'Sui', baseAsset: 'SUI', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'PEPE/USDT', name: 'Pepe', baseAsset: 'PEPE', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'SHIB/USDT', name: 'Shiba Inu', baseAsset: 'SHIB', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'DOT/USDT', name: 'Polkadot', baseAsset: 'DOT', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'MATIC/USDT', name: 'Polygon', baseAsset: 'MATIC', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'LTC/USDT', name: 'Litecoin', baseAsset: 'LTC', quoteAsset: 'USDT', exchange: 'Pionex' },
+  { symbol: 'UNI/USDT', name: 'Uniswap', baseAsset: 'UNI', quoteAsset: 'USDT', exchange: 'Pionex' }
+];
 
-    if (data.result && data.data?.symbols) {
-      symbolsCache = data.data.symbols;
-      symbolsCacheTime = Date.now();
-      console.log(`[Pionex] Cached ${symbolsCache.length} symbols`);
+export async function searchSymbols(query = '') {
+  try {
+    // Refresh cache if needed
+    if (!symbolsCache || Date.now() - symbolsCacheTime > CACHE_TTL) {
+      const url = `${BASE_URL}/api/v1/common/symbols`;
+      const { data } = await axios.get(url, {
+        params: { type: 'SPOT' },
+        timeout: 10000
+      });
+
+      if (data.result && data.data?.symbols) {
+        symbolsCache = data.data.symbols;
+        symbolsCacheTime = Date.now();
+        console.log(`[Pionex] Cached ${symbolsCache.length} symbols`);
+      }
     }
-  }
 
-  const needle = query.toLowerCase();
-  return (symbolsCache || [])
-    .filter(s => s.quoteCurrency === 'USDT' && s.enable)
-    .filter(s =>
-      s.symbol.toLowerCase().includes(needle) ||
-      s.baseCurrency.toLowerCase().includes(needle)
-    )
-    .slice(0, 20)
-    .map(s => ({
-      symbol: `${s.baseCurrency}/${s.quoteCurrency}`,
-      exchange: 'Pionex',
-      name: s.baseCurrency,
-      baseAsset: s.baseCurrency,
-      quoteAsset: s.quoteCurrency
-    }));
+    if (!query || !query.trim()) {
+      return POPULAR_PIONEX_SYMBOLS;
+    }
+
+    const needle = query.trim().toLowerCase();
+    const matches = (symbolsCache || [])
+      .filter(s => s.quoteCurrency === 'USDT' && s.enable)
+      .filter(s =>
+        s.symbol.toLowerCase().includes(needle) ||
+        s.baseCurrency.toLowerCase().includes(needle) ||
+        `${s.baseCurrency}/${s.quoteCurrency}`.toLowerCase().includes(needle)
+      )
+      .slice(0, 20)
+      .map(s => ({
+        symbol: `${s.baseCurrency}/${s.quoteCurrency}`,
+        exchange: 'Pionex',
+        name: s.baseCurrency,
+        baseAsset: s.baseCurrency,
+        quoteAsset: s.quoteCurrency
+      }));
+
+    if (matches.length > 0) return matches;
+
+    return POPULAR_PIONEX_SYMBOLS.filter(s =>
+      s.symbol.toLowerCase().includes(needle) || s.name.toLowerCase().includes(needle)
+    );
+  } catch (err) {
+    console.warn('[Pionex] searchSymbols fallback:', err.message);
+    if (!query || !query.trim()) return POPULAR_PIONEX_SYMBOLS;
+    const needle = query.trim().toLowerCase();
+    return POPULAR_PIONEX_SYMBOLS.filter(s =>
+      s.symbol.toLowerCase().includes(needle) || s.name.toLowerCase().includes(needle)
+    );
+  }
 }
 
 export function supportsSymbol(symbol) {
@@ -206,17 +335,24 @@ export async function validateCredentials(apiKey, apiSecret) {
 }
 
 export async function getBalances(apiKey, apiSecret) {
+  const key = apiKey || defaultCredentials?.apiKey;
+  const secret = apiSecret || defaultCredentials?.apiSecret;
+
+  if (!key || !secret) {
+    throw new Error('Pionex API credentials not configured');
+  }
+
   const timestamp = Date.now();
   const path = '/api/v1/account/balances';
   const queryParams = { timestamp };
   const queryString = buildQueryString(queryParams);
-  const signature = createSignature('GET', path, queryString, null, apiSecret);
+  const signature = createSignature('GET', path, queryString, null, secret);
 
   try {
     const { data } = await axios.get(`${BASE_URL}${path}`, {
       params: queryParams,
       headers: {
-        'PIONEX-KEY': apiKey,
+        'PIONEX-KEY': key,
         'PIONEX-SIGNATURE': signature
       },
       timeout: 15000
@@ -237,34 +373,56 @@ export async function getBalances(apiKey, apiSecret) {
   } catch (error) {
     const pionexError = error.response?.data;
     console.error(`[Pionex] getBalances failed:`, pionexError?.message || error.message);
-    throw new Error(pionexError?.message || 'Failed to fetch balances');
+    throw new Error(pionexError?.message || error.message || 'Failed to fetch balances');
   }
 }
 
 export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, quantity, price, amount }) {
+  const key = apiKey || defaultCredentials?.apiKey;
+  const secret = apiSecret || defaultCredentials?.apiSecret;
+
+  if (!key || !secret) {
+    throw new Error('Pionex API credentials not configured');
+  }
+
   const timestamp = Date.now();
   const path = '/api/v1/trade/order';
   const queryParams = { timestamp };
   const queryString = buildQueryString(queryParams);
 
+  const upperSide = side.toUpperCase();
+  const upperType = orderType.toUpperCase();
+
   const body = {
     symbol: normalizeSymbol(symbol),
-    side: side.toUpperCase(),
-    type: orderType.toUpperCase()
+    side: upperSide,
+    type: upperType
   };
 
-  if (orderType.toUpperCase() === 'LIMIT') {
+  if (upperType === 'LIMIT') {
     body.size = quantity.toString();
-    body.price = price.toString();
-  } else if (orderType.toUpperCase() === 'MARKET') {
-    if (side.toUpperCase() === 'BUY') {
-      body.amount = amount?.toString() || (quantity * price).toString();
+    body.price = price ? price.toString() : '0';
+  } else if (upperType === 'MARKET') {
+    if (upperSide === 'BUY') {
+      if (amount) {
+        body.amount = amount.toString();
+      } else if (price && quantity) {
+        body.amount = (Number(quantity) * Number(price)).toFixed(4);
+      } else {
+        // Fetch current price to calculate quote amount
+        try {
+          const q = await getQuote(symbol);
+          body.amount = (Number(quantity) * (q.price || 1)).toFixed(4);
+        } catch {
+          body.size = quantity.toString();
+        }
+      }
     } else {
       body.size = quantity.toString();
     }
   }
 
-  const signature = createSignature('POST', path, queryString, body, apiSecret);
+  const signature = createSignature('POST', path, queryString, body, secret);
 
   try {
     const { data } = await axios.post(
@@ -272,7 +430,7 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
       body,
       {
         headers: {
-          'PIONEX-KEY': apiKey,
+          'PIONEX-KEY': key,
           'PIONEX-SIGNATURE': signature,
           'Content-Type': 'application/json'
         },
@@ -287,7 +445,7 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
     return {
       orderId: data.data.orderId,
       clientOrderId: data.data.clientOrderId || null,
-      symbol: symbol,
+      symbol: denormalizeSymbol(symbol) || symbol,
       side: side.toLowerCase(),
       orderType: orderType.toLowerCase(),
       quantity: parseFloat(quantity),
@@ -303,6 +461,13 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
 }
 
 export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {
+  const key = apiKey || defaultCredentials?.apiKey;
+  const secret = apiSecret || defaultCredentials?.apiSecret;
+
+  if (!key || !secret) {
+    throw new Error('Pionex API credentials not configured');
+  }
+
   const timestamp = Date.now();
   const path = '/api/v1/trade/order';
   const queryParams = { timestamp };
@@ -313,7 +478,7 @@ export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {
     orderId: orderId
   };
 
-  const signature = createSignature('DELETE', path, queryString, body, apiSecret);
+  const signature = createSignature('DELETE', path, queryString, body, secret);
 
   try {
     const { data } = await axios.delete(
@@ -321,7 +486,7 @@ export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {
       {
         data: body,
         headers: {
-          'PIONEX-KEY': apiKey,
+          'PIONEX-KEY': key,
           'PIONEX-SIGNATURE': signature,
           'Content-Type': 'application/json'
         },
@@ -341,18 +506,25 @@ export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {
 }
 
 export async function getOrder(apiKey, apiSecret, symbol, orderId) {
+  const key = apiKey || defaultCredentials?.apiKey;
+  const secret = apiSecret || defaultCredentials?.apiSecret;
+
+  if (!key || !secret) {
+    throw new Error('Pionex API credentials not configured');
+  }
+
   const timestamp = Date.now();
   const path = '/api/v1/trade/order';
   const queryParams = { timestamp, orderId };
   const queryString = buildQueryString(queryParams);
-  const signature = createSignature('GET', path, queryString, null, apiSecret);
+  const signature = createSignature('GET', path, queryString, null, secret);
 
   try {
     const { data } = await axios.get(
       `${BASE_URL}${path}?${queryString}`,
       {
         headers: {
-          'PIONEX-KEY': apiKey,
+          'PIONEX-KEY': key,
           'PIONEX-SIGNATURE': signature
         },
         timeout: 10000
@@ -372,7 +544,7 @@ export async function getOrder(apiKey, apiSecret, symbol, orderId) {
       quantity: parseFloat(order.size),
       price: parseFloat(order.price) || null,
       status: mapPionexStatus(order.status),
-      filledQuantity: parseFloat(order.filledSize),
+      filledQuantity: parseFloat(order.filledSize || 0),
       avgFillPrice: parseFloat(order.filledAmount) / parseFloat(order.filledSize) || null,
       fee: parseFloat(order.fee) || 0,
       createdAt: new Date(order.createTime).toISOString()
@@ -381,6 +553,10 @@ export async function getOrder(apiKey, apiSecret, symbol, orderId) {
     const pionexError = error.response?.data;
     throw new Error(pionexError?.message || error.message);
   }
+}
+
+export async function getOrderStatus(apiKey, apiSecret, symbol, orderId) {
+  return getOrder(apiKey, apiSecret, symbol, orderId);
 }
 
 export async function getOpenOrders(apiKey, apiSecret, symbol = null) {

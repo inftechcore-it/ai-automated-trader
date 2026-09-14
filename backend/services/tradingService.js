@@ -1,7 +1,22 @@
 import { query } from '../config/db.js';
 import { getQuote } from './exchangeService.js';
+import * as pionexAdapter from './adapters/pionexAdapter.js';
 
 export async function getOrderBook(symbol, exchange, depth = 10) {
+  const exLower = exchange?.toLowerCase();
+
+  // Try real Pionex order book
+  if (exLower === 'pionex') {
+    try {
+      const realBook = await pionexAdapter.getOrderBook(symbol, depth);
+      if (realBook?.bids?.length > 0) {
+        return realBook;
+      }
+    } catch (e) {
+      console.warn('[TradingService] Pionex live orderbook fallback:', e.message);
+    }
+  }
+
   const quote = await getQuote(symbol, exchange);
   const currentPrice = quote.price;
   const spread = currentPrice * 0.0005; // 0.05% spread
@@ -57,6 +72,20 @@ export async function getOrderBook(symbol, exchange, depth = 10) {
 }
 
 export async function getRecentTrades(symbol, exchange, limit = 20) {
+  const exLower = exchange?.toLowerCase();
+
+  // Try real Pionex recent trades
+  if (exLower === 'pionex') {
+    try {
+      const realTrades = await pionexAdapter.getRecentTrades(symbol, limit);
+      if (realTrades && realTrades.length > 0) {
+        return realTrades;
+      }
+    } catch (e) {
+      console.warn('[TradingService] Pionex live trades fallback:', e.message);
+    }
+  }
+
   // Get from database
   const dbTrades = await query(
     `SELECT * FROM recent_trades

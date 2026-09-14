@@ -72,6 +72,17 @@ export default function Trading() {
   const [upstoxHoldings, setUpstoxHoldings] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Pionex State
+  const [pionexStatus, setPionexStatus] = useState({ configured: false, authenticated: false });
+  const [pionexFunds, setPionexFunds] = useState(null);
+  const [showPionexConnectModal, setShowPionexConnectModal] = useState(false);
+  const [connectingPionex, setConnectingPionex] = useState(false);
+  const [pionexForm, setPionexForm] = useState({
+    apiKey: '',
+    apiSecret: '',
+    paperMode: false
+  });
+
   // Order confirmation modal
   const [showOrderConfirm, setShowOrderConfirm] = useState(false);
   const [pendingOrder, setPendingOrder] = useState(null);
@@ -84,17 +95,19 @@ export default function Trading() {
     { name: 'NASDAQ', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'NYSE', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'Binance', type: 'crypto', currency: 'USD', broker: 'Binance' },
-    { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' },
     { name: 'Pionex', type: 'crypto', currency: 'USD', broker: 'Pionex' },
+    { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' },
     { name: 'Jupiter', type: 'dex', currency: 'USD', broker: 'Jupiter' }
   ];
 
   const currentExchange = exchanges.find(e => e.name === exchangeName) || exchanges[0];
   const isIndianExchange = ['NSE', 'BSE'].includes(exchangeName);
+  const isPionexExchange = exchangeName.toLowerCase() === 'pionex';
   const currencySymbol = isIndianExchange ? '₹' : '$';
 
   const isAngelConnected = !!(angeloneStatus.authenticated || angeloneStatus.configured);
   const isUpstoxConnected = !!upstoxStatus.authenticated;
+  const isPionexConnected = !!(pionexStatus.authenticated || pionexStatus.configured || brokerStatus.pionex?.connected);
   const isSelectedIndianBrokerConnected = isIndianExchange && (
     (selectedIndianBroker === 'AngelOne' && isAngelConnected) ||
     (selectedIndianBroker === 'Upstox' && isUpstoxConnected)
@@ -105,6 +118,9 @@ export default function Trading() {
     if (!ex) return false;
     if (['NSE', 'BSE'].includes(exchange)) {
       return isSelectedIndianBrokerConnected || isAngelConnected || isUpstoxConnected;
+    }
+    if (exchange.toLowerCase() === 'pionex') {
+      return isPionexConnected;
     }
     const broker = (ex.broker || ex.name).toLowerCase();
     if (broker === 'alpaca') {
@@ -124,6 +140,7 @@ export default function Trading() {
     loadBrokerStatus();
     loadAngelOneStatus();
     loadUpstoxStatus();
+    loadPionexStatus();
     loadWallet();
     loadPositions();
     loadOpenOrders();
@@ -167,6 +184,13 @@ export default function Trading() {
       loadAngelOneHoldings();
     }
   }, [angeloneStatus.authenticated, angeloneStatus.configured]);
+
+  // Load Pionex data when authenticated or configured
+  useEffect(() => {
+    if (pionexStatus.authenticated || pionexStatus.configured) {
+      loadPionexFunds();
+    }
+  }, [pionexStatus.authenticated, pionexStatus.configured]);
 
   // Load quote when symbol changes
   useEffect(() => {
@@ -407,6 +431,108 @@ export default function Trading() {
     }
   }
 
+  // ============ PIONEX METHODS ============
+  async function loadPionexStatus() {
+    try {
+      const response = await api.get('/api/pionex/status');
+      setPionexStatus({
+        configured: !!response.data.configured,
+        authenticated: !!response.data.authenticated,
+        source: response.data.source
+      });
+      if (response.data.configured || response.data.authenticated) {
+        loadPionexFunds();
+      }
+    } catch {
+      setPionexStatus({ configured: false, authenticated: false });
+    }
+  }
+
+  async function loadPionexFunds() {
+    try {
+      const response = await api.get('/api/pionex/funds');
+      setPionexFunds(response.data);
+    } catch (err) {
+      console.error('Failed to load Pionex funds:', err);
+    }
+  }
+
+  async function handleConnectPionex(e) {
+    if (e) e.preventDefault();
+    if (!pionexForm.apiKey || !pionexForm.apiSecret) {
+      setMessage({ text: 'Please enter both API Key and API Secret', type: 'error' });
+      return;
+    }
+    setConnectingPionex(true);
+    setMessage({ text: '', type: '' });
+    try {
+      await api.post('/api/pionex/connect', {
+        apiKey: pionexForm.apiKey,
+        apiSecret: pionexForm.apiSecret,
+        paperMode: pionexForm.paperMode
+      });
+      setMessage({ text: 'Pionex API connected successfully!', type: 'success' });
+      setShowPionexConnectModal(false);
+      loadPionexStatus();
+      loadPionexFunds();
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    } finally {
+      setConnectingPionex(false);
+    }
+  }
+
+  async function disconnectPionex() {
+    try {
+      await api.post('/api/pionex/disconnect');
+      setPionexStatus({ configured: false, authenticated: false });
+      setPionexFunds(null);
+      setMessage({ text: 'Disconnected from Pionex', type: 'success' });
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    }
+  }
+
+  async function pollPionexOrderStatus(orderId, orderSymbol) {
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setOrderStatus(prev => ({ ...prev, status: 'unknown', message: 'Pionex order submitted (status check complete)' }));
+        return;
+      }
+      attempts++;
+
+      try {
+        const response = await api.get(`/api/pionex/orders/${orderId}/status`, {
+          params: { symbol: orderSymbol || symbol }
+        });
+        const order = response.data.order;
+        const status = order?.status?.toLowerCase();
+
+        if (['filled', 'complete', 'executed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'filled', message: 'Pionex order executed successfully!' });
+          setMessage({ text: 'Pionex order executed successfully!', type: 'success' });
+          loadPionexFunds();
+          loadPositions();
+        } else if (['rejected', 'cancelled', 'failed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'failed', message: 'Pionex order cancelled/rejected' });
+          setMessage({ text: 'Pionex order was cancelled or rejected', type: 'error' });
+        } else {
+          setOrderStatus({ orderId, status: 'pending', message: `Order status: ${status || 'open'}...` });
+          setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        console.error('Pionex status poll error:', error);
+      }
+    };
+
+    poll();
+  }
+
   // ============ GENERAL TRADING METHODS ============
   async function loadWallet() {
     try {
@@ -567,6 +693,14 @@ export default function Trading() {
       }
     }
 
+    if (mode === 'live' && isPionexExchange) {
+      if (!isPionexConnected) {
+        setMessage({ text: 'Please connect Pionex API credentials for live spot trading', type: 'error' });
+        setShowPionexConnectModal(true);
+        return;
+      }
+    }
+
     const orderData = {
       symbol,
       exchangeName,
@@ -574,7 +708,7 @@ export default function Trading() {
       side,
       quantity: Number(qty),
       mode,
-      broker: isIndianExchange ? selectedIndianBroker : undefined,
+      broker: isIndianExchange ? selectedIndianBroker : (isPionexExchange ? 'Pionex' : undefined),
       price: orderType !== 'market' ? Number(price) : quote?.price,
       stopPrice: (orderType === 'stop_loss' || orderType === 'stop_limit') ? Number(stopPrice) : undefined,
       takeProfitPrice: orderType === 'take_profit' ? Number(takeProfitPrice || price) : undefined
@@ -631,6 +765,19 @@ export default function Trading() {
             pollUpstoxOrderStatus(orderId);
           }
         }
+      } else if (orderData.mode === 'live' && orderData.exchangeName?.toLowerCase() === 'pionex') {
+        response = await api.post('/api/pionex/orders/place', {
+          symbol: orderData.symbol,
+          side: orderData.side,
+          orderType: orderData.orderType,
+          quantity: orderData.quantity,
+          price: orderData.price
+        });
+        const orderId = response.data.order?.orderId;
+        if (orderId) {
+          setOrderStatus({ orderId, status: 'submitted', message: 'Order placed on Pionex! Checking execution...' });
+          pollPionexOrderStatus(orderId, orderData.symbol);
+        }
       } else {
         response = await api.post('/api/orders/place', payload);
       }
@@ -653,6 +800,8 @@ export default function Trading() {
           loadUpstoxPositions();
           loadUpstoxHoldings();
         }
+      } else if (isPionexExchange) {
+        loadPionexFunds();
       }
     } catch (error) {
       if (!handleUpstoxTokenExpiry(error)) {
@@ -793,6 +942,7 @@ export default function Trading() {
 
   // Live funds based on active broker
   const isLiveIndian = mode === 'live' && isIndianExchange && isSelectedIndianBrokerConnected;
+  const isLivePionex = mode === 'live' && isPionexExchange && isPionexConnected;
   let buyingPower = wallet?.balance || 0;
 
   if (isLiveIndian) {
@@ -801,6 +951,8 @@ export default function Trading() {
     } else if (selectedIndianBroker === 'Upstox') {
       buyingPower = upstoxFunds?.equity?.availableMargin || upstoxFunds?.totalAvailable || 0;
     }
+  } else if (isLivePionex) {
+    buyingPower = pionexFunds?.buyingPower ?? (pionexFunds?.balances?.find(b => b.asset === 'USDT')?.free || 0);
   }
 
   const canAfford = side === 'buy' ? buyingPower >= total : true;
@@ -834,12 +986,71 @@ export default function Trading() {
             <Zap size={14} /> Live
           </button>
           {mode === 'live' && !currentBrokerConnected && !isIndianExchange && (
-            <Link to="/exchanges" className="connect-broker-link">
+            <button className="connect-broker-btn" onClick={() => isPionexExchange ? setShowPionexConnectModal(true) : null}>
               <Link2 size={12} /> Connect
-            </Link>
+            </button>
           )}
         </div>
       </div>
+
+      {/* Pionex Crypto Toolbar (Shown when Pionex exchange is selected) */}
+      {isPionexExchange && (
+        <div className="indian-broker-toolbar pionex-toolbar">
+          <div className="broker-toolbar-label">
+            <span>Pionex Spot & Bots:</span>
+          </div>
+
+          <div className="broker-pills-list">
+            <div
+              className={`broker-pill-item ${isPionexConnected ? 'connected' : ''} active`}
+              onClick={() => !isPionexConnected && setShowPionexConnectModal(true)}
+            >
+              <div className="broker-pill-header">
+                <strong>Pionex API</strong>
+                {pionexStatus.authenticated ? (
+                  <Badge tone="green" small><CheckCircle size={10} /> Active</Badge>
+                ) : pionexStatus.configured ? (
+                  <Badge tone="blue" small><CheckCircle size={10} /> Configured</Badge>
+                ) : (
+                  <Badge tone="yellow" small><KeyRound size={10} /> Connect API</Badge>
+                )}
+              </div>
+              <span className="broker-pill-desc">Spot Trading & Native Grid Bots</span>
+              <div className="broker-pill-actions" onClick={e => e.stopPropagation()}>
+                {isPionexConnected ? (
+                  <button className="btn-disconnect-small" onClick={disconnectPionex}>Disconnect</button>
+                ) : (
+                  <button className="btn-connect-pill pionex" onClick={() => setShowPionexConnectModal(true)}>
+                    <KeyRound size={11} /> Connect
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isPionexConnected && (
+              <div className="broker-balance-chip">
+                <span className="chip-label">USDT Available:</span>
+                <span className="chip-val">${Number(pionexFunds?.buyingPower || pionexFunds?.balances?.find(b => b.asset === 'USDT')?.free || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Live warning banner if active broker is not connected */}
+          {mode === 'live' && !isPionexConnected && (
+            <div className="indian-broker-warning">
+              <AlertTriangle size={15} />
+              <span>
+                Connect your <strong>Pionex API credentials</strong> for live crypto execution on Pionex.
+              </span>
+              <div className="warning-buttons">
+                <button className="btn-action-warning pionex" onClick={() => setShowPionexConnectModal(true)}>
+                  <KeyRound size={12} /> Connect Pionex API
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Indian Broker Selection Bar (Only shown for NSE & BSE) */}
       {isIndianExchange && (
@@ -937,9 +1148,14 @@ export default function Trading() {
                 {isIndianExchange && (
                   <span className="search-broker-tag">via {selectedIndianBroker === 'AngelOne' ? 'Angel One' : 'Upstox'}</span>
                 )}
+                {isPionexExchange && (
+                  <span className="search-broker-tag">via Pionex</span>
+                )}
               </>
             ) : (
-              `Search for ${exchangeName} stocks...`
+              isPionexExchange
+                ? 'Search Pionex crypto pairs (e.g. BTC/USDT, ETH/USDT, SOL/USDT)...'
+                : `Search for ${exchangeName} stocks...`
             )}
           </span>
           {symbol && (
@@ -1560,6 +1776,59 @@ export default function Trading() {
                   {connectingAngel ? <><RefreshCw size={14} className="spin" /> Authenticating...</> : <><KeyRound size={14} /> Connect & Login</>}
                 </button>
                 <button type="button" className="btn-secondary" onClick={() => setShowAngelConnectModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Pionex Connect Modal */}
+      {showPionexConnectModal && (
+        <div className="modal-overlay" onClick={() => setShowPionexConnectModal(false)}>
+          <div className="modal-content-box angel-connect-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-row">
+                <KeyRound size={20} className="text-primary" />
+                <h3>Connect Pionex API</h3>
+              </div>
+              <button className="btn-close" onClick={() => setShowPionexConnectModal(false)}>
+                <XCircle size={20} />
+              </button>
+            </div>
+            <p className="modal-hint">
+              Enter your Pionex API Key and API Secret to enable live spot trading and bot execution.
+            </p>
+            <form onSubmit={handleConnectPionex} className="form">
+              <div className="form-group">
+                <label>Pionex API Key</label>
+                <input
+                  type="password"
+                  placeholder="Enter Pionex API Key"
+                  value={pionexForm.apiKey}
+                  onChange={e => setPionexForm({ ...pionexForm, apiKey: e.target.value })}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+              <div className="form-group">
+                <label>Pionex API Secret</label>
+                <input
+                  type="password"
+                  placeholder="Enter Pionex API Secret"
+                  value={pionexForm.apiSecret}
+                  onChange={e => setPionexForm({ ...pionexForm, apiSecret: e.target.value })}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="form-actions">
+                <button type="submit" className="btn-primary" disabled={connectingPionex}>
+                  {connectingPionex ? <><RefreshCw size={14} className="spin" /> Verifying...</> : <><KeyRound size={14} /> Connect Pionex</>}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setShowPionexConnectModal(false)}>
                   Cancel
                 </button>
               </div>

@@ -665,11 +665,19 @@ export async function getLiveOpenOrders(userId, exchange) {
 
 async function getUserBrokerCredentials(userId, exchangeName) {
   const [row] = await query(
-    'SELECT api_key, api_secret, additional_params FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
+    'SELECT api_key, api_secret, additional_params FROM exchange_accounts WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName) AND is_active = 1',
     { userId, exchangeName }
   );
 
-  if (!row) return null;
+  if (!row) {
+    const memoryCreds = getBrokerCredentials(exchangeName);
+    if (memoryCreds) return memoryCreds;
+    if (exchangeName.toLowerCase() === 'pionex') {
+      const pionexDef = pionexAdapter.getDefaultCredentials();
+      if (pionexDef) return pionexDef;
+    }
+    return null;
+  }
   let additional = {};
   try {
     if (row.additional_params) {

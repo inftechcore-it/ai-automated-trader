@@ -1037,6 +1037,12 @@ export default function Exchanges() {
                     <span>This connects your <strong>Live Trading</strong> account. Paper trading is always available without API connection.</span>
                   </div>
                 )}
+                {connectExchange.name === 'Pionex' && (
+                  <div className="form-note info">
+                    <AlertTriangle size={14} />
+                    <span><strong>Pionex Live Trading:</strong> Generate your API Key & Secret from your Pionex Account (Settings &rarr; API Management) with <em>Read</em> and <em>Trade</em> permissions enabled for live orders & automated grid bots.</span>
+                  </div>
+                )}
                 <div className="form-actions">
                   <button
                     type="submit"
