@@ -3,6 +3,7 @@
  * States: CREATED → RUNNING ↔ PAUSED → STOPPED
  */
 import { EventEmitter } from 'events';
+import { parseSymbol, toNum } from './utils.js';
 import type { IBotStrategy } from './IBotStrategy.js';
 import type {
   BotConfig,
@@ -231,6 +232,101 @@ export class BotInstance extends EventEmitter {
     this.emit('stopped', { botId: this.id, reason });
 
     console.log(`[Bot ${this.config.name}] Stopped: ${reason}`);
+  }
+
+  /**
+   * Take All IN / Panic Sell: Immediately cancels all open orders and places a Market SELL order
+   * to liquidate 100% of accumulated coin holdings to cash/quote currency in one click.
+   */
+  async panicSell(reason = 'Take All IN / Panic Sell triggered'): Promise<{ success: boolean; soldQuantity: number; receivedAmount: number; symbol: string }> {
+    this.log(`🚨 [TAKE ALL IN] Immediate panic sell triggered: ${reason}`, 'warn');
+
+    // 1. Cancel all open orders
+    for (const order of this.state.openOrders) {
+      try {
+        await this.executionEngine.cancelOrder({
+          exchange: this.config.exchangeName,
+          orderId: order.exchangeOrderId || order.id,
+          symbol: order.symbol,
+        });
+      } catch (e: any) {
+        console.warn(`[Bot ${this.config.name}] Failed to cancel order ${order.id}:`, e.message);
+      }
+    }
+    this.state.openOrders = [];
+
+    // 2. Liquidate all holdings for this bot
+    let totalSoldQty = 0;
+    let totalReceived = 0;
+    const { base, quote } = parseSymbol(this.config.symbol);
+
+    // Get current market price for execution
+    let currentPrice = this.lastPrice || 0;
+    if (currentPrice <= 0) {
+      try {
+        const adapter = await this.getAdapter();
+        const ticker = await (adapter as any).getTicker(this.config.symbol);
+        currentPrice = ticker.last || ticker.close || 0;
+      } catch {
+        currentPrice = 1;
+      }
+    }
+
+    for (const holding of this.state.holdings) {
+      if (holding.quantity > 0) {
+        const sellQty = holding.quantity;
+        try {
+          const orderResult = await this.executionEngine.placeOrder({
+            exchange: this.config.exchangeName,
+            symbol: this.config.symbol,
+            side: 'SELL',
+            type: 'MARKET',
+            quantity: sellQty,
+            price: currentPrice,
+            dryRun: this.config.mode === 'PAPER',
+          });
+
+          const fillPrice = orderResult.filledPrice || currentPrice;
+          const revenue = sellQty * fillPrice;
+          totalSoldQty += sellQty;
+          totalReceived += revenue;
+
+          this.log(`🚨 [TAKE ALL IN] Liquidated ${sellQty.toFixed(4)} ${holding.asset} @ $${fillPrice.toFixed(6)} (+${revenue.toFixed(2)} ${quote})`);
+
+          // Record trade
+          const trade: TradeRecord = {
+            id: `trade_panic_${Date.now()}`,
+            symbol: this.config.symbol,
+            side: 'SELL',
+            quantity: sellQty,
+            price: fillPrice,
+            fee: revenue * 0.001,
+            profit: revenue - (sellQty * (holding.avgEntryPrice || fillPrice)),
+            executedAt: new Date(),
+          };
+          this.state.tradeHistory.push(trade);
+          this.deps.onTrade(this.id, trade);
+        } catch (sellErr: any) {
+          this.log(`[Bot ${this.config.name}] Panic sell order failed: ${sellErr.message}`, 'error');
+        }
+      }
+    }
+
+    // Reset holdings
+    this.state.holdings = [];
+    this.state.totalHoldingsValue = 0;
+    this.state.availableBalance += totalReceived;
+    this.state.currentEquity = this.state.availableBalance;
+
+    // Stop bot after liquidation
+    await this.stop(`Take All IN: Liquidated ${totalSoldQty.toFixed(4)} ${base} for $${totalReceived.toFixed(2)}`);
+
+    return {
+      success: true,
+      soldQuantity: totalSoldQty,
+      receivedAmount: totalReceived,
+      symbol: this.config.symbol,
+    };
   }
 
   async processTick(tick: PriceTick): Promise<void> {

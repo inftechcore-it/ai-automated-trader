@@ -4,7 +4,7 @@ import {
   Bot, Plus, TrendingUp, TrendingDown, DollarSign, Activity,
   Play, Pause, Square, Eye, Grid3X3, Repeat, Target, ArrowUpDown,
   BarChart3, Shuffle, Scale, RefreshCw, Search, Filter, Clock,
-  Zap, FlaskConical, Wallet, ChevronRight, Sparkles, X, Share2, Users
+  Zap, FlaskConical, Wallet, ChevronRight, Sparkles, X, Share2, Users, Radar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
@@ -17,6 +17,8 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGY_ICONS = {
+  JARVIS: TrendingUp,
+  PRECISION_GRID: Zap,
   GRID: Grid3X3,
   INFINITY_GRID: Grid3X3,
   DCA: Repeat,
@@ -25,9 +27,12 @@ const STRATEGY_ICONS = {
   MARTINGALE: BarChart3,
   REBALANCING: Scale,
   ARBITRAGE: Shuffle,
+  DYNAMIC_GRID: Radar,
 };
 
 const STRATEGY_COLORS = {
+  JARVIS: '#06b6d4',
+  PRECISION_GRID: '#0ea5e9',
   GRID: '#3b82f6',
   INFINITY_GRID: '#8b5cf6',
   DCA: '#10b981',
@@ -36,6 +41,7 @@ const STRATEGY_COLORS = {
   MARTINGALE: '#ef4444',
   REBALANCING: '#06b6d4',
   ARBITRAGE: '#6366f1',
+  DYNAMIC_GRID: '#14b8a6',
 };
 
 const formatDuration = (startedAt) => {
@@ -48,7 +54,7 @@ const formatDuration = (startedAt) => {
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 };
 
-function BotCard({ bot, onAction, onClick, onShare }) {
+function BotCard({ bot, onAction, onClick, onShare, onPanicSell }) {
   const Icon = STRATEGY_ICONS[bot.strategyType] || Bot;
   const profit = Number(bot.totalProfit || 0);
   const profitPercent = bot.investedAmount > 0
@@ -157,6 +163,15 @@ function BotCard({ bot, onAction, onClick, onShare }) {
             <Square size={14} /> Stop
           </button>
         )}
+        {(bot.status === 'RUNNING' || bot.status === 'PAUSED') && (
+          <button
+            className="action-btn panic-sell"
+            title="Take All IN (1-Click Emergency Liquidation)"
+            onClick={() => onPanicSell ? onPanicSell(bot) : onAction(bot.id, 'panic-sell')}
+          >
+            <Zap size={14} /> Take All IN
+          </button>
+        )}
         {(bot.status === 'CREATED' || bot.status === 'STOPPED') && (
           <button className="action-btn start" onClick={() => onAction(bot.id, 'start')}>
             <Play size={14} /> {bot.status === 'STOPPED' ? 'Restart' : 'Start'}
@@ -250,6 +265,8 @@ export default function Bots() {
   const [showWizard, setShowWizard] = useState(false);
   const [selectedBot, setSelectedBot] = useState(null);
   const [shareModal, setShareModal] = useState(null);
+  const [panicBotModal, setPanicBotModal] = useState(null);
+  const [panicLoading, setPanicLoading] = useState(false);
   const [filter, setFilter] = useState({ strategy: '', exchange: '', mode: '', status: '' });
   const [sortBy, setSortBy] = useState('profit');
   const [searchQuery, setSearchQuery] = useState('');
@@ -312,6 +329,26 @@ export default function Bots() {
       }
     } catch (e) {
       console.error(`Failed to ${action} bot:`, e);
+    }
+  };
+
+  const handleConfirmPanicSell = async () => {
+    if (!panicBotModal) return;
+    setPanicLoading(true);
+    try {
+      const res = await api(`/bots/${panicBotModal.id}/take-all-in`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Take All IN user triggered from bot card' })
+      });
+      if (res.success) {
+        setPanicBotModal(null);
+        loadBots();
+      }
+    } catch (e) {
+      console.error('Take All IN failed:', e);
+    } finally {
+      setPanicLoading(false);
+      setPanicBotModal(null);
     }
   };
 
@@ -491,6 +528,7 @@ export default function Bots() {
               onAction={handleBotAction}
               onClick={() => navigate(`/bots/${bot.id}`)}
               onShare={setShareModal}
+              onPanicSell={setPanicBotModal}
             />
           ))
         )}
@@ -514,6 +552,46 @@ export default function Bots() {
             alert('Bot shared to community!');
           }}
         />
+      )}
+
+      {/* Take All IN Panic Sell Modal */}
+      {panicBotModal && (
+        <div className="modal-overlay">
+          <div className="delete-modal" style={{ maxWidth: '480px', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+            <h3 style={{ color: '#f87171' }}><Zap size={24} /> Take All IN — Emergency Liquidation</h3>
+            <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: '1.5' }}>
+              Are you sure you want to execute <strong>Take All IN</strong> on <strong>{panicBotModal.name}</strong> ({panicBotModal.symbol})?
+            </p>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '8px',
+              padding: '12px',
+              margin: '12px 0',
+              fontSize: '12px',
+              color: '#fca5a5',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ <strong>Immediate Actions:</strong>
+              <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                <li>Cancels all active open orders</li>
+                <li>Places market SELL order to liquidate 100% of accumulated coin holdings into cash</li>
+                <li>Locks in all profits and safely stops the bot</li>
+              </ul>
+            </div>
+            <div className="modal-actions">
+              <button className="cancel-btn" onClick={() => setPanicBotModal(null)}>Cancel</button>
+              <button
+                className="delete-btn"
+                style={{ background: '#ef4444', borderColor: '#dc2626', color: '#fff' }}
+                onClick={handleConfirmPanicSell}
+                disabled={panicLoading}
+              >
+                {panicLoading ? 'Executing...' : 'Confirm Take All IN'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

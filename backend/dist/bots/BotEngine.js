@@ -8,6 +8,8 @@ import { BotInstance } from './BotInstance.js';
 import { getBotScheduler } from './BotScheduler.js';
 // Strategy imports
 import { GridBot } from './strategies/GridBot.js';
+import { PrecisionGridBot } from './strategies/PrecisionGridBot.js';
+import { JarvisBot } from './strategies/JarvisBot.js';
 import { DCABot } from './strategies/DCABot.js';
 import { SmartTradeBot } from './strategies/SmartTradeBot.js';
 import { TrailingBot } from './strategies/TrailingBot.js';
@@ -183,6 +185,31 @@ export class BotEngine extends EventEmitter {
         this.scheduler.unsubscribeAll(botId);
         this.bots.delete(botId);
     }
+    async panicSellBot(botId, reason = 'Take All IN / Panic Sell') {
+        let instance = this.bots.get(botId);
+        // If bot was paused or stopped, restore instance temporarily to liquidate
+        if (!instance) {
+            const dbBot = await this.prisma.botConfig.findUnique({ where: { id: botId } });
+            if (!dbBot) {
+                throw new Error('Bot not found');
+            }
+            const config = this.dbToConfig(dbBot);
+            const strategy = this.createStrategy(config.strategyType);
+            instance = new BotInstance({
+                config,
+                strategy,
+                executionEngine: this.executionEngine,
+                onStateChange: (id, status, data) => this.handleStateChange(id, status, data),
+                onTrade: (id, trade) => this.handleTrade(id, trade),
+                onError: (id, error, severity) => this.handleError(id, error, severity),
+                onLog: (id, message, level) => this.emitLog(id, message, level),
+            });
+        }
+        const result = await instance.panicSell(reason);
+        this.scheduler.unsubscribeAll(botId);
+        this.bots.delete(botId);
+        return result;
+    }
     async pauseBot(botId) {
         const instance = this.bots.get(botId);
         if (!instance) {
@@ -300,6 +327,10 @@ export class BotEngine extends EventEmitter {
         switch (type) {
             case 'GRID':
                 return new GridBot();
+            case 'PRECISION_GRID':
+                return new PrecisionGridBot();
+            case 'JARVIS':
+                return new JarvisBot();
             case 'INFINITY_GRID':
                 return new InfinityGridBot();
             case 'DCA':

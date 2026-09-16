@@ -65,6 +65,16 @@ export declare class BotInstance extends EventEmitter {
     pause(): Promise<void>;
     resume(): Promise<void>;
     stop(reason?: string): Promise<void>;
+    /**
+     * Take All IN / Panic Sell: Immediately cancels all open orders and places a Market SELL order
+     * to liquidate 100% of accumulated coin holdings to cash/quote currency in one click.
+     */
+    panicSell(reason?: string): Promise<{
+        success: boolean;
+        soldQuantity: number;
+        receivedAmount: number;
+        symbol: string;
+    }>;
     processTick(tick: PriceTick): Promise<void>;
     syncOrdersWithExchange(): Promise<void>;
     private loadExistingOrders;

@@ -318,6 +318,8 @@ enum BotStrategyType {
   REBALANCING
   ARBITRAGE
   DYNAMIC_GRID
+  PRECISION_GRID
+  JARVIS
 }
 
 enum BotMode {

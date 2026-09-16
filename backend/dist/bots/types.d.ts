@@ -1,7 +1,7 @@
 /**
  * Trading Bot Engine - Type Definitions
  */
-export type BotStrategyType = 'GRID' | 'INFINITY_GRID' | 'DCA' | 'SMART_TRADE' | 'TRAILING' | 'MARTINGALE' | 'REBALANCING' | 'ARBITRAGE' | 'DYNAMIC_GRID';
+export type BotStrategyType = 'GRID' | 'PRECISION_GRID' | 'JARVIS' | 'INFINITY_GRID' | 'DCA' | 'SMART_TRADE' | 'TRAILING' | 'MARTINGALE' | 'REBALANCING' | 'ARBITRAGE' | 'DYNAMIC_GRID';
 export type CoinSelectionMode = 'MANUAL' | 'AUTO';
 export type BotMode = 'PAPER' | 'LIVE';
 export type BotStatus = 'CREATED' | 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ERROR';
@@ -87,6 +87,29 @@ export interface GridBotParams {
     stopLoss?: number;
     takeProfit?: number;
     maxBuysPerLevel?: number;
+}
+export interface PrecisionGridParams {
+    lowerPrice: number;
+    upperPrice: number;
+    gridCount: number;
+    totalInvestment: number;
+    priceTolerance?: number;
+    toleranceDigits?: number;
+    executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT';
+    stopLoss?: number;
+    takeProfit?: number;
+    maxBuysPerLevel?: number;
+}
+export interface JarvisParams {
+    lowerPrice: number;
+    upperPrice: number;
+    gridCount: number;
+    totalInvestment: number;
+    stopLoss?: number;
+    maxBuysPerLevel?: number;
+    autoIncrementEnabled?: boolean;
+    incrementStepSpace?: number;
+    priceTolerance?: number;
 }
 export interface InfinityGridParams {
     lowerPrice: number;
@@ -176,7 +199,7 @@ export interface CoinTradeState {
     profit: number;
     status: 'active' | 'maxed_out' | 'completed' | 'stopped';
 }
-export type BotParams = GridBotParams | InfinityGridParams | DCABotParams | SmartTradeParams | TrailingBotParams | MartingaleParams | RebalancingParams | ArbitrageBotParams | DynamicGridParams;
+export type BotParams = GridBotParams | PrecisionGridParams | JarvisParams | InfinityGridParams | DCABotParams | SmartTradeParams | TrailingBotParams | MartingaleParams | RebalancingParams | ArbitrageBotParams | DynamicGridParams;
 export interface BotConfig {
     id: string;
     userId: string;

@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import {
   X, ChevronRight, ChevronLeft, Check, Sparkles, Loader2,
   Grid3X3, Repeat, Target, ArrowUpDown, BarChart3, Scale, Shuffle, Radar,
-  AlertTriangle, Info, Search, Zap, FlaskConical, Wallet
+  AlertTriangle, Info, Search, Zap, FlaskConical, Wallet, TrendingUp
 } from 'lucide-react';
 import GridBotForm from './forms/GridBotForm.jsx';
+import PrecisionGridForm from './forms/PrecisionGridForm.jsx';
+import JarvisForm from './forms/JarvisForm.jsx';
 import DCABotForm from './forms/DCABotForm.jsx';
 import SmartTradeForm from './forms/SmartTradeForm.jsx';
 import TrailingBotForm from './forms/TrailingBotForm.jsx';
@@ -20,6 +22,23 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGIES = [
+  {
+    type: 'JARVIS',
+    name: 'JARVIS Bot',
+    icon: TrendingUp,
+    description: 'Auto-expanding AI grid bot. Autonomously shifts upper boundary on surges and resumes active trading without stalling.',
+    difficulty: 'Intermediate',
+    color: '#06b6d4',
+    featured: true,
+  },
+  {
+    type: 'PRECISION_GRID',
+    name: 'Precision Grid',
+    icon: Zap,
+    description: 'Decimal tolerance corridor grid. Eliminates stranded orders with instant market fills on touch.',
+    difficulty: 'Intermediate',
+    color: '#0ea5e9',
+  },
   {
     type: 'GRID',
     name: 'Grid Bot',
@@ -391,6 +410,10 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
   const renderStrategyForm = () => {
     switch (config.strategyType) {
+      case 'JARVIS':
+        return <JarvisForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
+      case 'PRECISION_GRID':
+        return <PrecisionGridForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
       case 'GRID':
         return <GridBotForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
       case 'INFINITY_GRID':

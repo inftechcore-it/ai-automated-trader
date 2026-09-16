@@ -4,6 +4,8 @@
 
 export type BotStrategyType =
   | 'GRID'
+  | 'PRECISION_GRID'
+  | 'JARVIS'
   | 'INFINITY_GRID'
   | 'DCA'
   | 'SMART_TRADE'
@@ -114,6 +116,31 @@ export interface GridBotParams {
   maxBuysPerLevel?: number;  // Max buys allowed per grid level (default: 1)
 }
 
+export interface PrecisionGridParams {
+  lowerPrice: number;
+  upperPrice: number;
+  gridCount: number;
+  totalInvestment: number;
+  priceTolerance?: number;        // Tolerance in price units (e.g. 0.0009)
+  toleranceDigits?: number;       // Decimal precision matching (e.g. 3 digits)
+  executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT'; // Instant fill on band touch
+  stopLoss?: number;
+  takeProfit?: number;
+  maxBuysPerLevel?: number;       // Max buys allowed per grid level (default: 1)
+}
+
+export interface JarvisParams {
+  lowerPrice: number;
+  upperPrice: number;
+  gridCount: number;
+  totalInvestment: number;
+  stopLoss?: number;
+  maxBuysPerLevel?: number;        // Max buys allowed per grid level (default: 1)
+  autoIncrementEnabled?: boolean;  // Autonomously increase upper bound on surge (default: true)
+  incrementStepSpace?: number;     // Custom step space (defaults to (upperPrice - lowerPrice)/gridCount)
+  priceTolerance?: number;         // Optional decimal tolerance corridor
+}
+
 export interface InfinityGridParams {
   lowerPrice: number;
   gridSpacingPercent: number;
@@ -221,6 +248,8 @@ export interface CoinTradeState {
 
 export type BotParams =
   | GridBotParams
+  | PrecisionGridParams
+  | JarvisParams
   | InfinityGridParams
   | DCABotParams
   | SmartTradeParams

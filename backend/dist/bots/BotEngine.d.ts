@@ -35,6 +35,12 @@ export declare class BotEngine extends EventEmitter {
     createBot(params: CreateBotParams): Promise<BotConfig>;
     startBot(botId: string): Promise<void>;
     stopBot(botId: string, reason?: string): Promise<void>;
+    panicSellBot(botId: string, reason?: string): Promise<{
+        success: boolean;
+        soldQuantity: number;
+        receivedAmount: number;
+        symbol: string;
+    }>;
     pauseBot(botId: string): Promise<void>;
     resumeBot(botId: string): Promise<void>;
     deleteBot(botId: string): Promise<void>;
