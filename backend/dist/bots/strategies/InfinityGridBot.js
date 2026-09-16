@@ -126,48 +126,13 @@ export class InfinityGridBot extends BaseBotStrategy {
                 grid.filled = false;
             }
         }
-        // A. SELL & AUTO-SELL LOGIC
+        const MIN_NOTIONAL = 0.50; // Minimum order value in USDT
+        // A. BUY & DIP BUY LOGIC (Grids BELOW current price)
         for (const grid of this.gridLevels) {
-            if (grid.price <= lowerPrice)
-                continue;
-            // Case 1: Market price reached or surpassed sell target level (currentPrice >= grid.price)
-            if (currentPrice >= grid.price && availableHoldingQty > 0 && !grid.orderId) {
-                const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
-                if (sellQty > 0) {
-                    actions.push({
-                        action: 'sell',
-                        quantity: sellQty,
-                        price: currentPrice,
-                        orderType: 'MARKET',
-                        gridLevel: grid.index,
-                    });
-                    availableHoldingQty -= sellQty;
-                    console.log(`[InfinityGrid] 🎯 Auto-Sell Triggered at Grid #${grid.index} (Price $${currentPrice.toFixed(6)} >= Target $${grid.price.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
-                }
-            }
-            // Case 2: Grid level is above current price (grid.price > currentPrice)
-            else if (grid.price > currentPrice && availableHoldingQty > 0 && !grid.orderId) {
-                const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
-                if (sellQty * grid.price >= 0.50) {
-                    actions.push({
-                        action: 'sell',
-                        quantity: sellQty,
-                        price: grid.price,
-                        orderType: 'LIMIT',
-                        gridLevel: grid.index,
-                    });
-                    availableHoldingQty -= sellQty;
-                    grid.type = 'sell';
-                    console.log(`[InfinityGrid] Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
-                }
-            }
-        }
-        // B. BUY & DIP BUY LOGIC
-        for (const grid of this.gridLevels) {
-            if (grid.price < currentPrice && !grid.orderId) {
+            if (grid.price < currentPrice * 0.9995 && !grid.orderId) {
                 if (state.availableBalance >= investmentPerGrid) {
                     const buyQty = (investmentPerGrid * 1.02) / grid.price;
-                    if (buyQty * grid.price >= 0.50) {
+                    if (buyQty * grid.price >= MIN_NOTIONAL) {
                         actions.push({
                             action: 'buy',
                             quantity: buyQty,
@@ -177,6 +142,27 @@ export class InfinityGridBot extends BaseBotStrategy {
                         });
                         grid.type = 'buy';
                         console.log(`[InfinityGrid] Placing limit BUY on dip at Grid #${grid.index}: ${buyQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
+                    }
+                }
+            }
+        }
+        // B. SELL TARGET LOGIC (Grids ABOVE current price)
+        // Only place sell orders if we have sufficient holdings to form a valid order (>= MIN_NOTIONAL)
+        if (availableHoldingQty * currentPrice >= MIN_NOTIONAL) {
+            for (const grid of this.gridLevels) {
+                if (grid.price > currentPrice * 1.0005 && !grid.orderId && availableHoldingQty * grid.price >= MIN_NOTIONAL) {
+                    const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
+                    if (sellQty * grid.price >= MIN_NOTIONAL) {
+                        actions.push({
+                            action: 'sell',
+                            quantity: sellQty,
+                            price: grid.price,
+                            orderType: 'LIMIT',
+                            gridLevel: grid.index,
+                        });
+                        availableHoldingQty -= sellQty;
+                        grid.type = 'sell';
+                        console.log(`[InfinityGrid] Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
                     }
                 }
             }

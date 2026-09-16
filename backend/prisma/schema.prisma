@@ -1,27 +1,29 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 model Exchange {
-  id               String    @id @default(cuid())
-  name             String    @unique
-  type             ExchangeType
-  apiKeyEncrypted  String?
+  id                 String       @id @default(cuid())
+  name               String       @unique
+  type               ExchangeType
+  apiKeyEncrypted    String?
   apiSecretEncrypted String?
-  testnet          Boolean   @default(true)
-  isActive         Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  testnet            Boolean      @default(true)
+  isActive           Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  balances         Balance[]
-  positions        Position[]
-  orders           Order[]
-  trades           Trade[]
+  balances           Balance[]
+  positions          Position[]
+  orders             Order[]
+  trades             Trade[]
 }
 
 enum ExchangeType {
@@ -30,33 +32,33 @@ enum ExchangeType {
 }
 
 model Balance {
-  id          String   @id @default(cuid())
-  exchangeId  String
-  asset       String
-  free        Decimal  @db.Decimal(30, 10)
-  locked      Decimal  @db.Decimal(30, 10)
-  total       Decimal  @db.Decimal(30, 10)
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  exchangeId String
+  asset      String
+  free       Decimal  @db.Decimal(30, 10)
+  locked     Decimal  @db.Decimal(30, 10)
+  total      Decimal  @db.Decimal(30, 10)
+  updatedAt  DateTime @updatedAt
 
-  exchange    Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  exchange   Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
 
   @@unique([exchangeId, asset])
   @@index([exchangeId, asset])
 }
 
 model Position {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   exchangeId    String
   symbol        String
   side          PositionSide
-  quantity      Decimal  @db.Decimal(30, 10)
-  entryPrice    Decimal  @db.Decimal(30, 10)
-  currentPrice  Decimal? @db.Decimal(30, 10)
-  unrealizedPnl Decimal? @db.Decimal(30, 10)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  quantity      Decimal      @db.Decimal(30, 10)
+  entryPrice    Decimal      @db.Decimal(30, 10)
+  currentPrice  Decimal?     @db.Decimal(30, 10)
+  unrealizedPnl Decimal?     @db.Decimal(30, 10)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  exchange      Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  exchange      Exchange     @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
 
   @@index([exchangeId])
   @@index([symbol])
@@ -77,7 +79,7 @@ model Order {
   quantity        Decimal     @db.Decimal(30, 10)
   price           Decimal?    @db.Decimal(30, 10)
   status          OrderStatus
-  filledQuantity  Decimal     @db.Decimal(30, 10) @default(0)
+  filledQuantity  Decimal     @default(0) @db.Decimal(30, 10)
   avgFillPrice    Decimal?    @db.Decimal(30, 10)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -114,19 +116,19 @@ enum OrderStatus {
 }
 
 model Trade {
-  id          String   @id @default(cuid())
-  orderId     String?
-  exchangeId  String
-  symbol      String
-  side        OrderSide
-  quantity    Decimal  @db.Decimal(30, 10)
-  price       Decimal  @db.Decimal(30, 10)
-  fee         Decimal  @db.Decimal(30, 10) @default(0)
-  feeAsset    String?
-  executedAt  DateTime
+  id         String    @id @default(cuid())
+  orderId    String?
+  exchangeId String
+  symbol     String
+  side       OrderSide
+  quantity   Decimal   @db.Decimal(30, 10)
+  price      Decimal   @db.Decimal(30, 10)
+  fee        Decimal   @default(0) @db.Decimal(30, 10)
+  feeAsset   String?
+  executedAt DateTime
 
-  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  exchange    Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  order      Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  exchange   Exchange  @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
 
   @@index([executedAt])
   @@index([symbol])
@@ -134,15 +136,15 @@ model Trade {
 }
 
 model ArbitrageOpportunity {
-  id            String               @id @default(cuid())
+  id            String            @id @default(cuid())
   type          ArbitrageType
   symbols       Json
   exchanges     Json
-  spreadPercent Decimal              @db.Decimal(10, 4)
-  grossProfit   Decimal              @db.Decimal(30, 10)
-  netProfit     Decimal              @db.Decimal(30, 10)
+  spreadPercent Decimal           @db.Decimal(10, 4)
+  grossProfit   Decimal           @db.Decimal(30, 10)
+  netProfit     Decimal           @db.Decimal(30, 10)
   status        OpportunityStatus
-  detectedAt    DateTime             @default(now())
+  detectedAt    DateTime          @default(now())
 
   executions    Execution[]
 
@@ -167,15 +169,15 @@ enum OpportunityStatus {
 }
 
 model Execution {
-  id             String               @id @default(cuid())
-  opportunityId  String
-  status         ExecutionStatus
-  legs           Json
-  totalProfit    Decimal?             @db.Decimal(30, 10)
-  startedAt      DateTime             @default(now())
-  completedAt    DateTime?
+  id            String               @id @default(cuid())
+  opportunityId String
+  status        ExecutionStatus
+  legs          Json
+  totalProfit   Decimal?             @db.Decimal(30, 10)
+  startedAt     DateTime             @default(now())
+  completedAt   DateTime?
 
-  opportunity    ArbitrageOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunity   ArbitrageOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
   @@index([opportunityId])
   @@index([status])
@@ -192,7 +194,7 @@ enum ExecutionStatus {
 
 model ProfitRecord {
   id          String   @id @default(cuid())
-  date        DateTime @db.Date @unique
+  date        DateTime @unique @db.Date
   totalProfit Decimal  @db.Decimal(30, 10)
   tradeCount  Int
   winRate     Decimal  @db.Decimal(5, 2)
@@ -202,15 +204,15 @@ model ProfitRecord {
 }
 
 model StrategyConfig {
-  id                  String       @id @default(cuid())
-  name                String       @unique
-  type                StrategyType
-  minProfitThreshold  Decimal      @db.Decimal(10, 4)
-  maxTradeSize        Decimal      @db.Decimal(30, 10)
-  isEnabled           Boolean      @default(true)
-  params              Json?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  id                 String       @id @default(cuid())
+  name               String       @unique
+  type               StrategyType
+  minProfitThreshold Decimal      @db.Decimal(10, 4)
+  maxTradeSize       Decimal      @db.Decimal(30, 10)
+  isEnabled          Boolean      @default(true)
+  params             Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 }
 
 enum StrategyType {
@@ -265,27 +267,27 @@ model AuditLog {
 // ═══════════════════════════════════════════════════════════════
 
 model BotConfig {
-  id              String        @id @default(cuid())
-  userId          String
-  name            String
-  strategyType    BotStrategyType
-  exchangeName    String
-  symbol          String
-  mode            BotMode
-  status          BotStatus     @default(CREATED)
-  params          Json
-  investedAmount  Decimal       @db.Decimal(30, 10)
-  currentValue    Decimal       @db.Decimal(30, 10) @default(0)
-  totalProfit     Decimal       @db.Decimal(30, 10) @default(0)
-  totalTrades     Int           @default(0)
-  createdAt       DateTime      @default(now())
-  startedAt       DateTime?
-  stoppedAt       DateTime?
-  updatedAt       DateTime      @updatedAt
+  id             String          @id @default(cuid())
+  userId         String
+  name           String
+  strategyType   BotStrategyType
+  exchangeName   String
+  symbol         String
+  mode           BotMode
+  status         BotStatus       @default(CREATED)
+  params         Json
+  investedAmount Decimal         @db.Decimal(30, 10)
+  currentValue   Decimal         @default(0) @db.Decimal(30, 10)
+  totalProfit    Decimal         @default(0) @db.Decimal(30, 10)
+  totalTrades    Int             @default(0)
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  stoppedAt      DateTime?
+  updatedAt      DateTime        @updatedAt
 
-  orders          BotOrder[]
-  snapshots       BotSnapshot[]
-  logs            BotLog[]
+  orders         BotOrder[]
+  snapshots      BotSnapshot[]
+  logs           BotLog[]
 
   @@index([userId])
   @@index([status])
@@ -334,27 +336,27 @@ enum BotStatus {
 }
 
 model BotOrder {
-  id              String          @id @default(cuid())
+  id              String         @id @default(cuid())
   botConfigId     String
   exchangeOrderId String?
   symbol          String
   side            OrderSide
   type            OrderType
-  quantity        Decimal         @db.Decimal(30, 10)
-  price           Decimal?        @db.Decimal(30, 10)
-  filledQuantity  Decimal         @db.Decimal(30, 10) @default(0)
-  filledPrice     Decimal?        @db.Decimal(30, 10)
-  status          BotOrderStatus  @default(PENDING)
-  fee             Decimal         @db.Decimal(30, 10) @default(0)
+  quantity        Decimal        @db.Decimal(30, 10)
+  price           Decimal?       @db.Decimal(30, 10)
+  filledQuantity  Decimal        @default(0) @db.Decimal(30, 10)
+  filledPrice     Decimal?       @db.Decimal(30, 10)
+  status          BotOrderStatus @default(PENDING)
+  fee             Decimal        @default(0) @db.Decimal(30, 10)
   feeCoin         String?
-  profit          Decimal?        @db.Decimal(30, 10)
+  profit          Decimal?       @db.Decimal(30, 10)
   gridLevel       Int?
   metadata        Json?
   filledAt        DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  botConfig       BotConfig       @relation(fields: [botConfigId], references: [id], onDelete: Cascade)
+  botConfig       BotConfig      @relation(fields: [botConfigId], references: [id], onDelete: Cascade)
 
   @@index([botConfigId])
   @@index([status])
@@ -390,26 +392,26 @@ model BotSnapshot {
 // ═══════════════════════════════════════════════════════════════
 
 model SharedBotConfig {
-  id              String          @id @default(cuid())
+  id              String            @id @default(cuid())
   originalBotId   String?
   authorId        String
   authorName      String
   name            String
-  description     String?         @db.Text
+  description     String?           @db.Text
   strategyType    BotStrategyType
   symbol          String
   params          Json
   tags            Json?
-  isPublic        Boolean         @default(true)
-  copyCount       Int             @default(0)
-  rating          Decimal         @db.Decimal(3, 2) @default(0)
-  ratingCount     Int             @default(0)
-  totalProfit     Decimal         @db.Decimal(30, 10) @default(0)
-  winRate         Decimal         @db.Decimal(5, 2) @default(0)
-  avgTradesPerDay Decimal         @db.Decimal(10, 2) @default(0)
+  isPublic        Boolean           @default(true)
+  copyCount       Int               @default(0)
+  rating          Decimal           @default(0) @db.Decimal(3, 2)
+  ratingCount     Int               @default(0)
+  totalProfit     Decimal           @default(0) @db.Decimal(30, 10)
+  winRate         Decimal           @default(0) @db.Decimal(5, 2)
+  avgTradesPerDay Decimal           @default(0) @db.Decimal(10, 2)
   backtestResult  Json?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   ratings         SharedBotRating[]
 
@@ -422,15 +424,192 @@ model SharedBotConfig {
 }
 
 model SharedBotRating {
-  id              String          @id @default(cuid())
-  sharedBotId     String
-  userId          String
-  rating          Int
-  comment         String?         @db.Text
-  createdAt       DateTime        @default(now())
+  id          String          @id @default(cuid())
+  sharedBotId String
+  userId      String
+  rating      Int
+  comment     String?         @db.Text
+  createdAt   DateTime        @default(now())
 
-  sharedBot       SharedBotConfig @relation(fields: [sharedBotId], references: [id], onDelete: Cascade)
+  sharedBot   SharedBotConfig @relation(fields: [sharedBotId], references: [id], onDelete: Cascade)
 
   @@unique([sharedBotId, userId])
   @@index([sharedBotId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RAG KNOWLEDGE BASE & VECTOR COLLECTIONS (pgvector 768-dim)
+// ═══════════════════════════════════════════════════════════════
+
+model KbStrategyPlaybook {
+  id              String                       @id @default(cuid())
+  strategyType    String                       @map("strategy_type")
+  title           String
+  summary         String?                      @db.Text
+  content         String                       @db.Text
+  parameters      Json?
+  backtestPresets Json?                        @map("backtest_presets")
+  tags            Json?
+  embedding       Unsupported("vector(768)")?
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  @@index([strategyType])
+  @@map("kb_strategy_playbooks")
+}
+
+model KbRmsRule {
+  id             String                       @id @default(cuid())
+  ruleCode       String                       @unique @map("rule_code")
+  title          String
+  category       String                       // DRAWDOWN, CIRCUIT_BREAKER, SEBI_PEAK_MARGIN, SEC_LEVERAGE, POSITION_LIMIT
+  jurisdiction   String                       // GLOBAL, SEBI_INDIA, SEC_US, CRYPTO
+  content        String                       @db.Text
+  thresholds     Json?
+  actionOnBreach String                       @map("action_on_breach")
+  embedding      Unsupported("vector(768)")?
+  metadata       Json?
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([jurisdiction])
+  @@map("kb_rms_rules")
+}
+
+model KbBrokerDiagnostic {
+  id              String                       @id @default(cuid())
+  brokerOrAdapter String                       @map("broker_or_adapter") // ANGEL_ONE, UPSTOX, BINANCE, BYBIT, KRAKEN, PIONEX, JUPITER_DEX, ALPACA
+  errorCode       String                       @map("error_code")
+  errorName       String                       @map("error_name")
+  description     String                       @db.Text
+  rootCause       String                       @db.Text @map("root_cause")
+  resolutionSteps String                       @db.Text @map("resolution_steps")
+  recoveryAction  String                       @map("recovery_action") // RETRY, RECONNECT, REAUTHENTICATE, LIQUIDATE, ABORT, ADJUST_PARAM
+  embedding       Unsupported("vector(768)")?
+  metadata        Json?
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  @@unique([brokerOrAdapter, errorCode])
+  @@index([brokerOrAdapter])
+  @@index([errorCode])
+  @@map("kb_broker_diagnostics")
+}
+
+model KbTradeHistory {
+  id               String                       @id @default(cuid())
+  tradeId          String?                      @map("trade_id")
+  adapter          String
+  symbol           String
+  side             String
+  orderType        String                       @map("order_type")
+  expectedPrice    Decimal?                     @map("expected_price") @db.Decimal(30, 10)
+  executedPrice    Decimal                      @map("executed_price") @db.Decimal(30, 10)
+  slippageBps      Decimal?                     @map("slippage_bps") @db.Decimal(10, 4)
+  latencyMs        Int?                         @map("latency_ms")
+  feeDeducted      Decimal?                     @map("fee_deducted") @db.Decimal(30, 10)
+  feeAsset         String?                      @map("fee_asset")
+  marketCondition  String?                      @map("market_condition")
+  narrativeSummary String?                      @map("narrative_summary") @db.Text
+  embedding        Unsupported("vector(768)")?
+  metadata         Json?
+  executedAt       DateTime                     @default(now()) @map("executed_at")
+
+  @@index([adapter, symbol])
+  @@index([executedAt])
+  @@map("kb_trade_history")
+}
+
+model KbIndicatorTa {
+  id                String                       @id @default(cuid())
+  indicatorName     String                       @unique @map("indicator_name")
+  category          String                       // MOMENTUM, VOLATILITY, VOLUME_FLOW, PATTERN, TREND
+  formulaOrLogic    String                       @db.Text @map("formula_or_logic")
+  signalRules       Json?                        @map("signal_rules")
+  interpretation    String                       @db.Text
+  optimalTimeframes Json?                        @map("optimal_timeframes")
+  embedding         Unsupported("vector(768)")?
+  metadata          Json?
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("kb_indicators_ta")
+}
+
+model KbDexOnchain {
+  id         String                       @id @default(cuid())
+  protocol   String                       // JUPITER, RAYDIUM, ORCA, PUMP_FUN
+  chain      String                       @default("SOLANA")
+  topic      String                       // ROUTE_RULES, AMM_MECHANICS, PRIORITY_FEES, JITO_MEV_PROTECTION, SLIPPAGE_CALC
+  title      String
+  content    String                       @db.Text
+  codeSample String?                      @db.Text @map("code_sample")
+  embedding  Unsupported("vector(768)")?
+  metadata   Json?
+  createdAt  DateTime                     @default(now()) @map("created_at")
+  updatedAt  DateTime                     @updatedAt @map("updated_at")
+
+  @@index([protocol])
+  @@index([topic])
+  @@map("kb_dex_onchain")
+}
+
+model KbArbitragePlaybook {
+  id                 String                       @id @default(cuid())
+  arbitrageType      String                       @map("arbitrage_type") // CROSS_EXCHANGE, TRIANGULAR, SPATIAL_DEX_CEX, FUTURES_SPOT
+  pairOrRoute        String                       @map("pair_or_route")
+  title              String
+  executionSteps     Json?                        @map("execution_steps")
+  minSpreadThreshold Decimal?                     @map("min_spread_threshold") @db.Decimal(10, 4)
+  transferDelayRisk  String?                      @map("transfer_delay_risk") @db.Text
+  feeModel           Json?                        @map("fee_model")
+  content            String                       @db.Text
+  embedding          Unsupported("vector(768)")?
+  metadata           Json?
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
+
+  @@index([arbitrageType])
+  @@map("kb_arbitrage_playbooks")
+}
+
+model KbFundamentalFramework {
+  id             String                       @id @default(cuid())
+  assetClass     String                       @map("asset_class") // EQUITY_NSE, EQUITY_US, CRYPTO_TOKEN
+  tickerOrSymbol String                       @map("ticker_or_symbol")
+  frameworkType  String                       @map("framework_type") // DCF, PE_BENCHMARK, TOKENOMICS_VESTING, REVENUE_GROWTH
+  title          String
+  summary        String?                      @db.Text
+  metrics        Json?
+  content        String                       @db.Text
+  embedding      Unsupported("vector(768)")?
+  metadata       Json?
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
+
+  @@index([assetClass])
+  @@index([tickerOrSymbol])
+  @@map("kb_fundamental_frameworks")
+}
+
+model ExternalMarketNews {
+  id           String                       @id @default(cuid())
+  source       String                       // CRYPTOPANIC, COINDESK, BINANCE_STATUS, BYBIT_STATUS, MONEYCONTROL, NSE_ANNOUNCEMENTS, BSE_ANNOUNCEMENTS, SEBI_PRESS, SEC_EDGAR, BENZINGA, FMP, TRADING_ECONOMICS, FOREX_FACTORY
+  sourceUrl    String?                      @map("source_url")
+  contentHash  String?                      @unique @map("content_hash")
+  title        String
+  summary      String?                      @db.Text
+  content      String                       @db.Text
+  symbols      Json?
+  marketImpact String?                      @map("market_impact") // BULLISH, BEARISH, NEUTRAL, HIGH_VOLATILITY
+  publishedAt  DateTime                     @default(now()) @map("published_at")
+  embedding    Unsupported("vector(768)")?
+  metadata     Json?
+  createdAt    DateTime                     @default(now()) @map("created_at")
+
+  @@index([source])
+  @@index([publishedAt])
+  @@map("external_market_news")
 }

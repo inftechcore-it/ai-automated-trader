@@ -11,6 +11,19 @@ export default function InfinityGridForm({ params, onChange, symbolInfo }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        lowerPrice: params.lowerPrice !== undefined ? params.lowerPrice : p.lowerPrice,
+        gridSpacingPercent: params.gridSpacingPercent !== undefined ? params.gridSpacingPercent : p.gridSpacingPercent,
+        totalInvestment: params.totalInvestment !== undefined ? params.totalInvestment : p.totalInvestment,
+        stopLoss: params.stopLoss !== undefined ? params.stopLoss : p.stopLoss,
+        enableStopLoss: params.stopLoss ? true : p.enableStopLoss,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     const { enableStopLoss, ...cleanParams } = localParams;
     if (!enableStopLoss || !cleanParams.stopLoss) delete cleanParams.stopLoss;
     onChange(cleanParams);

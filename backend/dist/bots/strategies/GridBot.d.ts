@@ -25,6 +25,7 @@ export declare class GridBot extends BaseBotStrategy {
     private lastTakeProfitLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
+    widenGrid(factor?: number): void;
     handleError(error: string): void;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
     private createExitActions;

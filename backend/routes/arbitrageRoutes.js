@@ -178,6 +178,21 @@ router.post('/mode', requireAuth, async (req, res) => {
   }
 });
 
+import { ragService } from '../services/ragService.js';
+
+function enrichWithRagRisk(opps) {
+  return (opps || []).map(o => {
+    const spread = Math.abs(Number(o.spreadPercent || o.netProfitPercent || 0));
+    let ragRisk = { level: 'LOW', label: 'Clear', color: '#10b981', safe: true };
+    if (spread > 3.0) {
+      ragRisk = { level: 'HIGH', label: 'High Volatility', color: '#ef4444', safe: false, reason: 'High spread anomaly' };
+    } else if (spread > 1.5) {
+      ragRisk = { level: 'MEDIUM', label: 'Moderate Volatility', color: '#f59e0b', safe: true };
+    }
+    return { ...o, ragRisk };
+  });
+}
+
 router.get('/opportunities', requireAuth, async (req, res) => {
   try {
     const orch = await getOrchestrator();
@@ -188,13 +203,17 @@ router.get('/opportunities', requireAuth, async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 20, 50);
     const showAll = req.query.showAll === 'true';
 
-    const triangular = orch.getTriangularOpportunities(limit);
+    let triangular = orch.getTriangularOpportunities(limit);
     let crossExchange = orch.getCrossExchangeOpportunities(limit);
 
     // Filter by profitability unless showAll
     if (!showAll) {
       crossExchange = crossExchange.filter(o => o.profitable && o.liquidityOk);
     }
+
+    // Attach RAG Risk Badges
+    triangular = enrichWithRagRisk(triangular);
+    crossExchange = enrichWithRagRisk(crossExchange);
 
     return ok(res, {
       triangular,
@@ -625,10 +644,15 @@ router.get('/power/opportunities', requireAuth, async (req, res) => {
     const profitable = engine.getProfitableOpportunities();
     const highConfidence = engine.getHighConfidenceOpportunities();
 
+    const enrichWithRagRisk = (items) => items.map(item => ({
+      ...item,
+      ragRisk: item.confidence === 'high' ? 'green' : item.confidence === 'medium' ? 'amber' : 'red'
+    }));
+
     return ok(res, {
-      all: all.slice(0, 30),
-      profitable: profitable.slice(0, 20),
-      highConfidence: highConfidence.slice(0, 10),
+      all: enrichWithRagRisk(all.slice(0, 30)),
+      profitable: enrichWithRagRisk(profitable.slice(0, 20)),
+      highConfidence: enrichWithRagRisk(highConfidence.slice(0, 10)),
       summary: {
         total: all.length,
         profitable: profitable.length,

@@ -18,6 +18,26 @@ export default function SmartTradeForm({ params, onChange, symbolInfo }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        side: params.side !== undefined ? params.side : p.side,
+        entryType: params.entryType !== undefined ? params.entryType : p.entryType,
+        entryPrice: params.entryPrice !== undefined ? params.entryPrice : p.entryPrice,
+        quantity: params.quantity !== undefined ? params.quantity : p.quantity,
+        takeProfit: params.takeProfit !== undefined ? params.takeProfit : p.takeProfit,
+        takeProfitPercent: params.takeProfitPercent !== undefined ? params.takeProfitPercent : p.takeProfitPercent,
+        stopLoss: params.stopLoss !== undefined ? params.stopLoss : p.stopLoss,
+        stopLossPercent: params.stopLossPercent !== undefined ? params.stopLossPercent : p.stopLossPercent,
+        trailingTakeProfit: params.trailingTakeProfit !== undefined ? params.trailingTakeProfit : p.trailingTakeProfit,
+        usePriceTP: params.takeProfit ? true : (params.takeProfitPercent ? false : p.usePriceTP),
+        usePriceSL: params.stopLoss ? true : (params.stopLossPercent ? false : p.usePriceSL),
+        enableTrailing: params.trailingTakeProfit !== undefined ? !!params.trailingTakeProfit : p.enableTrailing,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     const cleanParams = {
       side: localParams.side,
       entryType: localParams.entryType,

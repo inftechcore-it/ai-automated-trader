@@ -54,6 +54,7 @@ export declare class BotInstance extends EventEmitter {
     private isPausedForBalance;
     private lastLiveBalanceCheck;
     private lastInsufficientBalanceLog;
+    private lastGuardrailCheck;
     private snapshotInterval;
     constructor(deps: BotInstanceDeps);
     get id(): string;
@@ -82,5 +83,10 @@ export declare class BotInstance extends EventEmitter {
     private getAdapter;
     getStats(): any;
     getOpenOrders(): OpenOrder[];
+    /**
+     * Pre-trade RAG Guardrail Evaluation Hook
+     * Checks breaking market news, macro calendar, and RMS rules before executing order cycles.
+     */
+    private evaluateRAGGuardrails;
 }
 export {};

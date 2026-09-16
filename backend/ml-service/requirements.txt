@@ -14,12 +14,22 @@ xgboost==2.0.3
 TA-Lib==0.4.28
 pandas-ta==0.3.14b0
 
-# Data fetching
+# Data fetching & HTTP
 ccxt==4.2.0
 yfinance==0.2.36
 aiohttp==3.9.1
+httpx==0.27.0
+feedparser==6.0.11
+beautifulsoup4==4.12.3
 
-# Utils
+# RAG & Vector Storage (pgvector + Gemini)
+asyncpg==0.29.0
+pgvector==0.2.5
+google-generativeai==0.8.3
+
+# Scheduling & Utilities
+apscheduler==3.10.4
 python-dotenv==1.0.0
 pydantic==2.5.3
+pydantic-settings==2.1.0
 joblib==1.3.2

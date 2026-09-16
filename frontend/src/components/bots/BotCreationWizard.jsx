@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   X, ChevronRight, ChevronLeft, Check, Sparkles, Loader2,
   Grid3X3, Repeat, Target, ArrowUpDown, BarChart3, Scale, Shuffle, Radar,
-  AlertTriangle, Info, Search, Zap, FlaskConical, Wallet
+  AlertTriangle, Info, Search, Zap, FlaskConical, Wallet, BookOpen, ShieldCheck, CheckCircle2, TrendingUp, TrendingDown
 } from 'lucide-react';
 import GridBotForm from './forms/GridBotForm.jsx';
 import DCABotForm from './forms/DCABotForm.jsx';
@@ -745,15 +745,111 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
               </div>
 
               {aiSuggestion && (
-                <div className="ai-suggestion-banner">
-                  <Sparkles size={16} />
-                  <div className="suggestion-content">
-                    <strong>AI Recommendation</strong>
-                    <p>{aiSuggestion.reasoning}</p>
-                    <div className="market-analysis">
-                      <span>Trend: {aiSuggestion.marketAnalysis?.trend}</span>
-                      <span>Volatility: {aiSuggestion.marketAnalysis?.volatility}</span>
+                <div
+                  className="ai-suggestion-banner"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))',
+                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                    borderRadius: '12px',
+                    padding: '16px 20px',
+                    marginBottom: '20px',
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa', fontWeight: 600, fontSize: '14px' }}>
+                      <Sparkles size={18} style={{ color: '#3b82f6' }} />
+                      <span>{aiSuggestion.ragEnhanced ? '⚡ RAG Strategy Intelligence' : 'AI Recommendation'}</span>
+                      <span
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.15)',
+                          color: '#10b981',
+                          fontSize: '11px',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <CheckCircle2 size={12} /> Auto-Applied
+                      </span>
                     </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {aiSuggestion.direction && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            textTransform: 'uppercase',
+                            background: aiSuggestion.direction === 'LONG' ? 'rgba(16, 185, 129, 0.2)' : aiSuggestion.direction === 'SHORT' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(148, 163, 184, 0.2)',
+                            color: aiSuggestion.direction === 'LONG' ? '#34d399' : aiSuggestion.direction === 'SHORT' ? '#f87171' : '#cbd5e1',
+                            border: `1px solid ${aiSuggestion.direction === 'LONG' ? 'rgba(16, 185, 129, 0.4)' : aiSuggestion.direction === 'SHORT' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.4)'}`,
+                          }}
+                        >
+                          {aiSuggestion.direction}
+                        </span>
+                      )}
+                      {aiSuggestion.confidence !== undefined && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            color: '#93c5fd',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                          }}
+                        >
+                          {(aiSuggestion.confidence * 100).toFixed(0)}% Confidence
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p style={{ margin: 0, fontSize: '13px', color: '#e2e8f0', lineHeight: 1.5 }}>
+                    {aiSuggestion.reasoning}
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', gap: '14px', fontSize: '12px', color: '#94a3b8' }}>
+                      <span>Trend: <strong style={{ color: '#f1f5f9' }}>{aiSuggestion.marketAnalysis?.trend || 'sideways'}</strong></span>
+                      <span>Volatility: <strong style={{ color: '#f1f5f9' }}>{aiSuggestion.marketAnalysis?.volatility || 'N/A'}</strong></span>
+                      {aiSuggestion.sentiment_score !== undefined && (
+                        <span>Sentiment: <strong style={{ color: aiSuggestion.sentiment_score >= 0 ? '#34d399' : '#f87171' }}>{aiSuggestion.sentiment_score > 0 ? `+${aiSuggestion.sentiment_score.toFixed(2)}` : aiSuggestion.sentiment_score.toFixed(2)}</strong></span>
+                      )}
+                    </div>
+
+                    {aiSuggestion.citations && aiSuggestion.citations.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <BookOpen size={12} /> Sources:
+                        </span>
+                        {aiSuggestion.citations.slice(0, 3).map((cit, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              background: 'rgba(99, 102, 241, 0.15)',
+                              color: '#a5b4fc',
+                              borderRadius: '4px',
+                              border: '1px solid rgba(99, 102, 241, 0.3)',
+                            }}
+                            title={cit.content}
+                          >
+                            {cit.collection || cit.title || `KB-${idx + 1}`}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

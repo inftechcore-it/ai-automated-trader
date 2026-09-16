@@ -15,6 +15,22 @@ export default function GridBotForm({ params, onChange, symbolInfo }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        lowerPrice: params.lowerPrice !== undefined ? params.lowerPrice : p.lowerPrice,
+        upperPrice: params.upperPrice !== undefined ? params.upperPrice : p.upperPrice,
+        gridCount: params.gridCount !== undefined ? params.gridCount : p.gridCount,
+        totalInvestment: params.totalInvestment !== undefined ? params.totalInvestment : p.totalInvestment,
+        stopLoss: params.stopLoss !== undefined ? params.stopLoss : p.stopLoss,
+        takeProfit: params.takeProfit !== undefined ? params.takeProfit : p.takeProfit,
+        enableStopLoss: params.stopLoss ? true : p.enableStopLoss,
+        enableTakeProfit: params.takeProfit ? true : p.enableTakeProfit,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     const { enableStopLoss, enableTakeProfit, ...cleanParams } = localParams;
     if (!enableStopLoss) delete cleanParams.stopLoss;
     if (!enableTakeProfit) delete cleanParams.takeProfit;

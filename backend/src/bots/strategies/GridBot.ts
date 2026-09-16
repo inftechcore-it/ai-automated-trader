@@ -117,6 +117,14 @@ export class GridBot extends BaseBotStrategy {
     }
   }
 
+  // Dynamically expand grid spacing when RAG guardrail flags elevated volatility
+  widenGrid(factor: number = 1.5): void {
+    if (factor <= 1.0) return;
+    const oldSpacing = this.gridSpacing;
+    this.gridSpacing = oldSpacing * factor;
+    this.log(`[RAG WIDEN_GRID] Expanding grid spacing from $${oldSpacing.toFixed(5)} to $${this.gridSpacing.toFixed(5)} (factor ${factor}x) due to market volatility.`, 'info');
+  }
+
   // Handle errors from order execution
   handleError(error: string): void {
     this.lastError = error;
@@ -274,63 +282,14 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    // A. SELL & AUTO-SELL LOGIC (Grid 1 to gridCount)
-    // Check all grid levels above lower price that act as Sell Targets
-    for (let i = 1; i <= gridCount; i++) {
-      const grid = this.gridLevels[i];
-      if (!grid) continue;
+    const MIN_NOTIONAL = 0.50; // Minimum order value in USDT
 
-      // Case 1: Market price reached or surpassed this sell target level (currentPrice >= grid.price)
-      // If we have unallocated holdings, trigger immediate AUTO-SELL to lock in profit!
-      if (currentPrice >= grid.price && availableHoldingQty > 0 && !grid.orderId) {
-        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
-        if (sellQty > 0) {
-          actions.push({
-            action: 'sell',
-            quantity: sellQty,
-            price: currentPrice,
-            orderType: 'MARKET',
-            gridLevel: grid.index,
-          });
-          availableHoldingQty -= sellQty;
-          this.log(`🎯 Auto-Sell Triggered at Grid #${grid.index} ($${grid.price.toFixed(6)} target reached at $${currentPrice.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
-          // Mark lower buy grid as ready for dip re-entry
-          const lowerBuyGrid = this.gridLevels[grid.index - 1];
-          if (lowerBuyGrid) {
-            lowerBuyGrid.buyCount = 0;
-            lowerBuyGrid.filled = false;
-          }
-        }
-      }
-      // Case 2: Grid level is above current price (grid.price > currentPrice)
-      // Place a LIMIT SELL order so exchange will automatically fill it when price reaches it
-      else if (grid.price > currentPrice && availableHoldingQty > 0 && !grid.orderId) {
-        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
-        if (sellQty * grid.price >= 0.50) {
-          actions.push({
-            action: 'sell',
-            quantity: sellQty,
-            price: grid.price,
-            orderType: 'LIMIT',
-            gridLevel: grid.index,
-          });
-          availableHoldingQty -= sellQty;
-          grid.type = 'sell';
-          this.log(`Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
-        }
-      }
-    }
-
-    // B. BUY & DIP BUY LOGIC (Grid 0 to gridCount - 1)
-    // Check all grid levels below current price that act as Buy Levels
-    for (let i = 0; i < gridCount; i++) {
-      const grid = this.gridLevels[i];
-      if (!grid) continue;
-
-      if (grid.price < currentPrice && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
+    // A. BUY & DIP BUY LOGIC (Grids BELOW current price)
+    for (const grid of this.gridLevels) {
+      if (grid.price < currentPrice * 0.9995 && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
         if (!this.insufficientBalance && state.availableBalance >= investmentPerGrid) {
           const buyQty = (investmentPerGrid * 1.02) / grid.price;
-          if (buyQty * grid.price >= 0.50) {
+          if (buyQty * grid.price >= MIN_NOTIONAL) {
             actions.push({
               action: 'buy',
               quantity: buyQty,
@@ -340,6 +299,28 @@ export class GridBot extends BaseBotStrategy {
             });
             grid.type = 'buy';
             this.log(`Placing limit BUY on dip at Grid #${grid.index}: ${buyQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
+          }
+        }
+      }
+    }
+
+    // B. SELL TARGET LOGIC (Grids ABOVE current price)
+    // Only place sell orders if we have sufficient holdings to form a valid order (>= MIN_NOTIONAL)
+    if (availableHoldingQty * currentPrice >= MIN_NOTIONAL) {
+      for (const grid of this.gridLevels) {
+        if (grid.price > currentPrice * 1.0005 && !grid.orderId && availableHoldingQty * grid.price >= MIN_NOTIONAL) {
+          const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
+          if (sellQty * grid.price >= MIN_NOTIONAL) {
+            actions.push({
+              action: 'sell',
+              quantity: sellQty,
+              price: grid.price,
+              orderType: 'LIMIT',
+              gridLevel: grid.index,
+            });
+            availableHoldingQty -= sellQty;
+            grid.type = 'sell';
+            this.log(`Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
           }
         }
       }

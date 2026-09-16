@@ -12,6 +12,20 @@ export default function MartingaleForm({ params, onChange }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        initialBuyAmount: params.initialBuyAmount !== undefined ? params.initialBuyAmount : p.initialBuyAmount,
+        priceDropPercent: params.priceDropPercent !== undefined ? params.priceDropPercent : p.priceDropPercent,
+        takeProfitPercent: params.takeProfitPercent !== undefined ? params.takeProfitPercent : p.takeProfitPercent,
+        maxSafetyOrders: params.maxSafetyOrders !== undefined ? params.maxSafetyOrders : p.maxSafetyOrders,
+        multiplier: params.multiplier !== undefined ? params.multiplier : p.multiplier,
+        maxTotalInvestment: params.maxTotalInvestment !== undefined ? params.maxTotalInvestment : p.maxTotalInvestment,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     onChange(localParams);
   }, [localParams]);
 

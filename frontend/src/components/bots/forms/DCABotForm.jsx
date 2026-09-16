@@ -21,6 +21,21 @@ export default function DCABotForm({ params, onChange }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        amountPerBuy: params.amountPerBuy !== undefined ? params.amountPerBuy : p.amountPerBuy,
+        interval: params.interval !== undefined ? params.interval : p.interval,
+        totalBudget: params.totalBudget !== undefined ? params.totalBudget : p.totalBudget,
+        takeProfitPercent: params.takeProfitPercent !== undefined ? params.takeProfitPercent : p.takeProfitPercent,
+        stopLossPercent: params.stopLossPercent !== undefined ? params.stopLossPercent : p.stopLossPercent,
+        enableTakeProfit: params.takeProfitPercent ? true : p.enableTakeProfit,
+        enableStopLoss: params.stopLossPercent ? true : p.enableStopLoss,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     const { enableTakeProfit, enableStopLoss, ...cleanParams } = localParams;
     if (!enableTakeProfit || !cleanParams.takeProfitPercent) delete cleanParams.takeProfitPercent;
     if (!enableStopLoss || !cleanParams.stopLossPercent) delete cleanParams.stopLossPercent;

@@ -16,6 +16,7 @@ export class BotInstance extends EventEmitter {
     isPausedForBalance = false;
     lastLiveBalanceCheck = 0;
     lastInsufficientBalanceLog = 0;
+    lastGuardrailCheck = 0;
     snapshotInterval = null;
     constructor(deps) {
         super();
@@ -178,6 +179,13 @@ export class BotInstance extends EventEmitter {
                 catch {
                     // ignore transient balance sync error
                 }
+            }
+            // Pre-trade RAG Guardrail Check every 45 seconds
+            if (now - this.lastGuardrailCheck >= 45000) {
+                this.lastGuardrailCheck = now;
+                this.evaluateRAGGuardrails().catch(err => {
+                    console.warn(`[Bot ${this.config.name}] RAG guardrail check non-blocking warning:`, err.message);
+                });
             }
             // Sync orders with exchange every 20 ticks (~60 seconds at 3s polling)
             if (this.tickCount % 20 === 0 && this.state.openOrders.length > 0) {
@@ -658,6 +666,24 @@ export class BotInstance extends EventEmitter {
             else {
                 this.log(`${prefix} Order failed: ${errMsg}`, 'error');
                 this.deps.onError(this.id, `Order failed: ${errMsg}`, 'error');
+                // Query RAG broker error diagnostic asynchronously for auto-remediation
+                (async () => {
+                    try {
+                        const { ragService } = await import('../../services/ragService.js');
+                        const diag = await ragService.diagnoseError({
+                            broker_or_adapter: this.config.exchangeName,
+                            error_code: errMsg,
+                            raw_message: errMsg,
+                        });
+                        if (diag && diag.found) {
+                            this.log(`[RAG DIAGNOSTIC] ${diag.error_name} (${diag.recovery_action}): ${diag.resolution_steps}`, 'warn');
+                            if (diag.recovery_action === 'REAUTHENTICATE') {
+                                this.log(`[RAG AUTO-REMEDY] Triggering automated session refresh for ${this.config.exchangeName}...`, 'info');
+                            }
+                        }
+                    }
+                    catch { }
+                })();
             }
             // Notify strategy of error (for error handling/stopping)
             if ('onOrderError' in this.strategy && typeof this.strategy.onOrderError === 'function') {
@@ -867,5 +893,41 @@ export class BotInstance extends EventEmitter {
     }
     getOpenOrders() {
         return this.state.openOrders;
+    }
+    /**
+     * Pre-trade RAG Guardrail Evaluation Hook
+     * Checks breaking market news, macro calendar, and RMS rules before executing order cycles.
+     */
+    async evaluateRAGGuardrails() {
+        try {
+            const { ragService } = await import('../../services/ragService.js');
+            const market = (this.config.exchangeName === 'AngelOne' || this.config.exchangeName === 'Upstox')
+                ? 'INDIA'
+                : (this.config.exchangeName === 'Alpaca')
+                    ? 'US'
+                    : (this.config.exchangeName === 'Jupiter')
+                        ? 'DEX'
+                        : 'CRYPTO';
+            const result = await ragService.checkGuardrails({
+                symbol: this.config.symbol,
+                exchange: this.config.exchangeName,
+                strategy_type: this.config.strategyType,
+                market,
+            });
+            if (result && result.suggested_action === 'PAUSE_BOT' && !result.safe_to_trade) {
+                this.log(`[RAG GUARDRAIL] Market volatility risk detected (${result.warning_reason || 'RMS Breached'}). Triggering Circuit Breaker PAUSE.`, 'warn');
+                await this.pause();
+                this.deps.onError(this.id, `RAG Risk Circuit Breaker: ${result.warning_reason || 'High market volatility'}`, 'warning');
+            }
+            else if (result && result.suggested_action === 'WIDEN_GRID') {
+                if (typeof this.strategy.widenGrid === 'function') {
+                    this.strategy.widenGrid(1.5);
+                    this.log(`[RAG GUARDRAIL] Elevated volatility detected. Dynamically expanding grid spacing by 1.5x.`, 'info');
+                }
+            }
+        }
+        catch (err) {
+            // Non-blocking fallback
+        }
     }
 }

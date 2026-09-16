@@ -10,6 +10,18 @@ export default function TrailingBotForm({ params, onChange, symbolInfo }) {
   });
 
   useEffect(() => {
+    if (params && Object.keys(params).length > 0) {
+      setLocalParams(p => ({
+        ...p,
+        side: params.side !== undefined ? params.side : p.side,
+        triggerPrice: params.triggerPrice !== undefined ? params.triggerPrice : p.triggerPrice,
+        trailingPercent: params.trailingPercent !== undefined ? params.trailingPercent : p.trailingPercent,
+        quantity: params.quantity !== undefined ? params.quantity : p.quantity,
+      }));
+    }
+  }, [params]);
+
+  useEffect(() => {
     onChange(localParams);
   }, [localParams]);
 

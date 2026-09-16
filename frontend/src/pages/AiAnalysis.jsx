@@ -11,6 +11,7 @@ import {
   Radio, CircleDot
 } from 'lucide-react';
 import Badge from '../components/Badge.jsx';
+import RagTerminal from '../components/rag/RagTerminal.jsx';
 
 const api = (path, opts = {}) =>
   fetch(`${import.meta.env.VITE_API || 'http://localhost:5000'}/api${path}`, {
@@ -719,7 +720,21 @@ export default function AiAnalysis() {
       </div>
 
       {/* Chip Selector */}
-      <div className="ai-chips four">
+      <div className="ai-chips" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+        <button
+          className={`ai-chip ${activeChip === 'rag' ? 'active' : ''}`}
+          onClick={() => setActiveChip('rag')}
+        >
+          <div className="chip-icon-wrap" style={{ background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3))', color: '#818cf8' }}>
+            <Brain size={24} />
+          </div>
+          <div className="chip-content">
+            <span className="chip-title">RAG Terminal</span>
+            <span className="chip-desc">Multi-asset KB & news engine</span>
+          </div>
+          {activeChip === 'rag' && <CheckCircle size={18} className="chip-check" />}
+        </button>
+
         <button
           className={`ai-chip ${activeChip === 'prediction' ? 'active' : ''}`}
           onClick={() => setActiveChip('prediction')}
@@ -776,6 +791,13 @@ export default function AiAnalysis() {
           {activeChip === 'arbitrage' && <CheckCircle size={18} className="chip-check" />}
         </button>
       </div>
+
+      {/* RAG Intelligence Terminal Panel */}
+      {activeChip === 'rag' && (
+        <div className="ai-panel rag-panel">
+          <RagTerminal />
+        </div>
+      )}
 
       {/* Prediction Panel */}
       {activeChip === 'prediction' && (
