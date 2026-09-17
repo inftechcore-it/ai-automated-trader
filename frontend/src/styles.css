@@ -12950,6 +12950,24 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
   color: #fbbf24;
 }
 
+.grid-insights-header .icon-badge.jarvis {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.35);
+  color: #06b6d4;
+}
+
+.grid-insights-header .icon-badge.precision_grid {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+.grid-insights-header .icon-badge.infinity_grid {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.35);
+  color: #a78bfa;
+}
+
 .grid-insights-header h3 {
   font-size: 18px;
   font-weight: 700;
