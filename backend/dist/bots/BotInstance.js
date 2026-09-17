@@ -140,6 +140,7 @@ export class BotInstance extends EventEmitter {
             for (const order of this.state.openOrders) {
                 try {
                     await this.executionEngine.cancelOrder({
+                        userId: this.config.userId,
                         exchange: this.config.exchangeName,
                         orderId: order.exchangeOrderId || order.id,
                         symbol: order.symbol,
@@ -170,6 +171,7 @@ export class BotInstance extends EventEmitter {
         for (const order of this.state.openOrders) {
             try {
                 await this.executionEngine.cancelOrder({
+                    userId: this.config.userId,
                     exchange: this.config.exchangeName,
                     orderId: order.exchangeOrderId || order.id,
                     symbol: order.symbol,
@@ -201,6 +203,7 @@ export class BotInstance extends EventEmitter {
                 const sellQty = holding.quantity;
                 try {
                     const orderResult = await this.executionEngine.placeOrder({
+                        userId: this.config.userId,
                         exchange: this.config.exchangeName,
                         symbol: this.config.symbol,
                         side: 'SELL',
@@ -388,7 +391,10 @@ export class BotInstance extends EventEmitter {
             }
             // Also load existing holdings
             let balances = [];
-            if (typeof adapter.getBalances === 'function') {
+            if (this.config.mode === 'LIVE') {
+                balances = await this.getUserLiveBalances();
+            }
+            else if (typeof adapter.getBalances === 'function') {
                 balances = await adapter.getBalances();
             }
             else if (typeof adapter.getBalance === 'function') {
@@ -427,11 +433,21 @@ export class BotInstance extends EventEmitter {
     async syncLiveBalance(adapter) {
         try {
             let balances = [];
-            if (typeof adapter.getBalances === 'function') {
-                balances = await adapter.getBalances();
+            if (this.config.mode === 'LIVE') {
+                balances = await this.getUserLiveBalances();
+                if (balances.length === 0) {
+                    this.log(`[LIVE] Could not fetch balances for ${this.config.exchangeName}. Ensure API keys are configured in Settings.`, 'warn');
+                    this.isPausedForBalance = true;
+                    return;
+                }
             }
-            else if (typeof adapter.getBalance === 'function') {
-                balances = await adapter.getBalance();
+            else {
+                if (typeof adapter.getBalances === 'function') {
+                    balances = await adapter.getBalances();
+                }
+                else if (typeof adapter.getBalance === 'function') {
+                    balances = await adapter.getBalance();
+                }
             }
             if (!Array.isArray(balances))
                 return;
@@ -471,35 +487,37 @@ export class BotInstance extends EventEmitter {
                 holding.quantity = 0;
                 holding.value = 0;
             }
-            if (freeAmount < 0.50) {
-                if (!this.isPausedForBalance) {
-                    this.isPausedForBalance = true;
-                    this.log(`[LIVE] Wallet quote balance is $${freeAmount.toFixed(4)} ${quoteAsset}. Pausing order placement until balance is deposited.`, 'warn');
-                }
-            }
-            else if (previouslyPaused && freeAmount >= 1.0) {
+            if (previouslyPaused && freeAmount > 5) {
                 this.isPausedForBalance = false;
-                this.log(`[LIVE] Live balance restored: ${freeAmount.toFixed(4)} ${quoteAsset}. Resuming orders.`);
+                this.log(`[LIVE] Balance replenished: $${freeAmount.toFixed(2)} ${quoteAsset}. Resuming bot!`);
             }
         }
-        catch (error) {
-            console.warn(`[Bot ${this.config.name}] Failed to sync live balance:`, error.message);
+        catch (err) {
+            console.warn(`[Bot ${this.config.name}] Error syncing live balance:`, err.message);
         }
     }
     async checkDexLimitOrders(tick) {
+        if (this.status !== 'RUNNING') {
+            return;
+        }
+        this.lastPrice = tick.price;
+        // Check open limit orders against current market price for trigger execution
         const isPaper = this.config.mode === 'PAPER';
         const prefix = isPaper ? '[PAPER]' : '[LIVE]';
-        for (const order of [...this.state.openOrders]) {
-            if (!order.price || order.status !== 'OPEN')
-                continue;
-            let triggered = false;
-            if (order.side === 'BUY' && tick.price <= order.price) {
-                triggered = true;
-            }
-            else if (order.side === 'SELL' && tick.price >= order.price) {
-                triggered = true;
-            }
-            if (triggered) {
+        if (this.state.openOrders.length > 0) {
+            const triggeredOrders = this.state.openOrders.filter(order => {
+                if (!order.price)
+                    return false;
+                // Limit BUY triggers when market price <= limit buy price
+                if (order.side === 'BUY')
+                    return tick.price <= order.price;
+                // Limit SELL triggers when market price >= limit sell price
+                if (order.side === 'SELL')
+                    return tick.price >= order.price;
+                return false;
+            });
+            for (const order of triggeredOrders) {
+                // Skip buy orders if bot is paused due to insufficient wallet balance
                 if (!isPaper && order.side === 'BUY' && this.isPausedForBalance) {
                     continue; // Skip triggering buy when balance is insufficient
                 }
@@ -512,6 +530,7 @@ export class BotInstance extends EventEmitter {
                     else {
                         // Live swap execution
                         const result = await this.executionEngine.placeOrder({
+                            userId: this.config.userId,
                             exchange: this.config.exchangeName,
                             symbol: this.config.symbol,
                             side: order.side,
@@ -603,14 +622,7 @@ export class BotInstance extends EventEmitter {
             // In LIVE mode, if holding is not in state, zero, or sweepAll is set, verify live wallet directly
             if (!isPaper && (!holding || holding.quantity <= 0 || action.metadata?.sweepAll)) {
                 try {
-                    const adapter = await this.getAdapter();
-                    let balances = [];
-                    if (typeof adapter.getBalances === 'function') {
-                        balances = await adapter.getBalances();
-                    }
-                    else if (typeof adapter.getBalance === 'function') {
-                        balances = await adapter.getBalance();
-                    }
+                    const balances = await this.getUserLiveBalances();
                     if (Array.isArray(balances)) {
                         const baseBalObj = balances.find((b) => (b.asset || '').toUpperCase() === asset);
                         const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
@@ -691,6 +703,7 @@ export class BotInstance extends EventEmitter {
         this.log(`${prefix} Placing ${side} order: ${quantity.toFixed(4)} @ $${price?.toFixed(5) || 'market'} (value: $${orderValue.toFixed(2)})`);
         try {
             const result = await this.executionEngine.placeOrder({
+                userId: this.config.userId,
                 exchange: this.config.exchangeName,
                 symbol: this.config.symbol,
                 side: side.toUpperCase(),
@@ -763,6 +776,7 @@ export class BotInstance extends EventEmitter {
         const order = this.state.openOrders[orderIndex];
         try {
             await this.executionEngine.cancelOrder({
+                userId: this.config.userId,
                 exchange: this.config.exchangeName,
                 orderId: order.exchangeOrderId || orderId,
                 symbol: order.symbol,
@@ -905,6 +919,41 @@ export class BotInstance extends EventEmitter {
     async getAdapter() {
         const { getAdapter } = await import('../../arbitrage/dist/adapters/index.js');
         return getAdapter(this.config.exchangeName);
+    }
+    async getUserLiveBalances() {
+        try {
+            const { getUserBrokerCredentials } = await import('../../services/exchangeService.js');
+            const creds = await getUserBrokerCredentials(this.config.userId, this.config.exchangeName);
+            if (!creds) {
+                return [];
+            }
+            const exLower = (this.config.exchangeName || '').toLowerCase();
+            if (exLower === 'binance') {
+                const binance = await import('../../services/adapters/binanceAdapter.js');
+                return await binance.getBalances(creds.apiKey, creds.apiSecret);
+            }
+            else if (exLower === 'pionex') {
+                const pionex = await import('../../services/adapters/pionexAdapter.js');
+                return await pionex.getBalances(creds.apiKey, creds.apiSecret);
+            }
+            else if (exLower === 'kraken') {
+                const kraken = await import('../../services/adapters/krakenAdapter.js');
+                return await kraken.getBalances(creds.apiKey, creds.apiSecret);
+            }
+            else if (exLower === 'jupiter') {
+                const jupiter = await import('../../services/adapters/jupiterAdapter.js');
+                return await jupiter.getBalances(creds.privateKey || creds.apiSecret, creds.rpcUrl);
+            }
+            else if (['alpaca', 'nasdaq', 'nyse'].includes(exLower)) {
+                const alpaca = await import('../../services/adapters/alpacaAdapter.js');
+                return await alpaca.getBalances(creds);
+            }
+            return [];
+        }
+        catch (err) {
+            console.warn(`[Bot ${this.config.name}] getUserLiveBalances error:`, err.message);
+            return [];
+        }
     }
     getStats() {
         const stats = {

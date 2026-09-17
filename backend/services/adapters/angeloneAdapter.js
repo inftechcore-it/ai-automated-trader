@@ -5,13 +5,13 @@ import { env } from '../../config/env.js';
 const BASE_URL = 'https://apiconnect.angelone.in';
 const SCRIP_MASTER_URL = 'https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json';
 
-let apiKey = env.angelone?.apiKey || process.env.ANGELONE_API_KEY || '';
-let clientCode = env.angelone?.clientCode || process.env.ANGELONE_CLIENT_CODE || '';
-let password = env.angelone?.password || process.env.ANGELONE_PASSWORD || '';
-let totpSecret = env.angelone?.totpSecret || process.env.ANGELONE_TOTP_KEY || '';
-let jwtToken = env.angelone?.jwtToken || process.env.ANGELONE_JWT_TOKEN || null;
+let apiKey = '';
+let clientCode = '';
+let password = '';
+let totpSecret = '';
+let jwtToken = null;
 let refreshToken = null;
-let feedToken = env.angelone?.feedToken || process.env.ANGELONE_FEED_TOKEN || null;
+let feedToken = null;
 let tokenExpiry = null;
 
 // Local scrip master cache
@@ -243,22 +243,41 @@ export async function validateCredentials(testApiKey, testClientCode, testPasswo
 }
 
 // Ensure active session before API calls
-async function ensureAuthenticated() {
-  if (isAuthenticated()) return;
-  if (isConfigured() && password && totpSecret) {
-    await loginByPassword();
-  } else {
-    throw new Error('Angel One is not authenticated. Please log in or provide API credentials.');
+async function resolveSession(creds = null) {
+  if (creds && creds.apiKey) {
+    if (creds.jwtToken) {
+      return { apiKey: creds.apiKey, jwtToken: creds.jwtToken };
+    }
+    const targetClientCode = creds.clientCode || creds.apiSecret;
+    const targetPassword = creds.password;
+    const targetTotp = creds.totpSecret || creds.totp;
+    if (targetClientCode && targetPassword && targetTotp) {
+      let totpCode = targetTotp;
+      if (targetTotp.length > 6) {
+        totpCode = generateTOTP(targetTotp);
+      }
+      const loginRes = await loginByPassword({
+        apiKey: creds.apiKey,
+        clientCode: targetClientCode,
+        password: targetPassword,
+        totp: totpCode
+      });
+      return { apiKey: creds.apiKey, jwtToken: loginRes.jwtToken };
+    }
   }
+  if (isAuthenticated()) {
+    return { apiKey, jwtToken };
+  }
+  throw new Error('Angel One is not authenticated. Please log in or provide API credentials.');
 }
 
 // ============ USER PROFILE & RMS LIMITS ============
 
-export async function getProfile() {
-  await ensureAuthenticated();
+export async function getProfile(creds = null) {
+  const session = await resolveSession(creds);
   try {
     const { data } = await axios.get(`${BASE_URL}/rest/secure/angelbroking/user/v1/getProfile`, {
-      headers: getHeaders(),
+      headers: getHeaders(session.apiKey, session.jwtToken),
       timeout: 10000
     });
     return data.data || data;
@@ -267,11 +286,11 @@ export async function getProfile() {
   }
 }
 
-export async function getRMS() {
-  await ensureAuthenticated();
+export async function getRMS(creds = null) {
   try {
+    const session = await resolveSession(creds);
     const { data } = await axios.get(`${BASE_URL}/rest/secure/angelbroking/user/v1/getRMS`, {
-      headers: getHeaders(),
+      headers: getHeaders(session.apiKey, session.jwtToken),
       timeout: 10000
     });
 
@@ -293,11 +312,11 @@ export async function getRMS() {
 
 // ============ HOLDINGS & POSITIONS ============
 
-export async function getHoldings() {
-  await ensureAuthenticated();
+export async function getHoldings(creds = null) {
   try {
+    const session = await resolveSession(creds);
     const { data } = await axios.get(`${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`, {
-      headers: getHeaders(),
+      headers: getHeaders(session.apiKey, session.jwtToken),
       timeout: 10000
     });
 
@@ -322,11 +341,11 @@ export async function getHoldings() {
   }
 }
 
-export async function getPositions() {
-  await ensureAuthenticated();
+export async function getPositions(creds = null) {
   try {
+    const session = await resolveSession(creds);
     const { data } = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`, {
-      headers: getHeaders(),
+      headers: getHeaders(session.apiKey, session.jwtToken),
       timeout: 10000
     });
 
@@ -354,8 +373,8 @@ export async function getPositions() {
 
 // ============ ORDERS ============
 
-export async function placeOrder(orderParams) {
-  await ensureAuthenticated();
+export async function placeOrder(orderParams, creds = null) {
+  const session = await resolveSession(creds);
 
   const {
     symbol,
@@ -398,7 +417,7 @@ export async function placeOrder(orderParams) {
     const { data } = await axios.post(
       `${BASE_URL}/rest/secure/angelbroking/order/v1/placeOrder`,
       payload,
-      { headers: getHeaders(), timeout: 15000 }
+      { headers: getHeaders(session.apiKey, session.jwtToken), timeout: 15000 }
     );
 
     if (data.status && data.data) {
@@ -419,13 +438,13 @@ export async function placeOrder(orderParams) {
   }
 }
 
-export async function cancelOrder(orderId, variety = 'NORMAL') {
-  await ensureAuthenticated();
+export async function cancelOrder(orderId, variety = 'NORMAL', creds = null) {
+  const session = await resolveSession(creds);
   try {
     const { data } = await axios.post(
       `${BASE_URL}/rest/secure/angelbroking/order/v1/cancelOrder`,
       { variety, orderid: orderId },
-      { headers: getHeaders(), timeout: 10000 }
+      { headers: getHeaders(session.apiKey, session.jwtToken), timeout: 10000 }
     );
     return { success: data.status, orderId: data.data?.orderid || orderId, message: data.message };
   } catch (err) {
@@ -433,11 +452,11 @@ export async function cancelOrder(orderId, variety = 'NORMAL') {
   }
 }
 
-export async function getOrderBook() {
-  await ensureAuthenticated();
+export async function getOrderBook(creds = null) {
   try {
+    const session = await resolveSession(creds);
     const { data } = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getOrderBook`, {
-      headers: getHeaders(),
+      headers: getHeaders(session.apiKey, session.jwtToken),
       timeout: 10000
     });
     return data.data || [];
@@ -447,10 +466,9 @@ export async function getOrderBook() {
   }
 }
 
-export async function getOrderStatus(orderId) {
-  await ensureAuthenticated();
+export async function getOrderStatus(orderId, creds = null) {
   try {
-    const orders = await getOrderBook();
+    const orders = await getOrderBook(creds);
     const order = orders.find(o => String(o.orderid) === String(orderId));
     if (order) {
       const statusLower = (order.status || order.orderstatus || '').toLowerCase();

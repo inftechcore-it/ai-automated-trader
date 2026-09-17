@@ -5,36 +5,19 @@ import { validate } from '../middlewares/validate.js';
 import { ok, fail } from '../utils/apiResponse.js';
 import { query } from '../config/db.js';
 import * as pionexAdapter from '../services/adapters/pionexAdapter.js';
-import { connectBroker, disconnectBroker } from '../services/exchangeService.js';
+import { getUserBrokerCredentials } from '../services/exchangeService.js';
 
 const router = Router();
 
 async function getUserCredentials(userId) {
-  const [row] = await query(
-    'SELECT api_key, api_secret, paper_mode, is_active FROM exchange_accounts WHERE user_id = :userId AND LOWER(exchange_name) = "pionex" AND is_active = 1',
-    { userId }
-  );
-
-  if (row) {
-    return {
-      apiKey: row.api_key,
-      apiSecret: row.api_secret,
-      paperMode: !!row.paper_mode,
-      source: 'database'
-    };
-  }
-
-  const def = pionexAdapter.getDefaultCredentials();
-  if (def?.apiKey && def?.apiSecret) {
-    return {
-      apiKey: def.apiKey,
-      apiSecret: def.apiSecret,
-      paperMode: false,
-      source: 'environment'
-    };
-  }
-
-  return null;
+  const creds = await getUserBrokerCredentials(userId, 'Pionex');
+  if (!creds) return null;
+  return {
+    apiKey: creds.apiKey,
+    apiSecret: creds.apiSecret,
+    paperMode: !!creds.paperMode,
+    source: 'database'
+  };
 }
 
 // Check Pionex connection status

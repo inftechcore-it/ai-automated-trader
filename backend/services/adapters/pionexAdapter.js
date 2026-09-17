@@ -7,25 +7,15 @@ const BASE_URL = 'https://api.pionex.com';
 let defaultCredentials = null;
 
 export function initFromEnv() {
-  if (env.pionex?.apiKey && env.pionex?.apiSecret) {
-    defaultCredentials = {
-      apiKey: env.pionex.apiKey,
-      apiSecret: env.pionex.apiSecret
-    };
-    console.log('[Pionex] Configured from environment');
-    return true;
-  }
   return false;
 }
 
 export function setCredentials(apiKey, apiSecret) {
   defaultCredentials = { apiKey, apiSecret };
-  console.log('[Pionex] Credentials updated');
 }
 
 export function clearCredentials() {
   defaultCredentials = null;
-  console.log('[Pionex] Credentials cleared');
 }
 
 export function isConfigured() {
@@ -35,9 +25,6 @@ export function isConfigured() {
 export function getDefaultCredentials() {
   return defaultCredentials;
 }
-
-// Auto-init from env
-initFromEnv();
 
 function createSignature(method, path, queryString, body, apiSecret) {
   // Pionex signature: HMAC SHA256 of METHOD + PATH + QUERY + TIMESTAMP + BODY

@@ -4,8 +4,15 @@ import { requireAuth } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
 import { ok, fail } from '../utils/apiResponse.js';
 import * as upstoxAdapter from '../services/adapters/upstoxAdapter.js';
+import { query } from '../config/db.js';
+import { getUserBrokerCredentials } from '../services/exchangeService.js';
 
 const router = Router();
+
+async function getUserToken(userId) {
+  const creds = await getUserBrokerCredentials(userId, 'Upstox');
+  return creds ? (creds.apiSecret || creds.apiKey) : null;
+}
 
 // Middleware to handle token expiry
 function handleUpstoxError(res, error) {
@@ -15,17 +22,18 @@ function handleUpstoxError(res, error) {
     return fail(res, 401, 'Session expired. Please re-authenticate with Upstox.', 'TOKEN_EXPIRED');
   }
   if (error.code === 'NOT_AUTHENTICATED') {
-    return fail(res, 401, 'Upstox not connected. Please authenticate first.', 'NOT_AUTHENTICATED');
+    return fail(res, 401, 'Upstox not connected for your account. Please authenticate first.', 'NOT_AUTHENTICATED');
   }
   return fail(res, 500, error.message, 'UPSTOX_ERROR');
 }
 
-router.get('/status', requireAuth, (req, res) => {
-  const isExpired = upstoxAdapter.isTokenExpired();
+router.get('/status', requireAuth, async (req, res) => {
+  const token = await getUserToken(req.user.id);
   return ok(res, {
     configured: upstoxAdapter.isConfigured(),
-    authenticated: upstoxAdapter.isAuthenticated(),
-    tokenExpired: isExpired
+    authenticated: !!token,
+    isConnected: !!token,
+    tokenExpired: false
   });
 });
 
@@ -66,6 +74,24 @@ router.get('/callback', async (req, res) => {
   try {
     const result = await upstoxAdapter.exchangeCodeForToken(code);
     console.log('[Upstox] Authentication successful');
+
+    // Extract userId from state if available
+    let targetUserId = null;
+    if (state && typeof state === 'string' && state.startsWith('user_')) {
+      const parts = state.split('_');
+      if (parts.length >= 2) targetUserId = parts[1];
+    }
+
+    if (targetUserId && upstoxAdapter.getAccessToken()) {
+      const token = upstoxAdapter.getAccessToken();
+      await query(
+        `INSERT INTO exchange_accounts (user_id, exchange_name, exchange_type, api_key, api_secret, broker_type, paper_mode, is_active)
+         VALUES (:userId, 'Upstox', 'stock', :token, :token, 'oauth', 0, 1)
+         ON DUPLICATE KEY UPDATE api_key = :token, api_secret = :token, is_active = 1`,
+        { userId: targetUserId, token }
+      );
+    }
+
     return res.redirect(`${redirectBase}?upstox_connected=true`);
   } catch (err) {
     console.error('[Upstox] Token exchange error:', err.message);
@@ -73,19 +99,28 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-router.post('/set-token', requireAuth, (req, res) => {
+router.post('/set-token', requireAuth, async (req, res) => {
   const { accessToken, expiresIn } = req.body;
 
   if (!accessToken) {
     return fail(res, 400, 'Access token required', 'TOKEN_REQUIRED');
   }
 
-  upstoxAdapter.setAccessToken(accessToken, expiresIn || 86400);
+  await query(
+    `INSERT INTO exchange_accounts (user_id, exchange_name, exchange_type, api_key, api_secret, broker_type, paper_mode, is_active)
+     VALUES (:userId, 'Upstox', 'stock', :token, :token, 'oauth', 0, 1)
+     ON DUPLICATE KEY UPDATE api_key = :token, api_secret = :token, is_active = 1`,
+    { userId: req.user.id, token: accessToken }
+  );
+
   return ok(res, { message: 'Token set successfully' });
 });
 
-router.post('/disconnect', requireAuth, (req, res) => {
-  upstoxAdapter.setAccessToken(null, 0);
+router.post('/disconnect', requireAuth, async (req, res) => {
+  await query(
+    'UPDATE exchange_accounts SET is_active = 0 WHERE user_id = :userId AND LOWER(exchange_name) = "upstox"',
+    { userId: req.user.id }
+  );
   return ok(res, { message: 'Disconnected from Upstox' });
 });
 
@@ -93,7 +128,9 @@ router.post('/disconnect', requireAuth, (req, res) => {
 
 router.get('/profile', requireAuth, async (req, res) => {
   try {
-    const profile = await upstoxAdapter.getProfile();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const profile = await upstoxAdapter.getProfile(token);
     return ok(res, { profile });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -102,7 +139,9 @@ router.get('/profile', requireAuth, async (req, res) => {
 
 router.get('/funds', requireAuth, async (req, res) => {
   try {
-    const funds = await upstoxAdapter.getFunds();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const funds = await upstoxAdapter.getFunds(token);
     return ok(res, { funds });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -113,7 +152,9 @@ router.get('/funds', requireAuth, async (req, res) => {
 
 router.get('/positions', requireAuth, async (req, res) => {
   try {
-    const positions = await upstoxAdapter.getPositions();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const positions = await upstoxAdapter.getPositions(token);
     return ok(res, { positions });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -122,7 +163,9 @@ router.get('/positions', requireAuth, async (req, res) => {
 
 router.get('/holdings', requireAuth, async (req, res) => {
   try {
-    const holdings = await upstoxAdapter.getHoldings();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const holdings = await upstoxAdapter.getHoldings(token);
     return ok(res, { holdings });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -133,7 +176,9 @@ router.get('/holdings', requireAuth, async (req, res) => {
 
 router.get('/orders', requireAuth, async (req, res) => {
   try {
-    const orders = await upstoxAdapter.getOrderHistory();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const orders = await upstoxAdapter.getOrderHistory(token);
     return ok(res, { orders });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -142,7 +187,9 @@ router.get('/orders', requireAuth, async (req, res) => {
 
 router.get('/orders/open', requireAuth, async (req, res) => {
   try {
-    const orders = await upstoxAdapter.getOpenOrders();
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const orders = await upstoxAdapter.getOpenOrders(token);
     return ok(res, { orders });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -151,7 +198,9 @@ router.get('/orders/open', requireAuth, async (req, res) => {
 
 router.get('/orders/:orderId/status', requireAuth, async (req, res) => {
   try {
-    const status = await upstoxAdapter.getOrderStatus(req.params.orderId);
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const status = await upstoxAdapter.getOrderStatus(req.params.orderId, token);
     return ok(res, { order: status });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -176,6 +225,9 @@ router.post(
     console.log('[Upstox] Order request:', { symbol, exchange, side, quantity, orderType, price, product });
 
     try {
+      const token = await getUserToken(req.user.id);
+      if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+
       const order = await upstoxAdapter.placeOrder({
         symbol,
         exchange,
@@ -185,7 +237,7 @@ router.post(
         price,
         stopPrice,
         product
-      });
+      }, token);
 
       return ok(res, { order, message: 'Order placed successfully' }, 201);
     } catch (error) {
@@ -197,7 +249,9 @@ router.post(
 
 router.delete('/orders/:orderId', requireAuth, async (req, res) => {
   try {
-    const result = await upstoxAdapter.cancelOrder(req.params.orderId);
+    const token = await getUserToken(req.user.id);
+    if (!token) return fail(res, 401, 'Upstox not connected for your account', 'NOT_AUTHENTICATED');
+    const result = await upstoxAdapter.cancelOrder(req.params.orderId, token);
     return ok(res, { ...result, message: 'Order cancelled successfully' });
   } catch (error) {
     return handleUpstoxError(res, error);
@@ -214,7 +268,8 @@ router.get('/quote', requireAuth, async (req, res) => {
   }
 
   try {
-    const quote = await upstoxAdapter.getQuote(symbol, exchange);
+    const token = await getUserToken(req.user.id);
+    const quote = await upstoxAdapter.getQuote(symbol, exchange, token);
     return ok(res, { quote });
   } catch (error) {
     return handleUpstoxError(res, error);

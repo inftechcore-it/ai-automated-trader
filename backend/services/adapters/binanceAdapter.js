@@ -7,27 +7,16 @@ const BASE_URL = env.exchanges.binanceBaseUrl;
 let defaultCredentials = null;
 
 export function initFromEnv() {
-  if (env.binance?.apiKey && env.binance?.apiSecret) {
-    defaultCredentials = {
-      apiKey: env.binance.apiKey,
-      apiSecret: env.binance.apiSecret
-    };
-    console.log('[Binance] Configured from environment');
-    return true;
-  }
   return false;
 }
 
 export function isConfigured() {
-  return !!(defaultCredentials?.apiKey && defaultCredentials?.apiSecret);
+  return false;
 }
 
 export function getDefaultCredentials() {
-  return defaultCredentials;
+  return null;
 }
-
-// Auto-init from env
-initFromEnv();
 
 function createSignature(queryString, apiSecret) {
   return crypto.createHmac('sha256', apiSecret).update(queryString).digest('hex');

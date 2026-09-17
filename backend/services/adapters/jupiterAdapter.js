@@ -6,19 +6,18 @@ import { env } from '../../config/env.js';
 const JUPITER_BASE_URL = 'https://api.jup.ag';
 
 let apiKey = env.jupiter?.apiKey || process.env.JUPITER_API_KEY || 'jup_e254889340b2c9eff161bbda9832fd12b299927ce7ec7d4ac025fdd99c0db00d';
-let rpcUrl = env.jupiter?.rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-let privateKey = env.jupiter?.privateKey || process.env.SOLANA_WALLET_PRIVATE_KEY || '';
+let rpcUrl = 'https://api.mainnet-beta.solana.com';
+let privateKey = '';
 
 // RPC list with official first
 const RPC_ENDPOINTS = [
-  rpcUrl,
   'https://api.mainnet-beta.solana.com',
   'https://rpc.ankr.com/solana',
   'https://solana-rpc.publicnode.com'
-].filter(Boolean);
+];
 
-export function getKeypair() {
-  const pk = (privateKey || process.env.SOLANA_WALLET_PRIVATE_KEY || '').trim();
+export function getKeypair(customPrivateKey = null) {
+  const pk = (customPrivateKey || privateKey || '').trim();
   if (!pk) return null;
   try {
     if (pk.startsWith('[') && pk.endsWith(']')) {
@@ -532,7 +531,7 @@ export async function searchSymbols(query = '', exchange = 'Jupiter') {
   }));
 }
 
-export async function placeOrder(orderParams) {
+export async function placeOrder(orderParams, customPrivateKey = null, customRpc = null) {
   const { symbol, side, orderType, quantity, price, dryRun = true } = orderParams;
   const [base = 'SOL', quote = 'USDC'] = (symbol || 'SOL/USDC').toUpperCase().split('/');
   const isBuy = (side || 'buy').toLowerCase() === 'buy';
@@ -556,13 +555,13 @@ export async function placeOrder(orderParams) {
   const isLive = dryRun === false;
 
   if (isLive) {
-    const kp = getKeypair();
+    const kp = getKeypair(customPrivateKey);
     if (!kp) {
       throw new Error('Cannot execute LIVE order on Jupiter: Solana wallet private key is missing. Please configure your Solana Private Key in the Exchanges settings.');
     }
 
     // LIVE ON-CHAIN SWAP EXECUTION
-    const connection = getConnection();
+    const connection = getConnection(customRpc);
 
     // 1. Check wallet SOL balance for network gas fees
     const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
@@ -666,8 +665,8 @@ export async function cancelOrder(orderId, symbol) {
   return { success: true, orderId, symbol, message: 'Jupiter swap order cancelled' };
 }
 
-export async function getBalances() {
-  const kp = getKeypair();
+export async function getBalances(customPrivateKey = null, customRpc = null) {
+  const kp = getKeypair(customPrivateKey);
   if (!kp) {
     return [
       { asset: 'SOL', free: 0, locked: 0, total: 0, usdValue: 0 },
@@ -677,7 +676,7 @@ export async function getBalances() {
   }
 
   try {
-    const connection = getConnection();
+    const connection = getConnection(customRpc);
     const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
       console.warn('[JupiterAdapter] Solana RPC getBalance warning:', err.message);
       return 0;

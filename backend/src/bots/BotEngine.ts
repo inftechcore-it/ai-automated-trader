@@ -587,13 +587,41 @@ export class BotEngine extends EventEmitter {
           };
         }
 
-        // Live trading - use real adapter
-        const { getAdapter } = await import('../../arbitrage/dist/adapters/index.js');
-        const adapter = await getAdapter(params.exchange);
-
-        console.log(`[BotEngine] [LIVE] Placing order: ${params.side} ${params.quantity} ${params.symbol} @ ${params.price || 'market'}`);
+        // Live trading - use real user-scoped order execution
+        console.log(`[BotEngine] [LIVE] Placing order for user ${params.userId || 'unknown'}: ${params.side} ${params.quantity} ${params.symbol} on ${params.exchange}`);
 
         try {
+          if (params.userId) {
+            const { placeLiveOrder } = await import('../../services/exchangeService.js');
+            const order = await placeLiveOrder({
+              userId: params.userId,
+              symbol: params.symbol,
+              exchange: params.exchange,
+              side: params.side.toLowerCase(),
+              orderType: params.type.toLowerCase(),
+              quantity: params.quantity,
+              price: params.price,
+              stopPrice: params.stopPrice,
+            });
+
+            console.log(`[BotEngine] [LIVE] Order result:`, order);
+
+            const normalizedStatus = (order.status || 'open').toUpperCase();
+            const isFilled = normalizedStatus === 'FILLED' || normalizedStatus === 'CLOSED';
+
+            return {
+              orderId: String(order.orderId || order.id || order.txid || `live_${Date.now()}`),
+              status: isFilled ? 'FILLED' : normalizedStatus,
+              filledPrice: order.avgFillPrice || order.avgPrice || order.price || params.price,
+              filledQuantity: isFilled ? params.quantity : (order.executedQty || order.filledQuantity || 0),
+              txid: order.txid,
+              explorerUrl: order.explorerUrl,
+              isLive: true,
+            };
+          }
+
+          const { getAdapter } = await import('../../arbitrage/dist/adapters/index.js');
+          const adapter = await getAdapter(params.exchange);
           const order = await (adapter as any).placeOrder({
             symbol: params.symbol,
             side: params.side.toLowerCase(),
@@ -602,14 +630,11 @@ export class BotEngine extends EventEmitter {
             price: params.price,
             dryRun: false,
           });
-          console.log(`[BotEngine] [LIVE] Order result:`, order);
-
-          // Normalize status to uppercase for consistency
           const normalizedStatus = (order.status || 'open').toUpperCase();
           const isFilled = normalizedStatus === 'FILLED' || normalizedStatus === 'CLOSED';
 
           return {
-            orderId: order.orderId || order.id || order.txid,
+            orderId: String(order.orderId || order.id || order.txid),
             status: isFilled ? 'FILLED' : normalizedStatus,
             filledPrice: order.avgFillPrice || order.average || order.price || params.price,
             filledQuantity: isFilled ? params.quantity : (order.filledQuantity || order.filled || 0),
@@ -624,13 +649,27 @@ export class BotEngine extends EventEmitter {
       },
 
       cancelOrder: async (params: any) => {
-        if (params.orderId.startsWith('paper_')) {
+        if (params.orderId && params.orderId.startsWith('paper_')) {
           return { success: true };
+        }
+
+        if (params.userId) {
+          try {
+            const { cancelLiveOrder } = await import('../../services/exchangeService.js');
+            await cancelLiveOrder({
+              userId: params.userId,
+              symbol: params.symbol,
+              exchange: params.exchange,
+              orderId: params.orderId,
+            });
+            return { success: true };
+          } catch (e: any) {
+            console.warn(`[BotEngine] Cancel live order error: ${e.message}`);
+          }
         }
 
         const { getAdapter } = await import('../../arbitrage/dist/adapters/index.js');
         const adapter = await getAdapter(params.exchange);
-
         await adapter.cancelOrder(params.orderId, params.symbol);
         return { success: true };
       },

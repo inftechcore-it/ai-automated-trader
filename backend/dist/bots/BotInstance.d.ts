@@ -7,6 +7,7 @@ import type { IBotStrategy } from './IBotStrategy.js';
 import type { BotConfig, BotState, PriceTick, BotStatus, OpenOrder, TradeRecord, OrderSide, OrderType } from './types.js';
 interface ExecutionEngine {
     placeOrder(params: {
+        userId?: string;
         exchange: string;
         symbol: string;
         side: OrderSide;
@@ -25,6 +26,7 @@ interface ExecutionEngine {
         isPaper?: boolean;
     }>;
     cancelOrder(params: {
+        userId?: string;
         exchange: string;
         orderId: string;
         symbol: string;
@@ -90,6 +92,7 @@ export declare class BotInstance extends EventEmitter {
     private stopSnapshotTimer;
     private takeSnapshot;
     private getAdapter;
+    private getUserLiveBalances;
     getStats(): any;
     getOpenOrders(): OpenOrder[];
 }

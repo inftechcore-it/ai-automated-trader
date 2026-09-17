@@ -11,7 +11,7 @@ import * as jupiterAdapter from '../services/adapters/jupiterAdapter.js';
 import * as angeloneAdapter from '../services/adapters/angeloneAdapter.js';
 import * as alpacaAdapter from '../services/adapters/alpacaAdapter.js';
 import * as upstoxAdapter from '../services/adapters/upstoxAdapter.js';
-import { connectBroker, disconnectBroker, getSupportedExchanges } from '../services/exchangeService.js';
+import { connectBroker, disconnectBroker, getSupportedExchanges, getUserBrokerCredentials } from '../services/exchangeService.js';
 
 const router = Router();
 
@@ -22,11 +22,20 @@ router.get('/status', requireAuth, async (req, res) => {
       'SELECT exchange_name, broker_type, paper_mode, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND is_active = 1',
       { userId: req.user.id }
     );
+    const oldConnections = await query(
+      'SELECT exchange_name, is_active FROM exchange_connections WHERE user_id = :userId AND is_active = 1',
+      { userId: req.user.id }
+    );
+
+    const allConnectedNames = new Set([
+      ...connectedBrokers.map(b => b.exchange_name.toLowerCase()),
+      ...oldConnections.map(b => b.exchange_name.toLowerCase())
+    ]);
 
     const status = {
       exchanges: exchanges.map(ex => ({
         ...ex,
-        connected: connectedBrokers.some(b => b.exchange_name.toLowerCase() === ex.name.toLowerCase())
+        connected: allConnectedNames.has(ex.name.toLowerCase())
       })),
       connectedBrokers: connectedBrokers.map(b => ({
         exchange: b.exchange_name,
@@ -34,11 +43,11 @@ router.get('/status', requireAuth, async (req, res) => {
         paperMode: b.paper_mode,
         lastSynced: b.last_synced_at
       })),
-      upstoxAuthenticated: upstoxAdapter.isAuthenticated(),
-      angeloneAuthenticated: angeloneAdapter.isAuthenticated(),
-      angeloneConfigured: angeloneAdapter.isConfigured(),
-      jupiterConfigured: jupiterAdapter.isConfigured(),
-      alpacaConfigured: alpacaAdapter.isConfigured()
+      upstoxAuthenticated: allConnectedNames.has('upstox'),
+      angeloneAuthenticated: allConnectedNames.has('angelone'),
+      angeloneConfigured: allConnectedNames.has('angelone'),
+      jupiterConfigured: allConnectedNames.has('jupiter'),
+      alpacaConfigured: allConnectedNames.has('alpaca')
     };
 
     return ok(res, status);
@@ -49,27 +58,22 @@ router.get('/status', requireAuth, async (req, res) => {
 
 router.get('/angelone/status', requireAuth, async (req, res) => {
   try {
-    const [dbRecord] = await query(
-      'SELECT paper_mode, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :name AND is_active = 1',
-      { userId: req.user.id, name: 'AngelOne' }
-    );
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
 
-    if (dbRecord) {
+    if (creds) {
       return ok(res, {
         configured: true,
-        authenticated: angeloneAdapter.isAuthenticated(),
-        paperMode: !!dbRecord.paper_mode,
-        lastSynced: dbRecord.last_synced_at,
+        authenticated: true,
+        paperMode: !!creds.paperMode,
         source: 'database'
       });
     }
 
-    const envConfigured = angeloneAdapter.isConfigured();
     return ok(res, {
-      configured: envConfigured,
-      authenticated: angeloneAdapter.isAuthenticated(),
+      configured: false,
+      authenticated: false,
       paperMode: false,
-      source: envConfigured ? 'environment' : 'none'
+      source: 'none'
     });
   } catch (error) {
     return fail(res, 500, error.message);
@@ -78,27 +82,20 @@ router.get('/angelone/status', requireAuth, async (req, res) => {
 
 router.get('/alpaca/status', requireAuth, async (req, res) => {
   try {
-    // Check if user has live Alpaca connected
-    const [dbRecord] = await query(
-      'SELECT paper_mode, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :name AND is_active = 1',
-      { userId: req.user.id, name: 'Alpaca' }
-    );
+    const creds = await getUserBrokerCredentials(req.user.id, 'Alpaca');
 
-    if (dbRecord) {
+    if (creds) {
       return ok(res, {
         configured: true,
-        paperMode: !!dbRecord.paper_mode,
-        lastSynced: dbRecord.last_synced_at,
+        paperMode: !!creds.paperMode,
         source: 'database'
       });
     }
 
-    // Fall back to environment config (paper trading from env is always available)
-    const envConfigured = alpacaAdapter.isConfigured();
     return ok(res, {
-      configured: envConfigured,
-      paperMode: true, // Environment config is always paper mode
-      source: envConfigured ? 'environment' : 'none'
+      configured: false,
+      paperMode: true,
+      source: 'none'
     });
   } catch (error) {
     return fail(res, 500, error.message);
@@ -107,38 +104,34 @@ router.get('/alpaca/status', requireAuth, async (req, res) => {
 
 router.get('/jupiter/status', requireAuth, async (req, res) => {
   try {
-    const [dbRecord] = await query(
-      'SELECT api_key, api_secret, paper_mode, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :name AND is_active = 1',
-      { userId: req.user.id, name: 'Jupiter' }
-    );
+    const creds = await getUserBrokerCredentials(req.user.id, 'Jupiter');
 
-    const config = jupiterAdapter.getConfig();
-    const balances = await jupiterAdapter.getBalances().catch(() => []);
-    const solBal = balances.find(b => b.asset === 'SOL');
+    if (creds) {
+      const pk = creds.privateKey || creds.apiSecret;
+      const balances = await jupiterAdapter.getBalances(pk, creds.rpcUrl).catch(() => []);
+      const solBal = balances.find(b => b.asset === 'SOL');
 
-    if (dbRecord) {
       return ok(res, {
         configured: true,
-        authenticated: config.hasWallet,
-        walletAddress: config.walletAddress,
+        authenticated: !!pk,
+        walletAddress: creds.apiKey || null,
         solBalance: solBal ? solBal.free : 0,
         balances,
-        rpcUrl: config.rpcUrl,
-        paperMode: !!dbRecord.paper_mode,
-        lastSynced: dbRecord.last_synced_at,
+        rpcUrl: creds.rpcUrl || 'https://api.mainnet-beta.solana.com',
+        paperMode: !!creds.paperMode,
         source: 'database'
       });
     }
 
     return ok(res, {
-      configured: config.configured,
-      authenticated: config.hasWallet,
-      walletAddress: config.walletAddress,
-      solBalance: solBal ? solBal.free : 0,
-      balances,
-      rpcUrl: config.rpcUrl,
+      configured: false,
+      authenticated: false,
+      walletAddress: null,
+      solBalance: 0,
+      balances: [],
+      rpcUrl: 'https://api.mainnet-beta.solana.com',
       paperMode: false,
-      source: config.configured ? 'environment' : 'none'
+      source: 'none'
     });
   } catch (error) {
     return fail(res, 500, error.message);
@@ -195,10 +188,9 @@ router.post(
       } else if (exLower === 'jupiter') {
         const effectiveRpc = rpcUrl || 'https://api.mainnet-beta.solana.com';
         const effectivePk = privateKey || apiSecret || '';
-        jupiterAdapter.setCredentials(apiKey, effectiveRpc, effectivePk);
-        const kp = jupiterAdapter.getKeypair();
+        const kp = jupiterAdapter.getKeypair(effectivePk);
         validation = {
-          valid: true,
+          valid: !!kp,
           permissions: ['swap', 'limit', 'dca'],
           hasWallet: !!kp,
           walletAddress: kp ? kp.publicKey.toBase58() : null
@@ -221,7 +213,6 @@ router.post(
         validation = await alpacaAdapter.validateCredentials(apiKey, apiSecret, paperMode);
         exchangeName = 'Alpaca';
         exchangeType = 'stock';
-        alpacaAdapter.setCredentials(apiKey, apiSecret, paperMode);
       } else {
         return fail(res, 400, `Exchange ${exchange} not supported for direct API connection`);
       }
@@ -261,16 +252,6 @@ router.post(
         }
       );
 
-      // Cache credentials for immediate use
-      connectBroker(exchangeName, {
-        apiKey,
-        apiSecret: apiSecret || clientCode,
-        clientCode: clientCode || apiSecret,
-        password,
-        totpSecret: totpSecret || totp,
-        paperMode
-      });
-
       console.log(`[Broker] ${exchangeName} connected for user ${req.user.id} (paper: ${paperMode})`);
 
       return ok(res, {
@@ -299,16 +280,10 @@ router.delete(
         'UPDATE exchange_accounts SET is_active = 0 WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName)',
         { userId: req.user.id, exchangeName }
       );
-
-      disconnectBroker(exchangeName);
-
-      // Clear adapter credentials
-      if (exchangeName.toLowerCase() === 'angelone') {
-        angeloneAdapter.clearCredentials();
-      }
-      if (exchangeName.toLowerCase() === 'alpaca') {
-        alpacaAdapter.setCredentials(null, null, true);
-      }
+      await query(
+        'UPDATE exchange_connections SET is_active = 0 WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName)',
+        { userId: req.user.id, exchangeName }
+      );
 
       console.log(`[Broker] ${exchangeName} disconnected for user ${req.user.id}`);
 
@@ -323,28 +298,26 @@ router.get('/balances/:exchange', requireAuth, async (req, res) => {
   const exchange = req.params.exchange.toLowerCase();
 
   try {
-    const [credentials] = await query(
-      'SELECT api_key, api_secret, paper_mode FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
-      { userId: req.user.id, exchangeName: req.params.exchange }
-    );
+    const credentials = await getUserBrokerCredentials(req.user.id, req.params.exchange);
 
     if (!credentials) {
-      return fail(res, 404, `${req.params.exchange} not connected`, 'BROKER_NOT_CONNECTED');
+      return fail(res, 404, `${req.params.exchange} not connected for your account`, 'BROKER_NOT_CONNECTED');
     }
 
-    let balances;
+    let balances = [];
 
     if (exchange === 'binance') {
-      balances = await binanceAdapter.getBalances(credentials.api_key, credentials.api_secret);
+      balances = await binanceAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'kraken') {
-      balances = await krakenAdapter.getBalances(credentials.api_key, credentials.api_secret);
+      balances = await krakenAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'pionex') {
-      balances = await pionexAdapter.getBalances(credentials.api_key, credentials.api_secret);
+      balances = await pionexAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'jupiter') {
-      balances = await jupiterAdapter.getBalances();
+      const pk = credentials.privateKey || credentials.apiSecret;
+      balances = await jupiterAdapter.getBalances(pk, credentials.rpcUrl);
     } else if (exchange === 'angelone') {
-      const rms = await angeloneAdapter.getRMS();
-      const holdings = await angeloneAdapter.getHoldings();
+      const rms = await angeloneAdapter.getRMS(credentials);
+      const holdings = await angeloneAdapter.getHoldings(credentials);
       balances = [
         { asset: 'INR (Cash)', free: rms.availableCash, locked: rms.utilizedMargin, total: rms.net },
         ...holdings.map(h => ({
@@ -357,15 +330,20 @@ router.get('/balances/:exchange', requireAuth, async (req, res) => {
         }))
       ];
     } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
-      alpacaAdapter.setCredentials(credentials.api_key, credentials.api_secret, credentials.paper_mode);
-      balances = await alpacaAdapter.getBalances();
+      balances = await alpacaAdapter.getBalances(credentials);
+    } else if (exchange === 'upstox') {
+      const token = credentials.apiSecret || credentials.apiKey;
+      const funds = await upstoxAdapter.getFunds(token);
+      balances = [
+        { asset: 'INR (Cash)', free: funds.available_margin || 0, locked: funds.used_margin || 0, total: (funds.available_margin || 0) + (funds.used_margin || 0) }
+      ];
     } else {
       return fail(res, 400, 'Exchange not supported');
     }
 
     // Update last synced
     await query(
-      'UPDATE exchange_accounts SET last_synced_at = NOW() WHERE user_id = :userId AND exchange_name = :exchangeName',
+      'UPDATE exchange_accounts SET last_synced_at = NOW() WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName)',
       { userId: req.user.id, exchangeName: req.params.exchange }
     );
 
@@ -381,26 +359,28 @@ router.get('/positions/:exchange', requireAuth, async (req, res) => {
 
   try {
     let positions = [];
+    const credentials = await getUserBrokerCredentials(req.user.id, req.params.exchange);
 
-    if (exchange === 'jupiter') {
-      positions = await jupiterAdapter.getBalances();
-    } else if (exchange === 'angelone') {
-      positions = await angeloneAdapter.getHoldings();
-    } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
-      const [credentials] = await query(
-        'SELECT api_key, api_secret, paper_mode FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
-        { userId: req.user.id, exchangeName: 'Alpaca' }
-      );
-
-      if (credentials) {
-        alpacaAdapter.setCredentials(credentials.api_key, credentials.api_secret, credentials.paper_mode);
-        positions = await alpacaAdapter.getPositions();
+    if (credentials) {
+      if (exchange === 'jupiter') {
+        const pk = credentials.privateKey || credentials.apiSecret;
+        positions = await jupiterAdapter.getBalances(pk, credentials.rpcUrl);
+      } else if (exchange === 'angelone') {
+        positions = await angeloneAdapter.getHoldings(credentials);
+      } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
+        positions = await alpacaAdapter.getPositions(credentials);
+      } else if (exchange === 'upstox') {
+        positions = await upstoxAdapter.getPositions(credentials.apiSecret || credentials.apiKey);
       }
     } else if (['nse', 'bse'].includes(exchange)) {
-      if (angeloneAdapter.isAuthenticated()) {
-        positions = await angeloneAdapter.getHoldings();
-      } else if (upstoxAdapter.isAuthenticated()) {
-        positions = await upstoxAdapter.getPositions();
+      const angelCreds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+      if (angelCreds) {
+        positions = await angeloneAdapter.getHoldings(angelCreds);
+      } else {
+        const upstoxCreds = await getUserBrokerCredentials(req.user.id, 'Upstox');
+        if (upstoxCreds) {
+          positions = await upstoxAdapter.getPositions(upstoxCreds.apiSecret || upstoxCreds.apiKey);
+        }
       }
     }
 
@@ -415,41 +395,31 @@ router.get('/orders/:exchange', requireAuth, async (req, res) => {
 
   try {
     let orders = [];
+    const credentials = await getUserBrokerCredentials(req.user.id, req.params.exchange);
 
-    if (exchange === 'jupiter') {
-      orders = [];
-    } else if (exchange === 'binance') {
-      const [credentials] = await query(
-        'SELECT api_key, api_secret FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
-        { userId: req.user.id, exchangeName: 'Binance' }
-      );
-      if (credentials) {
-        orders = await binanceAdapter.getOpenOrders(credentials.api_key, credentials.api_secret);
-      }
-    } else if (exchange === 'pionex') {
-      const [credentials] = await query(
-        'SELECT api_key, api_secret FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
-        { userId: req.user.id, exchangeName: 'Pionex' }
-      );
-      if (credentials) {
-        orders = await pionexAdapter.getOpenOrders(credentials.api_key, credentials.api_secret);
-      }
-    } else if (exchange === 'angelone') {
-      orders = await angeloneAdapter.getOrderBook();
-    } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
-      const [credentials] = await query(
-        'SELECT api_key, api_secret, paper_mode FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :exchangeName AND is_active = 1',
-        { userId: req.user.id, exchangeName: 'Alpaca' }
-      );
-      if (credentials) {
-        alpacaAdapter.setCredentials(credentials.api_key, credentials.api_secret, credentials.paper_mode);
-        orders = await alpacaAdapter.getOpenOrders();
+    if (credentials) {
+      if (exchange === 'jupiter') {
+        orders = [];
+      } else if (exchange === 'binance') {
+        orders = await binanceAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
+      } else if (exchange === 'pionex') {
+        orders = await pionexAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
+      } else if (exchange === 'angelone') {
+        orders = await angeloneAdapter.getOrderBook(credentials);
+      } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
+        orders = await alpacaAdapter.getOpenOrders(credentials);
+      } else if (exchange === 'upstox') {
+        orders = await upstoxAdapter.getOpenOrders(credentials.apiSecret || credentials.apiKey);
       }
     } else if (['nse', 'bse'].includes(exchange)) {
-      if (angeloneAdapter.isAuthenticated()) {
-        orders = await angeloneAdapter.getOrderBook();
-      } else if (upstoxAdapter.isAuthenticated()) {
-        orders = await upstoxAdapter.getOpenOrders();
+      const angelCreds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+      if (angelCreds) {
+        orders = await angeloneAdapter.getOrderBook(angelCreds);
+      } else {
+        const upstoxCreds = await getUserBrokerCredentials(req.user.id, 'Upstox');
+        if (upstoxCreds) {
+          orders = await upstoxAdapter.getOpenOrders(upstoxCreds.apiSecret || upstoxCreds.apiKey);
+        }
       }
     }
 
