@@ -572,6 +572,22 @@ export class BotEngine extends EventEmitter {
     });
   }
 
+  async getBotOrders(botId: string, limit: number = 100): Promise<any[]> {
+    return this.prisma.botOrder.findMany({
+      where: { botConfigId: botId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  async getBotSnapshots(botId: string, limit: number = 168): Promise<any[]> {
+    return this.prisma.botSnapshot.findMany({
+      where: { botConfigId: botId },
+      orderBy: { snapshotAt: 'desc' },
+      take: limit,
+    });
+  }
+
   private async createExecutionEngine(): Promise<any> {
     return {
       placeOrder: async (params: any) => {
