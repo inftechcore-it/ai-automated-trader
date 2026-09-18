@@ -44,17 +44,35 @@ export async function getConnectedExchanges(userId) {
     { userId }
   );
 
+  const oldRows = await query(
+    `SELECT exchange_name FROM exchange_connections WHERE user_id = :userId AND is_active = 1`,
+    { userId }
+  ).catch(() => []);
+
   const seen = new Set();
   const connected = [];
 
-  for (const r of rows) {
-    const nameLower = r.exchange_name.toLowerCase();
-    if (!seen.has(nameLower)) {
+  for (const r of (rows || [])) {
+    const nameLower = (r.exchange_name || '').toLowerCase();
+    if (nameLower && !seen.has(nameLower)) {
       seen.add(nameLower);
       connected.push({
         name: r.exchange_name,
-        type: r.exchange_type,
+        type: r.exchange_type || 'crypto',
         paperMode: !!r.paper_mode,
+        isActive: true
+      });
+    }
+  }
+
+  for (const r of (oldRows || [])) {
+    const nameLower = (r.exchange_name || '').toLowerCase();
+    if (nameLower && !seen.has(nameLower)) {
+      seen.add(nameLower);
+      connected.push({
+        name: r.exchange_name,
+        type: 'crypto',
+        paperMode: false,
         isActive: true
       });
     }

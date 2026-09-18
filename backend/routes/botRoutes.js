@@ -75,9 +75,9 @@ export function setBotSocket(io) {
 // Get exchanges available for bot trading (auto-connected from env + user-connected)
 router.get('/exchanges', requireAuth, async (req, res) => {
   try {
-    const connected = getConnectedExchanges();
-    const supported = getSupportedExchanges();
+    const connected = await getConnectedExchanges(req.user.id);
     const connectedNames = new Set(connected.map(c => c.name.toLowerCase()));
+    const supported = getSupportedExchanges(connected.map(c => c.name));
 
     // Merge supported and connected for easy frontend use
     const mergedExchanges = supported.map(ex => ({
@@ -96,6 +96,7 @@ router.get('/exchanges', requireAuth, async (req, res) => {
       exchanges: mergedExchanges
     });
   } catch (error) {
+    console.error('[BotRoutes] Error loading exchanges:', error);
     return fail(res, 500, error.message);
   }
 });

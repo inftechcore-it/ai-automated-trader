@@ -257,18 +257,36 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
   const loadExchanges = async () => {
     try {
-      // Get connected and supported exchanges from endpoint
-      const res = await api('/bots/exchanges');
+      // Get connected and supported exchanges from endpoints
+      const [res, brokerRes] = await Promise.all([
+        api('/bots/exchanges').catch(() => null),
+        api('/brokers/status').catch(() => null),
+      ]);
 
-      if (res.success && res.exchanges && res.exchanges.length > 0) {
-        const apiExchanges = res.exchanges.map(ex => ({
-          name: ex.name,
-          label: ex.label || ex.name,
-          type: ex.type || 'crypto',
-          isDemo: false,
-          isConnected: !!ex.isConnected,
-          tradingEnabled: !!ex.tradingEnabled
-        }));
+      const connectedSet = new Set();
+
+      if (res?.success && Array.isArray(res.connected)) {
+        res.connected.forEach(c => connectedSet.add((c.name || '').toLowerCase()));
+      }
+      if (brokerRes?.success && Array.isArray(brokerRes.connectedBrokers)) {
+        brokerRes.connectedBrokers.forEach(b => connectedSet.add((b.exchange || '').toLowerCase()));
+      }
+      if (brokerRes?.success && Array.isArray(brokerRes.exchanges)) {
+        brokerRes.exchanges.filter(e => e.connected).forEach(e => connectedSet.add((e.name || '').toLowerCase()));
+      }
+
+      if (res?.success && res.exchanges && res.exchanges.length > 0) {
+        const apiExchanges = res.exchanges.map(ex => {
+          const isConn = connectedSet.has((ex.name || '').toLowerCase()) || !!ex.isConnected;
+          return {
+            name: ex.name,
+            label: ex.label || ex.name,
+            type: ex.type || 'crypto',
+            isDemo: false,
+            isConnected: isConn,
+            tradingEnabled: isConn || !!ex.tradingEnabled
+          };
+        });
 
         const merged = [
           { name: 'Demo', label: 'Demo Exchange', isDemo: true, isConnected: true },
@@ -286,7 +304,10 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
         setExchanges(unique);
       } else {
-        setExchanges(DEFAULT_SUPPORTED_EXCHANGES);
+        setExchanges(DEFAULT_SUPPORTED_EXCHANGES.map(ex => ({
+          ...ex,
+          isConnected: ex.isDemo || connectedSet.has((ex.name || '').toLowerCase())
+        })));
       }
     } catch (e) {
       console.error('Failed to load exchanges:', e);
