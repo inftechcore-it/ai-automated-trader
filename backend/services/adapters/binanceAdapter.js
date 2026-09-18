@@ -186,31 +186,93 @@ export async function getBalances(apiKey, apiSecret, useTestnet = false) {
   }
 }
 
+function formatQuantity(qty, stepSize = 0.0001) {
+  if (!qty || isNaN(qty)) return '0';
+  if (!stepSize || stepSize <= 0) {
+    return Number(qty).toFixed(4);
+  }
+
+  const stepStr = stepSize.toString();
+  let precision = 0;
+  if (stepStr.includes('.')) {
+    precision = stepStr.split('.')[1].length;
+  } else if (stepSize < 1) {
+    precision = Math.max(0, Math.round(-Math.log10(stepSize)));
+  }
+
+  const factor = Math.pow(10, precision);
+  const floored = Math.floor(Number(qty) * factor) / factor;
+  return floored.toFixed(precision);
+}
+
+function formatPrice(price, tickSize = 0.0001) {
+  if (!price || isNaN(price)) return undefined;
+  if (!tickSize || tickSize <= 0) {
+    return Number(price).toFixed(4);
+  }
+
+  const tickStr = tickSize.toString();
+  let precision = 0;
+  if (tickStr.includes('.')) {
+    precision = tickStr.split('.')[1].length;
+  } else if (tickSize < 1) {
+    precision = Math.max(0, Math.round(-Math.log10(tickSize)));
+  }
+
+  return Number(price).toFixed(precision);
+}
+
 export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, quantity, price, stopPrice }) {
   const binanceSymbol = normalizeSymbol(symbol);
   const timestamp = Date.now();
+
+  let formattedQty = quantity;
+  let formattedPrice = price;
+  let formattedStopPrice = stopPrice;
+
+  try {
+    const filters = await getSymbolFilters(symbol).catch(() => null);
+    if (filters) {
+      if (filters.stepSize) {
+        formattedQty = formatQuantity(quantity, filters.stepSize);
+      }
+      if (filters.tickSize && price) {
+        formattedPrice = formatPrice(price, filters.tickSize);
+      }
+      if (filters.tickSize && stopPrice) {
+        formattedStopPrice = formatPrice(stopPrice, filters.tickSize);
+      }
+    } else {
+      formattedQty = formatQuantity(quantity, 0.01);
+    }
+  } catch (err) {
+    console.warn(`[Binance] Failed to fetch filters for ${symbol}, fallback:`, err.message);
+    formattedQty = formatQuantity(quantity, 0.01);
+  }
+
+  console.log(`[Binance] Formatted Order: ${side} ${formattedQty} (raw: ${quantity}) ${binanceSymbol} @ ${formattedPrice || 'MARKET'}`);
 
   const params = {
     symbol: binanceSymbol,
     side: side.toUpperCase(),
     type: orderType.toUpperCase(),
-    quantity: quantity.toString(),
+    quantity: formattedQty.toString(),
     timestamp
   };
 
-  if (orderType === 'LIMIT') {
+  if (orderType === 'LIMIT' && formattedPrice) {
     params.timeInForce = 'GTC';
-    params.price = price.toString();
+    params.price = formattedPrice.toString();
   }
 
-  if (orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') {
+  if ((orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') && formattedPrice && formattedStopPrice) {
     params.timeInForce = 'GTC';
-    params.price = price.toString();
-    params.stopPrice = stopPrice.toString();
+    params.price = formattedPrice.toString();
+    params.stopPrice = formattedStopPrice.toString();
   }
 
-  if (orderType === 'STOP_LOSS' || orderType === 'TAKE_PROFIT') {
-    params.stopPrice = stopPrice.toString();
+  if ((orderType === 'STOP_LOSS' || orderType === 'TAKE_PROFIT') && formattedStopPrice) {
+    params.stopPrice = formattedStopPrice.toString();
   }
 
   const queryString = Object.entries(params)
