@@ -1,13 +1,23 @@
 /**
- * JarvisBot Strategy - Autonomous Upper-Bound Expanding Grid Trading Bot
+ * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot
  *
  * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid").
+ * breaks out above the upper bound ("out of grid") or stretches into irregular wide gaps.
  *
- * When market price surges and reaches or exceeds the upper price:
- * The bot acts AUTONOMOUSLY to increase its upper price:
- *   newUpperPrice = currentPrice + gridSpacing (Step Space)
- * and dynamically recalibrates its grid levels to continue active, profitable trading.
+ * 1. Autonomous Upper Breakout (Auto-Upgrade):
+ *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
+ *    entire trading window upwards by exact integer multiples of gridSpacing:
+ *      currentUpperPrice += stepsUp * gridSpacing
+ *      currentLowerPrice += stepsUp * gridSpacing
+ *    Immediately generates fresh dip-buy levels right beneath the new market peak!
+ *
+ * 2. Autonomous Pullback Recalibration (Auto-Downgrade):
+ *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
+ *    JARVIS smoothly steps down its active range back towards the initial baseline:
+ *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)
+ *      currentLowerPrice = Math.max(initialLowerPrice, currentLowerPrice - stepsDown * gridSpacing)
+ *    Ensuring the active grid envelope stays perfectly centered around live market price
+ *    with 100% uniform step spacing at all times!
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
 import type { BotParams, BotState, BotAction, PriceTick, ValidationResult } from '../types.js';
@@ -18,6 +28,7 @@ export declare class JarvisBot extends BaseBotStrategy {
     private gridSpacing;
     private currentLowerPrice;
     private currentUpperPrice;
+    private initialLowerPrice;
     private initialUpperPrice;
     private upperPriceIncrementsCount;
     private priceTolerance;
@@ -35,6 +46,10 @@ export declare class JarvisBot extends BaseBotStrategy {
     private lastIncrementLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
+    /**
+     * Rebuilds exact, uniform grid levels across the active [currentLowerPrice, currentUpperPrice] window
+     */
+    private rebuildGridLevels;
     handleError(error: string): void;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
     private createExitActions;

@@ -1,13 +1,23 @@
 /**
- * JarvisBot Strategy - Autonomous Upper-Bound Expanding Grid Trading Bot
+ * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot
  *
  * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid").
+ * breaks out above the upper bound ("out of grid") or stretches into irregular wide gaps.
  *
- * When market price surges and reaches or exceeds the upper price:
- * The bot acts AUTONOMOUSLY to increase its upper price:
- *   newUpperPrice = currentPrice + gridSpacing (Step Space)
- * and dynamically recalibrates its grid levels to continue active, profitable trading.
+ * 1. Autonomous Upper Breakout (Auto-Upgrade):
+ *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
+ *    entire trading window upwards by exact integer multiples of gridSpacing:
+ *      currentUpperPrice += stepsUp * gridSpacing
+ *      currentLowerPrice += stepsUp * gridSpacing
+ *    Immediately generates fresh dip-buy levels right beneath the new market peak!
+ *
+ * 2. Autonomous Pullback Recalibration (Auto-Downgrade):
+ *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
+ *    JARVIS smoothly steps down its active range back towards the initial baseline:
+ *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)
+ *      currentLowerPrice = Math.max(initialLowerPrice, currentLowerPrice - stepsDown * gridSpacing)
+ *    Ensuring the active grid envelope stays perfectly centered around live market price
+ *    with 100% uniform step spacing at all times!
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
 import { toNum, parseSymbol } from '../utils.js';
@@ -38,6 +48,7 @@ export class JarvisBot extends BaseBotStrategy {
   private gridSpacing = 0;
   private currentLowerPrice = 0;
   private currentUpperPrice = 0;
+  private initialLowerPrice = 0;
   private initialUpperPrice = 0;
   private upperPriceIncrementsCount = 0;
   private priceTolerance = 0;
@@ -84,46 +95,39 @@ export class JarvisBot extends BaseBotStrategy {
     const lowerPrice = toNum(p.lowerPrice);
     const upperPrice = toNum(p.upperPrice);
     const gridCount = toNum(p.gridCount);
-    const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
 
+    this.initialLowerPrice = lowerPrice;
+    this.initialUpperPrice = upperPrice;
     this.currentLowerPrice = lowerPrice;
     this.currentUpperPrice = upperPrice;
-    this.initialUpperPrice = upperPrice;
     this.upperPriceIncrementsCount = 0;
 
     // Grid spacing (Step Space)
-    if (p.incrementStepSpace && p.incrementStepSpace > 0) {
+    if (p.incrementStepSpace && toNum(p.incrementStepSpace) > 0) {
       this.gridSpacing = toNum(p.incrementStepSpace);
     } else {
       this.gridSpacing = (upperPrice - lowerPrice) / gridCount;
     }
 
     // Tolerance corridor buffer (auto-tuned to 15% of grid spacing or sub-cent precision)
-    if (p.priceTolerance && p.priceTolerance > 0) {
+    if (p.priceTolerance && toNum(p.priceTolerance) > 0) {
       this.priceTolerance = toNum(p.priceTolerance);
     } else {
       this.priceTolerance = Math.min(this.gridSpacing * 0.15, lowerPrice < 1.0 ? 0.0009 : lowerPrice < 100 ? 0.05 : 0.5);
     }
 
-    // Build initial grid levels
-    this.gridLevels = [];
-    for (let i = 0; i <= gridCount; i++) {
-      const price = lowerPrice + i * this.gridSpacing;
-      this.gridLevels.push({
-        price,
-        index: i,
-        type: 'buy',
-        filled: false,
-        buyCount: 0,
-      });
-    }
+    // Build initial uniform grid levels
+    this.rebuildGridLevels((lowerPrice + upperPrice) / 2);
 
-    this.log(`📈 JARVIS Bot initialized with ${gridCount} grids | Step Space: $${this.gridSpacing.toFixed(6)} | Range: $${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}`);
-    this.log(`⚡ Autonomous Upper Increment: ENABLED (Expands upper boundary automatically on market surges)`);
+    this.log(`📈 JARVIS Bot initialized with ${gridCount} grids | Step Space: $${this.gridSpacing.toFixed(6)} | Range: [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
+    this.log(`⚡ Autonomous Trailing Window: ENABLED (Auto-Surge Upgrade + Auto-Pullback Downgrade)`);
 
     if (initialState?.customState) {
       this.gridProfit = toNum(initialState.customState.gridProfit);
       this.gridProfitCount = toNum(initialState.customState.gridProfitCount);
+      this.initialLowerPrice = toNum(initialState.customState.initialLowerPrice) || this.initialLowerPrice;
+      this.initialUpperPrice = toNum(initialState.customState.initialUpperPrice) || this.initialUpperPrice;
+      this.currentLowerPrice = toNum(initialState.customState.currentLowerPrice) || this.currentLowerPrice;
       this.currentUpperPrice = toNum(initialState.customState.currentUpperPrice) || this.currentUpperPrice;
       this.upperPriceIncrementsCount = toNum(initialState.customState.upperPriceIncrementsCount) || 0;
       this.lastError = initialState.customState.lastError || '';
@@ -141,6 +145,43 @@ export class JarvisBot extends BaseBotStrategy {
           lastActionTimestamp: savedGrid.lastActionTimestamp,
         }));
       }
+    }
+  }
+
+  /**
+   * Rebuilds exact, uniform grid levels across the active [currentLowerPrice, currentUpperPrice] window
+   */
+  private rebuildGridLevels(currentPrice: number): void {
+    const p = this.params as JarvisParams;
+    const gridCount = toNum(p?.gridCount) || (this.gridLevels.length > 1 ? this.gridLevels.length - 1 : 10);
+    const newLevels: JarvisLevel[] = [];
+
+    for (let i = 0; i <= gridCount; i++) {
+      const levelPrice = Number((this.currentLowerPrice + i * this.gridSpacing).toFixed(6));
+      // Find existing level close to this price to preserve fill & order state
+      const existing = this.gridLevels.find(g => Math.abs(g.price - levelPrice) <= this.gridSpacing * 0.35);
+
+      newLevels.push({
+        price: levelPrice,
+        index: i,
+        type: existing ? existing.type : (levelPrice <= currentPrice ? 'buy' : 'sell'),
+        orderId: existing?.orderId,
+        filled: existing ? existing.filled : false,
+        buyCount: existing ? existing.buyCount : 0,
+        lastActionTimestamp: existing?.lastActionTimestamp,
+      });
+    }
+
+    this.gridLevels = newLevels;
+
+    // Persist live state
+    if (this.customState) {
+      this.customState.currentUpperPrice = this.currentUpperPrice;
+      this.customState.currentLowerPrice = this.currentLowerPrice;
+      this.customState.initialLowerPrice = this.initialLowerPrice;
+      this.customState.initialUpperPrice = this.initialUpperPrice;
+      this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
+      this.customState.gridLevels = this.gridLevels;
     }
   }
 
@@ -167,7 +208,7 @@ export class JarvisBot extends BaseBotStrategy {
     const stopLoss = toNum(p.stopLoss);
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
     const autoIncrementEnabled = p.autoIncrementEnabled !== false; // Default true
-    const baseGridCount = toNum(p.gridCount);
+    const baseGridCount = toNum(p.gridCount) || 10;
     const investmentPerGrid = toNum(p.totalInvestment) / baseGridCount;
 
     const now = Date.now();
@@ -185,7 +226,7 @@ export class JarvisBot extends BaseBotStrategy {
       this.lastStatusLog = now;
       const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
       const stopStatus = this.isStopLossActive ? ' [STOP LOSS ACTIVE]' : '';
-      this.log(`Tick: $${currentPrice.toFixed(6)} | Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Auto-Increments: ${this.upperPriceIncrementsCount} | Profit Cycles: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
+      this.log(`Tick: $${currentPrice.toFixed(6)} | Active Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Shifts: ${this.upperPriceIncrementsCount} | Profit Cycles: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -215,58 +256,56 @@ export class JarvisBot extends BaseBotStrategy {
     if (this.isStopLossActive && currentPrice > stopLoss) {
       this.isStopLossActive = false;
       this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming JARVIS trading!`);
-      for (const grid of this.gridLevels) {
-        grid.filled = false;
-        grid.orderId = undefined;
-        grid.buyCount = 0;
-        grid.type = grid.price < currentPrice ? 'buy' : 'sell';
-      }
+      this.rebuildGridLevels(currentPrice);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 2. AUTONOMOUS UPPER PRICE INCREMENT ON SURGE
+    // 2. AUTONOMOUS UPPER BREAKOUT UPGRADE (BULLISH SURGE)
     // ═══════════════════════════════════════════════════════════════
-    if (autoIncrementEnabled && currentPrice >= this.currentUpperPrice) {
+    if (autoIncrementEnabled && currentPrice >= (this.currentUpperPrice - this.priceTolerance * 0.25)) {
+      const excess = Math.max(0, currentPrice - this.currentUpperPrice);
+      const stepsUp = Math.max(1, Math.floor(excess / this.gridSpacing) + 1);
+
       const oldUpper = this.currentUpperPrice;
-      // Formula: newUpperPrice = currentPrice + Grid Step Space
-      const newUpper = Number((currentPrice + this.gridSpacing).toFixed(6));
-      this.currentUpperPrice = newUpper;
-      this.upperPriceIncrementsCount++;
+      const oldLower = this.currentLowerPrice;
 
-      // Recalculate / Extend grid levels up to newUpperPrice
-      const maxCurrentIndex = this.gridLevels.reduce((max, g) => Math.max(max, g.index), 0);
-      const targetIndex = Math.round((this.currentUpperPrice - this.currentLowerPrice) / this.gridSpacing);
+      this.currentUpperPrice = Number((this.currentUpperPrice + stepsUp * this.gridSpacing).toFixed(6));
+      this.currentLowerPrice = Number((this.currentLowerPrice + stepsUp * this.gridSpacing).toFixed(6));
+      this.upperPriceIncrementsCount += stepsUp;
 
-      if (targetIndex > maxCurrentIndex) {
-        for (let i = maxCurrentIndex + 1; i <= targetIndex; i++) {
-          const levelPrice = Number((this.currentLowerPrice + i * this.gridSpacing).toFixed(6));
-          this.gridLevels.push({
-            price: levelPrice,
-            index: i,
-            type: levelPrice < currentPrice ? 'buy' : 'sell',
-            filled: false,
-            buyCount: 0,
-          });
-        }
-      }
+      // Re-align grid envelope with exact uniform step spacing
+      this.rebuildGridLevels(currentPrice);
 
-      // Re-evaluate level types relative to currentPrice
-      for (const grid of this.gridLevels) {
-        if (!grid.orderId) {
-          grid.type = grid.price <= currentPrice ? 'buy' : 'sell';
-        }
-      }
-
-      this.log(`🚀 [JARVIS Auto-Increment] Upper boundary surged! Price $${currentPrice.toFixed(6)} >= Upper $${oldUpper.toFixed(6)}. Autonomously increased Upper Price to $${this.currentUpperPrice.toFixed(6)} (Increment #${this.upperPriceIncrementsCount}, Step Space: +$${this.gridSpacing.toFixed(6)}). Total grid levels: ${this.gridLevels.length}. Resuming active trading cycle!`);
-
-      // Persist live state immediately
-      this.customState.currentUpperPrice = this.currentUpperPrice;
-      this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
-      this.customState.gridLevels = this.gridLevels;
+      this.log(`🚀 [JARVIS Auto-Upgrade] Upper boundary surged! Price $${currentPrice.toFixed(6)} >= Upper $${oldUpper.toFixed(6)}. Shifted range up by +${stepsUp} step(s) (+$${(stepsUp * this.gridSpacing).toFixed(6)}). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Total Shifts: ${this.upperPriceIncrementsCount}). Active dip buy levels generated beneath peak!`);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 3. PROCESS ACTIVE GRID TRADING (BUYS & SELLS)
+    // 3. AUTONOMOUS PULLBACK DOWNGRADE (BEARISH MEAN-REVERSION)
+    // ═══════════════════════════════════════════════════════════════
+    if (autoIncrementEnabled && this.upperPriceIncrementsCount > 0) {
+      // If current price drops >= 2 steps below elevated upper price, step down
+      const dropBelowUpper = this.currentUpperPrice - this.gridSpacing - currentPrice;
+      if (dropBelowUpper >= this.gridSpacing) {
+        const stepsDown = Math.min(Math.floor(dropBelowUpper / this.gridSpacing), this.upperPriceIncrementsCount);
+
+        if (stepsDown >= 1) {
+          const oldUpper = this.currentUpperPrice;
+          const oldLower = this.currentLowerPrice;
+
+          this.currentUpperPrice = Number(Math.max(this.initialUpperPrice, this.currentUpperPrice - stepsDown * this.gridSpacing).toFixed(6));
+          this.currentLowerPrice = Number(Math.max(this.initialLowerPrice, this.currentLowerPrice - stepsDown * this.gridSpacing).toFixed(6));
+          this.upperPriceIncrementsCount = Math.max(0, this.upperPriceIncrementsCount - stepsDown);
+
+          // Re-align grid envelope
+          this.rebuildGridLevels(currentPrice);
+
+          this.log(`⚡ [JARVIS Auto-Downgrade] Price pulled back to $${currentPrice.toFixed(6)} (below $${(oldUpper - 2 * this.gridSpacing).toFixed(6)}). Shifted range down by -${stepsDown} step(s) (-$${(stepsDown * this.gridSpacing).toFixed(6)}). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Remaining Shifts: ${this.upperPriceIncrementsCount}). Recalibrated grid levels to active market zone!`);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 4. PROCESS ACTIVE GRID TRADING (BUYS & SELLS)
     // ═══════════════════════════════════════════════════════════════
     const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
     const totalHoldingQty = holding?.quantity || 0;
@@ -328,7 +367,8 @@ export class JarvisBot extends BaseBotStrategy {
       const grid = this.gridLevels[i];
       if (!grid) continue;
 
-      const isInBuyZone = Math.abs(currentPrice - grid.price) <= this.priceTolerance || (currentPrice <= grid.price && currentPrice >= (grid.price - this.priceTolerance));
+      const isInBuyZone = Math.abs(currentPrice - grid.price) <= this.priceTolerance ||
+                          (currentPrice <= grid.price && currentPrice >= (grid.price - this.priceTolerance));
 
       if (isInBuyZone && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
         if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 5000) {
@@ -410,6 +450,9 @@ export class JarvisBot extends BaseBotStrategy {
     this.customState.gridProfitCount = this.gridProfitCount;
     this.customState.gridLevels = this.gridLevels;
     this.customState.currentUpperPrice = this.currentUpperPrice;
+    this.customState.currentLowerPrice = this.currentLowerPrice;
+    this.customState.initialLowerPrice = this.initialLowerPrice;
+    this.customState.initialUpperPrice = this.initialUpperPrice;
     this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
     this.customState.lastError = this.lastError;
     this.customState.isStopLossActive = this.isStopLossActive;
@@ -444,6 +487,7 @@ export class JarvisBot extends BaseBotStrategy {
         lowerPrice: 0,
         upperPrice: 0,
         initialUpperPrice: 0,
+        initialLowerPrice: 0,
         upperPriceIncrementsCount: 0,
         gridProfit: 0,
         gridProfitCount: 0,
@@ -457,6 +501,7 @@ export class JarvisBot extends BaseBotStrategy {
       lowerPrice: this.currentLowerPrice || toNum(p.lowerPrice),
       upperPrice: this.currentUpperPrice || toNum(p.upperPrice),
       initialUpperPrice: this.initialUpperPrice || toNum(p.upperPrice),
+      initialLowerPrice: this.initialLowerPrice || toNum(p.lowerPrice),
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
@@ -470,6 +515,9 @@ export class JarvisBot extends BaseBotStrategy {
     super.restoreState(customState);
     this.gridProfit = toNum(customState.gridProfit);
     this.gridProfitCount = toNum(customState.gridProfitCount);
+    this.initialLowerPrice = toNum(customState.initialLowerPrice) || this.initialLowerPrice;
+    this.initialUpperPrice = toNum(customState.initialUpperPrice) || this.initialUpperPrice;
+    this.currentLowerPrice = toNum(customState.currentLowerPrice) || this.currentLowerPrice;
     this.currentUpperPrice = toNum(customState.currentUpperPrice) || this.currentUpperPrice;
     this.upperPriceIncrementsCount = toNum(customState.upperPriceIncrementsCount) || this.upperPriceIncrementsCount;
     this.lastError = customState.lastError || '';
@@ -489,7 +537,9 @@ export class JarvisBot extends BaseBotStrategy {
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
       gridLevels: this.gridLevels,
+      currentLowerPrice: this.currentLowerPrice,
       currentUpperPrice: this.currentUpperPrice,
+      initialLowerPrice: this.initialLowerPrice,
       initialUpperPrice: this.initialUpperPrice,
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
       lastError: this.lastError,

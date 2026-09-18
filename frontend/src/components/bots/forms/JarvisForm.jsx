@@ -56,14 +56,15 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
     ? ((effectiveStepSpace / Number(localParams.lowerPrice)) * (localParams.totalInvestment / localParams.gridCount)).toFixed(4)
     : 0;
 
-  // Example simulation of upper price breakout
+  // Example simulation of upper price breakout and pullback
   const refUpper = Number(localParams.upperPrice || 1.4820);
-  const sampleBreakoutPrice = Number((refUpper * 1.02).toFixed(4));
-  const sampleNewUpper = Number((sampleBreakoutPrice + effectiveStepSpace).toFixed(4));
+  const sampleBreakoutPrice = Number((refUpper + effectiveStepSpace).toFixed(4));
+  const sampleNewUpper = Number((refUpper + effectiveStepSpace).toFixed(4));
+  const sampleNewLower = Number((Number(localParams.lowerPrice || 1.3820) + effectiveStepSpace).toFixed(4));
 
   return (
     <div className="strategy-form jarvis-form">
-      {/* Dynamic Upper Expansion Banner */}
+      {/* Dynamic Trailing Window Banner */}
       <div style={{
         background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
         border: '1px solid rgba(14, 165, 233, 0.35)',
@@ -77,10 +78,11 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
         <ArrowUpRight size={24} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
         <div>
           <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '14px' }}>
-            🚀 JARVIS Autonomous Upper Boundary Expansion Active
+            🚀 JARVIS Bidirectional Dynamic Trailing Window Active
           </div>
           <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px', lineHeight: '1.4' }}>
-            When price breaks out above upper bound, JARVIS automatically recalculates and shifts upper price: <code style={{ color: '#38bdf8', background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: '4px' }}>newUpper = currentPrice + GridStepSpace</code> and continues trading seamlessly without manual intervention.
+            <strong>Auto-Surge:</strong> When price breaks out above upper bound, JARVIS shifts the entire window up by step intervals and immediately generates fresh dip-buy levels right below the peak. <br />
+            <strong>Auto-Downgrade:</strong> When price pulls back, JARVIS automatically steps down the active range back towards the baseline so buy/sell orders stay tight and active around current price.
           </div>
         </div>
       </div>
@@ -119,7 +121,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             onChange={e => updateParam('upperPrice', e.target.value)}
             placeholder="e.g. 1.4820"
           />
-          <small>Initial top bound (auto-expands upward)</small>
+          <small>Initial top bound (auto-trails upward & downward)</small>
         </div>
       </div>
 
@@ -135,10 +137,10 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
           value={localParams.gridCount}
           onChange={e => updateParam('gridCount', Number(e.target.value))}
         />
-        <small>Step Space: ${(effectiveStepSpace || 0).toFixed(6)} per grid</small>
+        <small>Step Space: ${(effectiveStepSpace || 0).toFixed(6)} per grid (always 100% uniform)</small>
       </div>
 
-      {/* Auto-Increment Settings Card */}
+      {/* Auto-Increment / Trailing Settings Card */}
       <div style={{
         background: '#131d2e',
         border: '1px solid #1e293b',
@@ -149,7 +151,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontWeight: 600, fontSize: '13px' }}>
             <Sparkles size={16} style={{ color: '#38bdf8' }} />
-            JARVIS Autonomous Boundary Surge Behavior
+            JARVIS Dynamic Trailing Window (Auto Up/Down Shifts)
           </div>
           <label className="checkbox-label" style={{ margin: 0, fontSize: '12px' }}>
             <input
@@ -157,7 +159,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
               checked={localParams.autoIncrementEnabled}
               onChange={e => updateParam('autoIncrementEnabled', e.target.checked)}
             />
-            <span>Auto-Increment Upper Price</span>
+            <span>Auto-Trailing Window</span>
           </label>
         </div>
 
@@ -172,10 +174,9 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
           color: '#cbd5e1',
           lineHeight: '1.5'
         }}>
-          💡 <strong>Surge Simulation:</strong> If price surges to <span style={{ color: '#38bdf8', fontWeight: 600 }}>${sampleBreakoutPrice.toFixed(4)}</span> (above ${refUpper.toFixed(4)}), new Upper Price becomes: <br />
-          <span style={{ fontFamily: 'monospace', color: '#10b981', fontWeight: 600 }}>
-            ${sampleBreakoutPrice.toFixed(4)} + ${effectiveStepSpace.toFixed(4)} (Step Space) = ${sampleNewUpper.toFixed(4)}
-          </span>
+          💡 <strong>Bidirectional Trailing Simulation:</strong><br />
+          • <strong>Bullish Surge:</strong> If price breaks ${refUpper.toFixed(4)}, Range shifts to <span style={{ color: '#10b981', fontWeight: 600 }}>[${sampleNewLower.toFixed(4)} - ${sampleNewUpper.toFixed(4)}]</span> (+${effectiveStepSpace.toFixed(4)}) with immediate dip-buy orders at ${refUpper.toFixed(4)}.<br />
+          • <strong>Bearish Pullback:</strong> If price retraces down, Range automatically downgrades back towards <span style={{ color: '#38bdf8', fontWeight: 600 }}>[${localParams.lowerPrice || '1.3820'} - ${refUpper.toFixed(4)}]</span>.
         </div>
       </div>
 

@@ -30,8 +30,9 @@ export default function GridInsightsSection({ bot }) {
   const isGridBased = ['GRID', 'INFINITY_GRID', 'JARVIS', 'PRECISION_GRID'].includes(strategyType);
 
   if (isGridBased) {
-    const lowerPrice = Number(params.lowerPrice || bot.strategyStatus?.metrics?.lowerPrice || 0);
+    const lowerPrice = Number(bot.strategyStatus?.metrics?.lowerPrice || params.lowerPrice || 0);
     const initialUpperPrice = Number(bot.strategyStatus?.metrics?.initialUpperPrice || params.upperPrice || 0);
+    const initialLowerPrice = Number(bot.strategyStatus?.metrics?.initialLowerPrice || params.lowerPrice || 0);
     let upperPrice = Number(bot.strategyStatus?.metrics?.upperPrice || params.upperPrice || 0);
     const upperPriceIncrementsCount = Number(bot.strategyStatus?.metrics?.upperPriceIncrementsCount || 0);
     const gridCount = Number(params.gridCount || bot.strategyStatus?.metrics?.gridCount || 10);
