@@ -520,8 +520,10 @@ export class BotEngine extends EventEmitter {
                     };
                 }
                 catch (error) {
-                    console.error(`[BotEngine] [LIVE] Order failed:`, error.message);
-                    throw error;
+                    const detail = error.response?.data?.msg || error.response?.data?.message || error.response?.data?.error || error.message;
+                    const formattedErr = typeof detail === 'object' ? JSON.stringify(detail) : detail;
+                    console.error(`[BotEngine] [LIVE] Order failed:`, formattedErr);
+                    throw new Error(formattedErr);
                 }
             },
             cancelOrder: async (params) => {

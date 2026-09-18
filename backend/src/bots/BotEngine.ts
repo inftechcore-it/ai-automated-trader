@@ -572,22 +572,6 @@ export class BotEngine extends EventEmitter {
     });
   }
 
-  async getBotOrders(botId: string, limit: number = 100): Promise<any[]> {
-    return this.prisma.botOrder.findMany({
-      where: { botConfigId: botId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-  }
-
-  async getBotSnapshots(botId: string, limit: number = 168): Promise<any[]> {
-    return this.prisma.botSnapshot.findMany({
-      where: { botConfigId: botId },
-      orderBy: { snapshotAt: 'desc' },
-      take: limit,
-    });
-  }
-
   private async createExecutionEngine(): Promise<any> {
     return {
       placeOrder: async (params: any) => {
@@ -659,8 +643,10 @@ export class BotEngine extends EventEmitter {
             isLive: true,
           };
         } catch (error: any) {
-          console.error(`[BotEngine] [LIVE] Order failed:`, error.message);
-          throw error;
+          const detail = error.response?.data?.msg || error.response?.data?.message || error.response?.data?.error || error.message;
+          const formattedErr = typeof detail === 'object' ? JSON.stringify(detail) : detail;
+          console.error(`[BotEngine] [LIVE] Order failed:`, formattedErr);
+          throw new Error(formattedErr);
         }
       },
 

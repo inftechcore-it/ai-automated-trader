@@ -218,31 +218,37 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
     .join('&');
   const signature = createSignature(queryString, apiSecret);
 
-  const { data } = await axios.post(
-    `${BASE_URL}/api/v3/order`,
-    `${queryString}&signature=${signature}`,
-    {
-      headers: {
-        'X-MBX-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      timeout: 10000
-    }
-  );
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/api/v3/order`,
+      `${queryString}&signature=${signature}`,
+      {
+        headers: {
+          'X-MBX-APIKEY': apiKey,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 10000
+      }
+    );
 
-  return {
-    orderId: data.orderId.toString(),
-    clientOrderId: data.clientOrderId,
-    symbol: symbol,
-    side: data.side.toLowerCase(),
-    orderType: data.type.toLowerCase(),
-    quantity: parseFloat(data.origQty),
-    price: parseFloat(data.price) || null,
-    status: mapBinanceStatus(data.status),
-    filledQuantity: parseFloat(data.executedQty),
-    avgFillPrice: parseFloat(data.cummulativeQuoteQty) / parseFloat(data.executedQty) || null,
-    createdAt: new Date(data.transactTime).toISOString()
-  };
+    return {
+      orderId: data.orderId.toString(),
+      clientOrderId: data.clientOrderId,
+      symbol: symbol,
+      side: data.side.toLowerCase(),
+      orderType: data.type.toLowerCase(),
+      quantity: parseFloat(data.origQty),
+      price: parseFloat(data.price) || null,
+      status: mapBinanceStatus(data.status),
+      filledQuantity: parseFloat(data.executedQty),
+      avgFillPrice: parseFloat(data.cummulativeQuoteQty) / parseFloat(data.executedQty) || null,
+      createdAt: new Date(data.transactTime).toISOString()
+    };
+  } catch (error) {
+    const binanceError = error.response?.data?.msg || error.response?.data?.message || error.message;
+    console.error(`[Binance] placeOrder failed:`, binanceError);
+    throw new Error(`Binance: ${binanceError}`);
+  }
 }
 
 export async function cancelOrder(apiKey, apiSecret, symbol, orderId) {

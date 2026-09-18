@@ -869,7 +869,8 @@ export class BotInstance extends EventEmitter {
       }
 
     } catch (error: any) {
-      const errMsg = error.message || '';
+      const rawDetail = error.response?.data?.msg || error.response?.data?.message || error.response?.data?.error || error.message || '';
+      const errMsg = typeof rawDetail === 'object' ? JSON.stringify(rawDetail) : String(rawDetail);
       const isBalanceError = errMsg.toLowerCase().includes('insufficient') ||
                              errMsg.toLowerCase().includes('balance') ||
                              errMsg.toLowerCase().includes('notional') ||
