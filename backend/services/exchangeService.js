@@ -594,3 +594,8 @@ function createError(message, status, code) {
   error.publicMessage = message;
   return error;
 }
+
+// Fallback compatibility exports
+export async function connectBroker() {}
+export async function disconnectBroker() {}
+

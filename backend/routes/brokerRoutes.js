@@ -11,7 +11,7 @@ import * as jupiterAdapter from '../services/adapters/jupiterAdapter.js';
 import * as angeloneAdapter from '../services/adapters/angeloneAdapter.js';
 import * as alpacaAdapter from '../services/adapters/alpacaAdapter.js';
 import * as upstoxAdapter from '../services/adapters/upstoxAdapter.js';
-import { connectBroker, disconnectBroker, getSupportedExchanges, getUserBrokerCredentials } from '../services/exchangeService.js';
+import { getSupportedExchanges, getUserBrokerCredentials } from '../services/exchangeService.js';
 
 const router = Router();
 
