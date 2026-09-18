@@ -138,7 +138,9 @@ export interface JarvisParams {
   maxBuysPerLevel?: number;        // Max buys allowed per grid level (default: 1)
   autoIncrementEnabled?: boolean;  // Autonomously increase upper bound on surge (default: true)
   incrementStepSpace?: number;     // Custom step space (defaults to (upperPrice - lowerPrice)/gridCount)
-  priceTolerance?: number;         // Optional decimal tolerance corridor
+  priceTolerance?: number;         // Decimal tolerance corridor (e.g. 0.0009 for 1-9 in 4th decimal place)
+  toleranceDigits?: number;        // Number of decimal digits for precision matching (e.g. 4 for 4th point after decimal)
+  executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT'; // Precision instant fill on corridor touch
 }
 
 export interface InfinityGridParams {

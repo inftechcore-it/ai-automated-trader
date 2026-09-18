@@ -58,15 +58,17 @@ export default function GridInsightsSection({ bot }) {
       gridSpacing = (upperPrice - lowerPrice) / gridCount;
     }
 
-    // Price tolerance calculation for Precision Grid
+    // Price tolerance calculation for Precision Grid & JARVIS
     let priceTolerance = 0;
-    if (strategyType === 'PRECISION_GRID') {
+    if (['PRECISION_GRID', 'JARVIS'].includes(strategyType)) {
       if (params.priceTolerance && Number(params.priceTolerance) > 0) {
         priceTolerance = Number(params.priceTolerance);
       } else if (bot.strategyStatus?.metrics?.priceTolerance) {
         priceTolerance = Number(bot.strategyStatus.metrics.priceTolerance);
+      } else if (params.toleranceDigits) {
+        priceTolerance = Math.pow(10, -Number(params.toleranceDigits)) * 9;
       } else if (gridSpacing > 0) {
-        priceTolerance = Math.min(gridSpacing * 0.20, lowerPrice < 1.0 ? 0.0009 : lowerPrice < 100 ? 0.05 : 1.0);
+        priceTolerance = Math.min(gridSpacing * 0.20, lowerPrice < 100 ? 0.0009 : 0.05);
       }
     }
 

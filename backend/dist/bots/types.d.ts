@@ -110,6 +110,8 @@ export interface JarvisParams {
     autoIncrementEnabled?: boolean;
     incrementStepSpace?: number;
     priceTolerance?: number;
+    toleranceDigits?: number;
+    executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT';
 }
 export interface InfinityGridParams {
     lowerPrice: number;

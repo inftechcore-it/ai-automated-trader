@@ -1,17 +1,21 @@
 /**
- * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot
+ * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot with Precision 4th-Decimal Corridor
  *
  * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid") or stretches into irregular wide gaps.
+ * breaks out above the upper bound ("out of grid") or misses fills due to sub-cent fluctuations.
  *
- * 1. Autonomous Upper Breakout (Auto-Upgrade):
+ * 1. Precision 4th-Decimal Point Matching (Corridor ±0.0009):
+ *    Enables instant market-on-touch execution when price reaches 1-9 of the 4th decimal point
+ *    (e.g., target 1.48200 triggers between 1.48110 and 1.48290), eliminating stranded/missed fills.
+ *
+ * 2. Autonomous Upper Breakout (Auto-Upgrade):
  *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
  *    entire trading window upwards by exact integer multiples of gridSpacing:
  *      currentUpperPrice += stepsUp * gridSpacing
  *      currentLowerPrice += stepsUp * gridSpacing
  *    Immediately generates fresh dip-buy levels right beneath the new market peak!
  *
- * 2. Autonomous Pullback Recalibration (Auto-Downgrade):
+ * 3. Autonomous Pullback Recalibration (Auto-Downgrade):
  *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
  *    JARVIS smoothly steps down its active range back towards the initial baseline:
  *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)

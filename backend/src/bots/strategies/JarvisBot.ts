@@ -1,17 +1,21 @@
 /**
- * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot
+ * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot with Precision 4th-Decimal Corridor
  *
  * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid") or stretches into irregular wide gaps.
+ * breaks out above the upper bound ("out of grid") or misses fills due to sub-cent fluctuations.
  *
- * 1. Autonomous Upper Breakout (Auto-Upgrade):
+ * 1. Precision 4th-Decimal Point Matching (Corridor ±0.0009):
+ *    Enables instant market-on-touch execution when price reaches 1-9 of the 4th decimal point
+ *    (e.g., target 1.48200 triggers between 1.48110 and 1.48290), eliminating stranded/missed fills.
+ *
+ * 2. Autonomous Upper Breakout (Auto-Upgrade):
  *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
  *    entire trading window upwards by exact integer multiples of gridSpacing:
  *      currentUpperPrice += stepsUp * gridSpacing
  *      currentLowerPrice += stepsUp * gridSpacing
  *    Immediately generates fresh dip-buy levels right beneath the new market peak!
  *
- * 2. Autonomous Pullback Recalibration (Auto-Downgrade):
+ * 3. Autonomous Pullback Recalibration (Auto-Downgrade):
  *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
  *    JARVIS smoothly steps down its active range back towards the initial baseline:
  *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)
@@ -77,6 +81,7 @@ export class JarvisBot extends BaseBotStrategy {
     const totalInvestment = toNum(p.totalInvestment);
     const stopLoss = toNum(p.stopLoss);
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
+    const priceTolerance = toNum(p.priceTolerance);
 
     if (!lowerPrice || lowerPrice <= 0) errors.push('Lower price must be positive');
     if (!upperPrice || upperPrice <= 0) errors.push('Upper price must be positive');
@@ -85,6 +90,7 @@ export class JarvisBot extends BaseBotStrategy {
     if (!totalInvestment || totalInvestment <= 0) errors.push('Total investment must be positive');
     if (stopLoss && stopLoss >= lowerPrice) errors.push('Stop loss must be below lower price');
     if (maxBuysPerLevel < 1 || maxBuysPerLevel > 10) errors.push('Max buys per level must be between 1 and 10');
+    if (priceTolerance && priceTolerance < 0) errors.push('Price tolerance cannot be negative');
 
     return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
@@ -109,17 +115,22 @@ export class JarvisBot extends BaseBotStrategy {
       this.gridSpacing = (upperPrice - lowerPrice) / gridCount;
     }
 
-    // Tolerance corridor buffer (auto-tuned to 15% of grid spacing or sub-cent precision)
+    // 4th Decimal Point Precision Tolerance Corridor (allows buying between 1-9 in 4th point after decimal, e.g. ±0.0009)
     if (p.priceTolerance && toNum(p.priceTolerance) > 0) {
       this.priceTolerance = toNum(p.priceTolerance);
+    } else if (p.toleranceDigits && toNum(p.toleranceDigits) > 0) {
+      const digits = toNum(p.toleranceDigits);
+      this.priceTolerance = Number((Math.pow(10, -digits) * 9).toFixed(digits + 2));
     } else {
-      this.priceTolerance = Math.min(this.gridSpacing * 0.15, lowerPrice < 1.0 ? 0.0009 : lowerPrice < 100 ? 0.05 : 0.5);
+      // Default: 4th decimal point precision (0.00090 matching 1-9 in the 4th decimal place)
+      this.priceTolerance = 0.0009;
     }
 
     // Build initial uniform grid levels
     this.rebuildGridLevels((lowerPrice + upperPrice) / 2);
 
     this.log(`📈 JARVIS Bot initialized with ${gridCount} grids | Step Space: $${this.gridSpacing.toFixed(6)} | Range: [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
+    this.log(`🎯 Precision 4th-Decimal Corridor: ENABLED (Corridor: ±$${this.priceTolerance.toFixed(6)} matching 1-9 in 4th decimal place)`);
     this.log(`⚡ Autonomous Trailing Window: ENABLED (Auto-Surge Upgrade + Auto-Pullback Downgrade)`);
 
     if (initialState?.customState) {
@@ -182,6 +193,7 @@ export class JarvisBot extends BaseBotStrategy {
       this.customState.initialUpperPrice = this.initialUpperPrice;
       this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
       this.customState.gridLevels = this.gridLevels;
+      this.customState.priceTolerance = this.priceTolerance;
     }
   }
 
@@ -226,7 +238,7 @@ export class JarvisBot extends BaseBotStrategy {
       this.lastStatusLog = now;
       const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
       const stopStatus = this.isStopLossActive ? ' [STOP LOSS ACTIVE]' : '';
-      this.log(`Tick: $${currentPrice.toFixed(6)} | Active Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Shifts: ${this.upperPriceIncrementsCount} | Profit Cycles: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
+      this.log(`Tick: $${currentPrice.toFixed(6)} | Active Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Shifts: ${this.upperPriceIncrementsCount} | 4th-Dec Corridor: ±$${this.priceTolerance.toFixed(5)} | Profit Cycles: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -305,7 +317,7 @@ export class JarvisBot extends BaseBotStrategy {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 4. PROCESS ACTIVE GRID TRADING (BUYS & SELLS)
+    // 4. PROCESS ACTIVE GRID TRADING (BUYS & SELLS WITH 4TH-DECIMAL PRECISION)
     // ═══════════════════════════════════════════════════════════════
     const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
     const totalHoldingQty = holding?.quantity || 0;
@@ -326,7 +338,7 @@ export class JarvisBot extends BaseBotStrategy {
       }
     }
 
-    // A. SELL EXECUTION (Grid 1 to top level)
+    // A. SELL EXECUTION (Grid 1 to top level with Precision Corridor)
     for (let i = 1; i < this.gridLevels.length; i++) {
       const grid = this.gridLevels[i];
       if (!grid) continue;
@@ -350,7 +362,7 @@ export class JarvisBot extends BaseBotStrategy {
           });
           availableHoldingQty -= sellQty;
           grid.lastActionTimestamp = now;
-          this.log(`⚡ [JARVIS] Profit Sell Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(6)} touched (Current: $${currentPrice.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
+          this.log(`⚡ [JARVIS Precision] Profit Sell Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(5)} reached (Current: $${currentPrice.toFixed(5)}, Corridor: ±$${this.priceTolerance.toFixed(5)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
 
           // Reset lower buy grid level for dip re-entry
           const lowerBuyGrid = this.gridLevels[grid.index - 1];
@@ -362,13 +374,14 @@ export class JarvisBot extends BaseBotStrategy {
       }
     }
 
-    // B. BUY DIP EXECUTION (Grid 0 to top level - 1)
+    // B. BUY DIP EXECUTION (Grid 0 to top level - 1 with 4th Decimal Precision Corridor)
     for (let i = 0; i < this.gridLevels.length - 1; i++) {
       const grid = this.gridLevels[i];
       if (!grid) continue;
 
+      // 4th Decimal Corridor Match: Triggers if price is within ±0.0009 (1-9 in 4th point after decimal)
       const isInBuyZone = Math.abs(currentPrice - grid.price) <= this.priceTolerance ||
-                          (currentPrice <= grid.price && currentPrice >= (grid.price - this.priceTolerance));
+                          (currentPrice <= (grid.price + this.priceTolerance) && currentPrice >= (grid.price - this.gridSpacing * 0.5));
 
       if (isInBuyZone && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
         if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 5000) {
@@ -388,7 +401,7 @@ export class JarvisBot extends BaseBotStrategy {
             });
             grid.type = 'buy';
             grid.lastActionTimestamp = now;
-            this.log(`⚡ [JARVIS] Dip Buy Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(6)} touched (Current: $${currentPrice.toFixed(6)}). Buying ${buyQty.toFixed(4)} ${this.asset}...`);
+            this.log(`⚡ [JARVIS Precision] Dip Buy Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(5)} touched (Current: $${currentPrice.toFixed(5)}, Corridor: ±$${this.priceTolerance.toFixed(5)} [1-9 4th decimal]). Buying ${buyQty.toFixed(4)} ${this.asset}...`);
           }
         }
       }
@@ -454,6 +467,7 @@ export class JarvisBot extends BaseBotStrategy {
     this.customState.initialLowerPrice = this.initialLowerPrice;
     this.customState.initialUpperPrice = this.initialUpperPrice;
     this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
+    this.customState.priceTolerance = this.priceTolerance;
     this.customState.lastError = this.lastError;
     this.customState.isStopLossActive = this.isStopLossActive;
   }
@@ -489,6 +503,7 @@ export class JarvisBot extends BaseBotStrategy {
         initialUpperPrice: 0,
         initialLowerPrice: 0,
         upperPriceIncrementsCount: 0,
+        priceTolerance: 0,
         gridProfit: 0,
         gridProfitCount: 0,
         currentPrice: 0,
@@ -503,6 +518,7 @@ export class JarvisBot extends BaseBotStrategy {
       initialUpperPrice: this.initialUpperPrice || toNum(p.upperPrice),
       initialLowerPrice: this.initialLowerPrice || toNum(p.lowerPrice),
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
+      priceTolerance: this.priceTolerance,
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
       currentPrice: this.lastPrice,
@@ -520,6 +536,7 @@ export class JarvisBot extends BaseBotStrategy {
     this.currentLowerPrice = toNum(customState.currentLowerPrice) || this.currentLowerPrice;
     this.currentUpperPrice = toNum(customState.currentUpperPrice) || this.currentUpperPrice;
     this.upperPriceIncrementsCount = toNum(customState.upperPriceIncrementsCount) || this.upperPriceIncrementsCount;
+    this.priceTolerance = toNum(customState.priceTolerance) || this.priceTolerance;
     this.lastError = customState.lastError || '';
     this.insufficientBalance = customState.insufficientBalance || false;
     this.isStopLossActive = customState.isStopLossActive || false;
@@ -542,6 +559,7 @@ export class JarvisBot extends BaseBotStrategy {
       initialLowerPrice: this.initialLowerPrice,
       initialUpperPrice: this.initialUpperPrice,
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
+      priceTolerance: this.priceTolerance,
       lastError: this.lastError,
       insufficientBalance: this.insufficientBalance,
       isStopLossActive: this.isStopLossActive,

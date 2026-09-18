@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Info, TrendingUp, Grid3X3, ArrowUpRight, Sparkles, AlertCircle } from 'lucide-react';
+import { Info, TrendingUp, Grid3X3, ArrowUpRight, Sparkles, Crosshair, Zap, AlertCircle } from 'lucide-react';
 
 export default function JarvisForm({ params, onChange, symbolInfo }) {
   const [localParams, setLocalParams] = useState({
@@ -10,16 +10,23 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
     maxBuysPerLevel: params.maxBuysPerLevel || 1,
     autoIncrementEnabled: params.autoIncrementEnabled !== false,
     incrementStepSpace: params.incrementStepSpace || '',
+    enablePrecisionTolerance: params.enablePrecisionTolerance !== false,
+    priceTolerance: params.priceTolerance || '0.0009',
+    toleranceDigits: params.toleranceDigits || 4,
     stopLoss: params.stopLoss || '',
     enableStopLoss: !!params.stopLoss,
     customStepSpace: !!params.incrementStepSpace,
   });
 
   useEffect(() => {
-    const { enableStopLoss, customStepSpace, ...cleanParams } = localParams;
+    const { enableStopLoss, customStepSpace, enablePrecisionTolerance, ...cleanParams } = localParams;
     if (!enableStopLoss) delete cleanParams.stopLoss;
     if (cleanParams.stopLoss === '') delete cleanParams.stopLoss;
     if (!customStepSpace) delete cleanParams.incrementStepSpace;
+    if (!enablePrecisionTolerance) {
+      delete cleanParams.priceTolerance;
+      delete cleanParams.toleranceDigits;
+    }
     onChange(cleanParams);
   }, [localParams]);
 
@@ -52,19 +59,24 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
     ? Number(localParams.incrementStepSpace)
     : Number(calculatedStepSpace);
 
+  const effectiveTolerance = localParams.enablePrecisionTolerance && localParams.priceTolerance
+    ? Number(localParams.priceTolerance)
+    : (localParams.toleranceDigits ? Math.pow(10, -Number(localParams.toleranceDigits)) * 9 : 0.0009);
+
   const profitPerGrid = effectiveStepSpace && localParams.totalInvestment && Number(localParams.lowerPrice) > 0
     ? ((effectiveStepSpace / Number(localParams.lowerPrice)) * (localParams.totalInvestment / localParams.gridCount)).toFixed(4)
     : 0;
 
   // Example simulation of upper price breakout and pullback
   const refUpper = Number(localParams.upperPrice || 1.4820);
-  const sampleBreakoutPrice = Number((refUpper + effectiveStepSpace).toFixed(4));
+  const refLower = Number(localParams.lowerPrice || 1.3820);
   const sampleNewUpper = Number((refUpper + effectiveStepSpace).toFixed(4));
-  const sampleNewLower = Number((Number(localParams.lowerPrice || 1.3820) + effectiveStepSpace).toFixed(4));
+  const sampleNewLower = Number((refLower + effectiveStepSpace).toFixed(4));
+  const sampleGridLevel = Number((refLower + effectiveStepSpace).toFixed(4));
 
   return (
     <div className="strategy-form jarvis-form">
-      {/* Dynamic Trailing Window Banner */}
+      {/* Dynamic Trailing Window & Precision Banner */}
       <div style={{
         background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
         border: '1px solid rgba(14, 165, 233, 0.35)',
@@ -75,14 +87,15 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
         alignItems: 'flex-start',
         gap: '12px'
       }}>
-        <ArrowUpRight size={24} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
+        <Zap size={24} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
         <div>
           <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '14px' }}>
-            🚀 JARVIS Bidirectional Dynamic Trailing Window Active
+            🚀 JARVIS Dynamic Trailing Window + 4th-Decimal Precision Active
           </div>
           <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px', lineHeight: '1.4' }}>
-            <strong>Auto-Surge:</strong> When price breaks out above upper bound, JARVIS shifts the entire window up by step intervals and immediately generates fresh dip-buy levels right below the peak. <br />
-            <strong>Auto-Downgrade:</strong> When price pulls back, JARVIS automatically steps down the active range back towards the baseline so buy/sell orders stay tight and active around current price.
+            <strong>Auto-Surge:</strong> Breaks out above upper bound ➔ shifts window up + creates immediate dip-buy levels below peak.<br />
+            <strong>Auto-Downgrade:</strong> Pulls back ➔ smoothly steps active range down towards baseline.<br />
+            <strong>4th-Decimal Precision:</strong> Buys & sells instantly when price touches anywhere between <strong>1–9 in the 4th decimal place</strong> (±${effectiveTolerance.toFixed(5)} corridor), preventing missed fills.
           </div>
         </div>
       </div>
@@ -101,7 +114,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             step="0.000001"
             value={localParams.lowerPrice}
             onChange={e => updateParam('lowerPrice', e.target.value)}
-            placeholder="e.g. 1.3100"
+            placeholder="e.g. 1.3820"
           />
           <small>Bottom boundary of grid range</small>
         </div>
@@ -111,7 +124,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             Initial Upper Price ($)
             <span className="tooltip">
               <Info size={14} />
-              <span className="tooltip-text">Top of initial trading range. Expands automatically on breakout.</span>
+              <span className="tooltip-text">Top of initial trading range. Trails automatically upward and downward.</span>
             </span>
           </label>
           <input
@@ -119,9 +132,9 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             step="0.000001"
             value={localParams.upperPrice}
             onChange={e => updateParam('upperPrice', e.target.value)}
-            placeholder="e.g. 1.4820"
+            placeholder="e.g. 1.5820"
           />
-          <small>Initial top bound (auto-trails upward & downward)</small>
+          <small>Initial top bound (auto-trails dynamically)</small>
         </div>
       </div>
 
@@ -138,6 +151,83 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
           onChange={e => updateParam('gridCount', Number(e.target.value))}
         />
         <small>Step Space: ${(effectiveStepSpace || 0).toFixed(6)} per grid (always 100% uniform)</small>
+      </div>
+
+      {/* 4th-Decimal Precision Corridor Settings Card */}
+      <div style={{
+        background: '#131d2e',
+        border: '1px solid rgba(14, 165, 233, 0.3)',
+        borderRadius: '8px',
+        padding: '16px',
+        marginBottom: '16px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontWeight: 600, fontSize: '13px' }}>
+            <Crosshair size={16} style={{ color: '#38bdf8' }} />
+            4th-Decimal Precision Corridor (1–9 Matching)
+          </div>
+          <label className="checkbox-label" style={{ margin: 0, fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={localParams.enablePrecisionTolerance}
+              onChange={e => updateParam('enablePrecisionTolerance', e.target.checked)}
+            />
+            <span>Precision Matching Active</span>
+          </label>
+        </div>
+
+        {localParams.enablePrecisionTolerance && (
+          <div>
+            <div className="form-row" style={{ marginTop: '10px' }}>
+              <div className="form-group" style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px' }}>
+                  Tolerance Buffer Corridor (±$)
+                  <span className="tooltip">
+                    <Info size={13} />
+                    <span className="tooltip-text">Tolerance band around each grid level. Default 0.0009 covers 1-9 in 4th decimal point.</span>
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={localParams.priceTolerance}
+                  onChange={e => updateParam('priceTolerance', e.target.value)}
+                  placeholder="0.0009"
+                />
+                <small>Default ±0.00090 (covers digits 1 to 9 of 4th decimal point)</small>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px' }}>Precision Digits</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="6"
+                  value={localParams.toleranceDigits}
+                  onChange={e => updateParam('toleranceDigits', Number(e.target.value))}
+                />
+                <small>4 = 4th decimal place (0.000X)</small>
+              </div>
+            </div>
+
+            {/* Precision Corridor Live Demonstration */}
+            <div style={{
+              marginTop: '8px',
+              padding: '10px 12px',
+              background: 'rgba(15, 23, 42, 0.9)',
+              borderRadius: '6px',
+              borderLeft: '3px solid #10b981',
+              fontSize: '12px',
+              color: '#cbd5e1',
+              lineHeight: '1.5'
+            }}>
+              🎯 <strong>4th-Decimal Example:</strong> For Target Level <span style={{ color: '#38bdf8', fontWeight: 600 }}>${sampleGridLevel.toFixed(4)}</span>, JARVIS executes instant buy if price touches anywhere in corridor: <br />
+              <span style={{ fontFamily: 'monospace', color: '#10b981', fontWeight: 600 }}>
+                ${(sampleGridLevel - effectiveTolerance).toFixed(5)} ── to ── ${(sampleGridLevel + effectiveTolerance).toFixed(5)} (matches 1–9 at 4th decimal)
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Auto-Increment / Trailing Settings Card */}
@@ -176,7 +266,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
         }}>
           💡 <strong>Bidirectional Trailing Simulation:</strong><br />
           • <strong>Bullish Surge:</strong> If price breaks ${refUpper.toFixed(4)}, Range shifts to <span style={{ color: '#10b981', fontWeight: 600 }}>[${sampleNewLower.toFixed(4)} - ${sampleNewUpper.toFixed(4)}]</span> (+${effectiveStepSpace.toFixed(4)}) with immediate dip-buy orders at ${refUpper.toFixed(4)}.<br />
-          • <strong>Bearish Pullback:</strong> If price retraces down, Range automatically downgrades back towards <span style={{ color: '#38bdf8', fontWeight: 600 }}>[${localParams.lowerPrice || '1.3820'} - ${refUpper.toFixed(4)}]</span>.
+          • <strong>Bearish Pullback:</strong> If price retraces down, Range automatically downgrades back towards <span style={{ color: '#38bdf8', fontWeight: 600 }}>[${refLower.toFixed(4)} - ${refUpper.toFixed(4)}]</span>.
         </div>
       </div>
 
@@ -247,10 +337,10 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
           </div>
         </div>
         <div className="preview-card">
-          <ArrowUpRight size={18} />
+          <Crosshair size={18} />
           <div>
-            <span className="stat-label">Upper Expansion</span>
-            <span className="stat-value">Autonomous</span>
+            <span className="stat-label">Precision Corridor</span>
+            <span className="stat-value">±${effectiveTolerance.toFixed(5)}</span>
           </div>
         </div>
         <div className="preview-card">
