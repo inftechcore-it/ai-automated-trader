@@ -54,6 +54,7 @@ export declare class JarvisBot extends BaseBotStrategy {
     private interGridSLActive;
     private lastInterGridSLTime;
     private lastStageActionTime;
+    private pendingOrders;
     private lastError;
     private insufficientBalance;
     private lastStatusLog;
@@ -69,7 +70,8 @@ export declare class JarvisBot extends BaseBotStrategy {
     handleError(error: string): void;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
     private createExitActions;
-    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+    onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void;
+    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void;
     onOrderCancelled(orderId: string): void;
     onOrderError(error: string): void;
     protected getMetrics(): Record<string, number>;

@@ -45,6 +45,7 @@ export class JarvisBot extends BaseBotStrategy {
     interGridSLActive = false;
     lastInterGridSLTime = 0;
     lastStageActionTime = 0;
+    pendingOrders = new Map();
     // Error & Status handling
     lastError = '';
     insufficientBalance = false;
@@ -432,30 +433,9 @@ export class JarvisBot extends BaseBotStrategy {
         }
         // ─── PHASE 1: Grid #1 Action (50% Profit Sell + 25% Reserve Buy) ───
         const grid1 = this.gridLevels[1];
-        if (grid1 && currentPrice >= (grid1.price - this.priceTolerance)) {
-            const isEligibleForPhase1 = this.stageStatus === 'GRID_0_BOUGHT' || (this.stageStatus === 'INITIAL' && availableHoldingQty > 0);
-            if (isEligibleForPhase1 && now - (grid1.lastActionTimestamp || 0) > 2000) {
-                // A. Sell 50% of existing coins
-                if (availableHoldingQty > 0) {
-                    let sellQty = availableHoldingQty * 0.50;
-                    // Binance Notional Guard ($5.20 USDT): Convert sub-$5.20 fractional sells to 100% position exit
-                    if (sellQty * currentPrice < 5.20 && availableHoldingQty * currentPrice >= 5.00) {
-                        this.log(`🛡️ [JARVIS Notional Guard] 50% sell order ($${(sellQty * currentPrice).toFixed(2)}) is below $5.20. Converting to 100% position exit (${availableHoldingQty.toFixed(4)} ${this.asset}) to prevent NOTIONAL error.`);
-                        sellQty = availableHoldingQty;
-                    }
-                    if (sellQty * currentPrice >= 5.00) {
-                        actions.push({
-                            action: 'sell',
-                            quantity: sellQty,
-                            price: currentPrice,
-                            orderType: 'MARKET',
-                            gridLevel: 1,
-                            metadata: { jarvisStage: 'PHASE_1_PROFIT_SELL', targetPrice: grid1.price }
-                        });
-                        availableHoldingQty -= sellQty;
-                    }
-                }
-                // B. Deploy remaining 25% cash reserve
+        if (grid1) {
+            // Case 1: Active waiting for 25% reserve buy settlement
+            if (this.stageStatus === 'GRID_1_PENDING_BUY') {
                 const reserveBudget = totalInvestment * 0.25;
                 if (!this.insufficientBalance && (state.availableBalance >= reserveBudget || state.availableBalance >= 5.0)) {
                     const actualBudget = Math.min(state.availableBalance, reserveBudget);
@@ -469,19 +449,76 @@ export class JarvisBot extends BaseBotStrategy {
                             gridLevel: 1,
                             metadata: { jarvisStage: 'PHASE_1_RESERVE_BUY', targetPrice: grid1.price }
                         });
+                        this.stageStatus = 'GRID_1_COMPLETED';
+                        grid1.lastActionTimestamp = now;
+                        this.log(`⚡ [JARVIS Phase 1] Settlement balance received ($${actualBudget.toFixed(2)} USDT)! Deployed 25% cash reserve (${buyQty.toFixed(4)} ${this.asset}). Phase 1 complete! Moving to Phase 2 harvest.`);
+                        return actions;
                     }
                 }
-                this.stageStatus = 'GRID_1_COMPLETED';
-                grid1.lastActionTimestamp = now;
-                this.log(`⚡ [JARVIS Phase 1] Grid #1 ($${grid1.price.toFixed(5)}) Reached! Executed 50% profit sell and deployed 25% cash reserve ($${(totalInvestment * 0.25).toFixed(2)} USDT). Moving to Phase 2 harvest!`);
-                if (actions.length > 0)
-                    return actions;
+            }
+            // Case 2: Triggering Grid #1 for the first time
+            if (currentPrice >= (grid1.price - this.priceTolerance)) {
+                const isEligibleForPhase1 = this.stageStatus === 'GRID_0_BOUGHT' || (this.stageStatus === 'INITIAL' && availableHoldingQty > 0);
+                if (isEligibleForPhase1 && now - (grid1.lastActionTimestamp || 0) > 2000) {
+                    let hasSold = false;
+                    // A. Sell 50% of existing coins
+                    if (availableHoldingQty > 0) {
+                        let sellQty = availableHoldingQty * 0.50;
+                        // Binance Notional Guard ($5.20 USDT): Convert sub-$5.20 fractional sells to 100% position exit
+                        if (sellQty * currentPrice < 5.20 && availableHoldingQty * currentPrice >= 5.00) {
+                            this.log(`🛡️ [JARVIS Notional Guard] 50% sell order ($${(sellQty * currentPrice).toFixed(2)}) is below $5.20. Converting to 100% position exit (${availableHoldingQty.toFixed(4)} ${this.asset}) to prevent NOTIONAL error.`);
+                            sellQty = availableHoldingQty;
+                        }
+                        if (sellQty * currentPrice >= 5.00) {
+                            actions.push({
+                                action: 'sell',
+                                quantity: sellQty,
+                                price: currentPrice,
+                                orderType: 'MARKET',
+                                gridLevel: 1,
+                                metadata: { jarvisStage: 'PHASE_1_PROFIT_SELL', targetPrice: grid1.price }
+                            });
+                            availableHoldingQty -= sellQty;
+                            grid1.type = 'sell';
+                            hasSold = true;
+                        }
+                    }
+                    // B. Deploy remaining 25% cash reserve if balance is already available
+                    const reserveBudget = totalInvestment * 0.25;
+                    let hasBought = false;
+                    if (!this.insufficientBalance && (state.availableBalance >= reserveBudget || state.availableBalance >= 5.0)) {
+                        const actualBudget = Math.min(state.availableBalance, reserveBudget);
+                        const buyQty = actualBudget / currentPrice;
+                        if (actualBudget >= 5.0) {
+                            actions.push({
+                                action: 'buy',
+                                quantity: buyQty,
+                                price: currentPrice,
+                                orderType: 'MARKET',
+                                gridLevel: 1,
+                                metadata: { jarvisStage: 'PHASE_1_RESERVE_BUY', targetPrice: grid1.price }
+                            });
+                            hasBought = true;
+                        }
+                    }
+                    grid1.lastActionTimestamp = now;
+                    if (hasBought) {
+                        this.stageStatus = 'GRID_1_COMPLETED';
+                        this.log(`⚡ [JARVIS Phase 1] Grid #1 ($${grid1.price.toFixed(5)}) Reached! Executed 50% profit sell and deployed 25% cash reserve ($${(totalInvestment * 0.25).toFixed(2)} USDT). Moving to Phase 2 harvest!`);
+                    }
+                    else if (hasSold) {
+                        this.stageStatus = 'GRID_1_PENDING_BUY';
+                        this.log(`⚡ [JARVIS Phase 1] Grid #1 ($${grid1.price.toFixed(5)}) Reached! Executed 50% profit sell. Waiting for USDT settlement to deploy 25% cash reserve ($${(totalInvestment * 0.25).toFixed(2)} USDT)...`);
+                    }
+                    if (actions.length > 0)
+                        return actions;
+                }
             }
         }
         // ─── PHASE 2: Grid #2 Action (70% Harvest + 30% Runner Retention + Midpoint Inter-Grid SL) ───
         const grid2 = this.gridLevels[2];
         if (grid2 && currentPrice >= (grid2.price - this.priceTolerance)) {
-            const isEligibleForPhase2 = this.stageStatus === 'GRID_1_COMPLETED' || this.stageStatus === 'GRID_1_REENTRY';
+            const isEligibleForPhase2 = this.stageStatus === 'GRID_1_COMPLETED' || this.stageStatus === 'GRID_1_REENTRY' || (this.stageStatus === 'GRID_1_PENDING_BUY' && availableHoldingQty > 0);
             if (isEligibleForPhase2 && availableHoldingQty > 0 && now - (grid2.lastActionTimestamp || 0) > 2000) {
                 let sellQty = availableHoldingQty * 0.70;
                 // Binance Notional Guard ($5.20 USDT)
@@ -499,6 +536,7 @@ export class JarvisBot extends BaseBotStrategy {
                         metadata: { jarvisStage: 'PHASE_2_HARVEST', targetPrice: grid2.price }
                     });
                     availableHoldingQty -= sellQty;
+                    grid2.type = 'sell';
                 }
                 // Activate Midpoint Inter-Grid Stop-Loss: (Grid #2 + Grid #1) / 2
                 this.interGridStopLossPrice = Number(((this.gridLevels[2].price + this.gridLevels[1].price) / 2).toFixed(6));
@@ -560,18 +598,46 @@ export class JarvisBot extends BaseBotStrategy {
         this.log(`[JARVIS Exit] Liquidating all holdings due to ${reason}`);
         return actions;
     }
-    onOrderFilled(orderId, filledPrice, filledQuantity) {
-        let grid = this.gridLevels.find(g => g.orderId === orderId);
+    onOrderPlaced(orderId, gridLevel, price, side) {
+        if (orderId) {
+            this.pendingOrders.set(orderId, {
+                gridLevel,
+                price: price || 0,
+                side: (side || 'BUY').toUpperCase(),
+            });
+        }
+    }
+    onOrderFilled(orderId, filledPrice, filledQuantity, side) {
+        const trackedOrder = this.pendingOrders.get(orderId);
+        const resolvedSide = (side || trackedOrder?.side || '').toUpperCase();
+        let gridLevelIdx = trackedOrder?.gridLevel;
+        let grid = (gridLevelIdx !== undefined) ? this.gridLevels[gridLevelIdx] : this.gridLevels.find(g => g.orderId === orderId);
         if (!grid && filledPrice > 0) {
             grid = this.gridLevels.find(g => Math.abs(g.price - filledPrice) <= (this.gridSpacing * 0.45 + this.priceTolerance));
         }
+        let isBuy = resolvedSide === 'BUY';
+        let isSell = resolvedSide === 'SELL';
+        if (!resolvedSide && grid) {
+            if (grid.index === 0) {
+                isBuy = true;
+            }
+            else if (grid.index >= 2) {
+                isSell = true;
+            }
+            else if (grid.index === 1) {
+                isSell = this.stageStatus === 'GRID_1_PENDING_BUY' || this.stageStatus === 'GRID_0_BOUGHT';
+                isBuy = !isSell;
+            }
+        }
         if (grid) {
             grid.filled = true;
-            if (grid.type === 'buy') {
+            if (isBuy || (!isSell && grid.type === 'buy')) {
                 grid.buyCount++;
+                grid.type = 'buy';
                 this.log(`BUY filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)} (buy #${grid.buyCount}). Next level: Grid #${Math.min(grid.index + 1, 3)}`);
             }
-            else if (grid.type === 'sell') {
+            else {
+                grid.type = 'sell';
                 const profit = filledQuantity * this.gridSpacing;
                 this.gridProfit += profit;
                 this.gridProfitCount++;
@@ -579,8 +645,11 @@ export class JarvisBot extends BaseBotStrategy {
             }
         }
         else {
-            this.log(`Order filled: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)}`);
+            const displaySide = isSell ? 'SELL' : (isBuy ? 'BUY' : 'Order');
+            this.log(`${displaySide} filled: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)}`);
         }
+        if (orderId)
+            this.pendingOrders.delete(orderId);
         this.customState.gridProfit = this.gridProfit;
         this.customState.gridProfitCount = this.gridProfitCount;
         this.customState.gridLevels = this.gridLevels;
@@ -598,6 +667,8 @@ export class JarvisBot extends BaseBotStrategy {
         this.customState.isStopLossActive = this.isStopLossActive;
     }
     onOrderCancelled(orderId) {
+        if (orderId)
+            this.pendingOrders.delete(orderId);
         const grid = this.gridLevels.find(g => g.orderId === orderId);
         if (grid) {
             grid.orderId = undefined;

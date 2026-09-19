@@ -41,7 +41,7 @@ export interface IBotStrategy {
     /**
      * Handle order fill notification
      */
-    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void;
     /**
      * Handle order cancellation
      */
@@ -78,7 +78,7 @@ export declare abstract class BaseBotStrategy implements IBotStrategy {
     getCustomState(): Record<string, any>;
     restoreState(customState: Record<string, any>): void;
     cleanup(): Promise<void>;
-    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+    onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void;
     onOrderCancelled(orderId: string): void;
     onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void;
     protected recordAction(action: BotAction): void;

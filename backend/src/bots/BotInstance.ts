@@ -1013,8 +1013,8 @@ export class BotInstance extends EventEmitter {
     // Remove from open orders
     this.state.openOrders = this.state.openOrders.filter(o => o.id !== order.id);
 
-    // Notify strategy
-    this.strategy.onOrderFilled(order.id, filledPrice, filledQuantity);
+    // Notify strategy with order side
+    this.strategy.onOrderFilled(order.id, filledPrice, filledQuantity, order.side);
 
     this.config.totalTrades++;
     this.updateEquity();

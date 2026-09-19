@@ -52,7 +52,7 @@ export class BaseBotStrategy {
         this.params = null;
         this.adapter = null;
     }
-    onOrderFilled(orderId, filledPrice, filledQuantity) {
+    onOrderFilled(orderId, filledPrice, filledQuantity, side) {
         // Override in subclasses
     }
     onOrderCancelled(orderId) {

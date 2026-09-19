@@ -63,7 +63,7 @@ export interface IBotStrategy {
   /**
    * Handle order fill notification
    */
-  onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void;
+  onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void;
 
   /**
    * Handle order cancellation
@@ -156,7 +156,7 @@ export abstract class BaseBotStrategy implements IBotStrategy {
     this.adapter = null;
   }
 
-  onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void {
+  onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void {
     // Override in subclasses
   }
 
