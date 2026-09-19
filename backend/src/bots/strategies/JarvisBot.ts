@@ -264,6 +264,17 @@ export class JarvisBot extends BaseBotStrategy {
     // ═══════════════════════════════════════════════════════════════
     // 0. HOLDINGS & BALANCE TRACKING
     // ═══════════════════════════════════════════════════════════════
+    // Auto-clear insufficient balance flag whenever live available balance >= $5.00
+    if (state.availableBalance >= 5.0) {
+      if (this.insufficientBalance) {
+        this.insufficientBalance = false;
+        this.lastError = '';
+        this.log(`Balance available ($${state.availableBalance.toFixed(2)} USDT) - clearing insufficient balance flag and resuming BUY orders`);
+      } else {
+        this.insufficientBalance = false;
+      }
+    }
+
     const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
     const totalHoldingQty = holding?.quantity || 0;
     const lockedHoldingQty = state.openOrders

@@ -139,17 +139,20 @@ export class PrecisionGridBot extends BaseBotStrategy {
         const investmentPerGrid = toNum(p.totalInvestment) / toNum(p.gridCount);
         const executionMode = p.executionMode || 'MARKET_ON_TOUCH';
         const now = Date.now();
-        // Check balance status every 30 seconds
-        if (this.insufficientBalance && now - this.lastBalanceCheck > 30000) {
-            this.lastBalanceCheck = now;
-            if (state.availableBalance >= investmentPerGrid) {
+        // Auto-clear insufficient balance flag whenever live available balance >= 5.00 or >= investmentPerGrid
+        if (state.availableBalance >= investmentPerGrid || state.availableBalance >= 5.0) {
+            if (this.insufficientBalance) {
                 this.insufficientBalance = false;
                 this.lastError = '';
                 this.log(`Balance restored: $${state.availableBalance.toFixed(2)} - resuming BUY orders`);
             }
             else {
-                this.log(`Waiting for balance. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}`, 'warn');
+                this.insufficientBalance = false;
             }
+        }
+        else if (this.insufficientBalance && now - this.lastBalanceCheck > 30000) {
+            this.lastBalanceCheck = now;
+            this.log(`Waiting for balance. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}`, 'warn');
         }
         if (now - this.lastStatusLog > 30000) {
             this.lastStatusLog = now;
