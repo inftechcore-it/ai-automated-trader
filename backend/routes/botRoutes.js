@@ -111,6 +111,55 @@ router.get('/exchanges', requireAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// PROMPT-BASED RAG SIMULATION & AUTONOMOUS BOT BUILDER
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/prompt-simulate', requireAuth, async (req, res) => {
+  try {
+    const { prompt, exchange = 'binance', symbol, mode = 'PAPER' } = req.body;
+    if (!prompt || typeof prompt !== 'string') {
+      return fail(res, 400, 'Prompt text is required');
+    }
+
+    const engine = await getBotEngine();
+    let currentPrice = 0;
+    let klines = [];
+
+    // Try fetching live price and klines from adapter if available
+    try {
+      if (engine && exchange) {
+        const adapter = typeof engine.getAdapter === 'function' ? engine.getAdapter(exchange) : null;
+        if (adapter) {
+          const symToUse = symbol || 'FIL/USDT';
+          if (typeof adapter.getTicker === 'function') {
+            const ticker = await adapter.getTicker(symToUse);
+            currentPrice = ticker?.last || ticker?.close || 0;
+          }
+          if (typeof adapter.getKlines === 'function') {
+            klines = await adapter.getKlines(symToUse, '5m', 50);
+          }
+        }
+      }
+    } catch (adapterErr) {
+      console.log(`[BotRoutes] Live market fetch for prompt simulation fallback: ${adapterErr.message}`);
+    }
+
+    const result = await ragService.promptSimulate({
+      prompt,
+      currentPrice,
+      klines,
+      exchange,
+      mode,
+    });
+
+    return ok(res, result);
+  } catch (error) {
+    console.error('[BotRoutes] Prompt simulation error:', error);
+    return fail(res, 500, error.message);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // BOT CRUD OPERATIONS
 // ═══════════════════════════════════════════════════════════════
 

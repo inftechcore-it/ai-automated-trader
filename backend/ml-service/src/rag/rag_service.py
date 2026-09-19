@@ -299,4 +299,43 @@ class RagService:
         }
         return calibration
 
+    async def prompt_to_simulation(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Executes Prompt-to-Simulation workflow:
+        1. Queries RAG memory for similar asset volatility and strategy performance
+        2. Solves exact grid parameters and risk math
+        3. Runs fast historical backtest simulation over recent klines
+        """
+        prompt = request_data.get("prompt", "")
+        current_price = float(request_data.get("current_price", 0.0) or 0.0)
+        klines = request_data.get("klines", [])
+        exchange = request_data.get("exchange", "binance")
+
+        query = f"Trading parameters, stop-loss sizing, and profit targets for prompt: {prompt}"
+        target_collections = ["kb_strategy_playbooks", "kb_trade_history", "kb_rms_rules"]
+
+        top_passages = []
+        try:
+            dense_results, sparse_results = await asyncio.gather(
+                self.dense.retrieve(query, collections=target_collections, top_k_per_collection=2),
+                self.sparse.retrieve(query, collections=target_collections, top_k_per_collection=2)
+            )
+            top_passages = self.reranker.fuse_and_rerank(
+                query=query,
+                dense_results=dense_results,
+                sparse_results=sparse_results,
+                top_n=3,
+                max_pool_size=8
+            )
+        except Exception as r_err:
+            logger.debug(f"RAG retrieval fallback in prompt_to_simulation: {r_err}")
+
+        return self.gemini.prompt_to_simulation(
+            prompt=prompt,
+            current_price=current_price,
+            klines=klines,
+            exchange=exchange,
+            context_passages=top_passages
+        )
+
 rag_service = RagService()

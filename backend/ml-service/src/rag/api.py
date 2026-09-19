@@ -59,6 +59,13 @@ class CalibrateJarvisRequest(BaseModel):
     current_params: Dict[str, Any] = Field(default_factory=dict, description="Current bot parameters: lowerPrice, upperPrice, gridCount, stopLoss")
     stage_status: Optional[str] = Field(default="INITIAL", description="Current bot stage status")
 
+class PromptSimulateRequest(BaseModel):
+    prompt: str = Field(..., description="Natural language user request e.g. 'I have $30 capital, I want $0.50 profit on FIL, max loss $0.50'")
+    current_price: Optional[float] = Field(0.0, description="Optional live market price")
+    klines: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="Historical candles for backtesting")
+    exchange: Optional[str] = Field(default="binance", description="Exchange identifier")
+    mode: Optional[str] = Field(default="PAPER", description="PAPER | LIVE")
+
 # ═══════════════════════════════════════════════════════════════════
 # API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════
@@ -147,6 +154,20 @@ async def calibrate_jarvis_bot(request: CalibrateJarvisRequest):
     except Exception as e:
         logger.error(f"JARVIS calibration error: {e}")
         raise HTTPException(status_code=500, detail=f"JARVIS calibration failed: {str(e)}")
+
+@router.post("/prompt-simulate")
+async def prompt_simulate_bot(request: PromptSimulateRequest):
+    """
+    POST /api/v1/rag/prompt-simulate
+    Processes natural language prompts, extracts intent & risk math, calculates optimal 3-grid bounds,
+    and runs a 48h historical simulation backtest.
+    """
+    try:
+        result = await rag_service.prompt_to_simulation(request.dict())
+        return result
+    except Exception as e:
+        logger.error(f"Prompt simulate error: {e}")
+        raise HTTPException(status_code=500, detail=f"Prompt simulation failed: {str(e)}")
 
 @router.get("/collections")
 async def list_collections():

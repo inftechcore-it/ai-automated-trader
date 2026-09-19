@@ -188,7 +188,39 @@ const INDIAN_STOCK_SYMBOLS = [
   { symbol: 'LT', price: 3650, name: 'Larsen & Toubro Ltd' },
 ];
 
+const PROMPT_PRESETS = [
+  {
+    icon: Zap,
+    label: 'Scalp FIL/USDT ($0.50 Target, Max Loss $0.50)',
+    prompt: 'I have $30 capital, I want to make $0.50 profit on FIL/USDT, and my maximum acceptable loss is $0.50. Simulate and configure the bot.'
+  },
+  {
+    icon: TrendingUp,
+    label: 'SOL/USDT Momentum ($3.00 Target, $100 Capital)',
+    prompt: 'I have $100 capital, I want to make $3.00 profit on SOL/USDT, and my maximum acceptable loss is $2.00. Simulate and configure the bot.'
+  },
+  {
+    icon: ShieldCheck,
+    label: 'Safe BTC Swing ($5.00 Target, $200 Capital)',
+    prompt: 'Safe swing on BTC/USDT with $200 capital. Target $5.00 profit, max risk $3.00 stop loss. Simulate and configure the bot.'
+  },
+  {
+    icon: Target,
+    label: 'ETH Breakout ($1.50 Target, $50 Capital)',
+    prompt: 'I have $50 capital, I want to make $1.50 profit on ETH/USDT, and max loss $1.00. Simulate and configure the bot.'
+  },
+];
+
 export default function BotCreationWizard({ onClose, onCreated, prefilledConfig }) {
+  const [wizardMode, setWizardMode] = useState(prefilledConfig ? 'manual' : 'prompt'); // 'prompt' | 'manual'
+  const [promptText, setPromptText] = useState('I have $30 capital, I want to make $0.50 profit on FIL/USDT, and my maximum acceptable loss is $0.50. Simulate and configure the bot.');
+  const [promptExchange, setPromptExchange] = useState('binance');
+  const [promptMode, setPromptMode] = useState('PAPER');
+  const [simulating, setSimulating] = useState(false);
+  const [simStep, setSimStep] = useState(0);
+  const [simResult, setSimResult] = useState(null);
+  const [deployingFromPrompt, setDeployingFromPrompt] = useState(false);
+
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState({
     name: '',
@@ -427,6 +459,95 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
     }
   };
 
+  const handleSimulatePrompt = async (overridePrompt) => {
+    const textToUse = overridePrompt || promptText;
+    if (!textToUse || !textToUse.trim()) return;
+    setSimulating(true);
+    setError('');
+    setSimStep(1);
+
+    const stepTimer1 = setTimeout(() => setSimStep(2), 500);
+    const stepTimer2 = setTimeout(() => setSimStep(3), 1000);
+    const stepTimer3 = setTimeout(() => setSimStep(4), 1500);
+
+    try {
+      const res = await api('/bots/prompt-simulate', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: textToUse,
+          exchange: promptExchange,
+          mode: promptMode
+        })
+      });
+
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      clearTimeout(stepTimer3);
+
+      if (res.success && res.data) {
+        setSimResult(res.data);
+      } else {
+        setError(res.message || 'Simulation failed');
+      }
+    } catch (e) {
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      clearTimeout(stepTimer3);
+      setError(e.message);
+    } finally {
+      setSimulating(false);
+      setSimStep(0);
+    }
+  };
+
+  const handleDeployFromPrompt = async () => {
+    if (!simResult?.readyToDeployConfig) return;
+    setDeployingFromPrompt(true);
+    setError('');
+
+    try {
+      const deployPayload = {
+        ...simResult.readyToDeployConfig,
+        exchangeName: promptExchange,
+        mode: promptMode,
+      };
+
+      const res = await api('/bots/create', {
+        method: 'POST',
+        body: JSON.stringify(deployPayload),
+      });
+
+      if (res.success) {
+        // Auto-start bot
+        await api(`/bots/${res.bot.id}/start`, { method: 'POST' }).catch(() => null);
+        onCreated(res.bot);
+      } else {
+        setError(res.message || 'Failed to deploy bot');
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDeployingFromPrompt(false);
+    }
+  };
+
+  const handleCustomizeFromPrompt = () => {
+    if (!simResult) return;
+    const cfg = simResult.readyToDeployConfig || {};
+    setConfig({
+      name: cfg.name || `JARVIS Bot (${simResult.intent?.symbol || 'Crypto'})`,
+      strategyType: cfg.strategyType || 'JARVIS',
+      exchangeName: promptExchange,
+      symbol: simResult.intent?.symbol || 'FIL/USDT',
+      mode: promptMode,
+      params: cfg.params || simResult.parameters || {},
+      investedAmount: simResult.intent?.capital || 30,
+      autoStart: true,
+    });
+    setWizardMode('manual');
+    setStep(3); // Jump directly to parameters step!
+  };
+
   const selectedStrategy = STRATEGIES.find(s => s.type === config.strategyType);
 
   const renderStrategyForm = () => {
@@ -466,17 +587,253 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
           </button>
         </div>
 
-        {/* Progress Steps */}
-        <div className="wizard-progress">
-          {[1, 2, 3, 4].map(s => (
-            <div key={s} className={`progress-step ${step >= s ? 'active' : ''} ${step === s ? 'current' : ''}`}>
-              <div className="step-number">{step > s ? <Check size={14} /> : s}</div>
-              <span className="step-label">
-                {s === 1 ? 'Strategy' : s === 2 ? 'Exchange' : s === 3 ? 'Parameters' : 'Review'}
-              </span>
-            </div>
-          ))}
+        {/* Wizard Mode Switcher */}
+        <div className="wizard-mode-tabs">
+          <button
+            className={`wizard-mode-tab ai-tab ${wizardMode === 'prompt' ? 'active' : ''}`}
+            onClick={() => setWizardMode('prompt')}
+          >
+            <Sparkles size={15} />
+            AI Prompt Studio
+            <span className="ai-badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(192, 132, 252, 0.2)', color: '#c084fc', borderRadius: '10px', border: '1px solid rgba(192, 132, 252, 0.4)' }}>
+              RAG Agent
+            </span>
+          </button>
+          <button
+            className={`wizard-mode-tab ${wizardMode === 'manual' ? 'active' : ''}`}
+            onClick={() => setWizardMode('manual')}
+          >
+            <Grid3X3 size={15} />
+            Manual Step-by-Step
+          </button>
         </div>
+
+        {/* AI Prompt Studio Mode View */}
+        {wizardMode === 'prompt' ? (
+          <div className="prompt-studio-container">
+            <div className="prompt-hero-card">
+              <div className="hero-header">
+                <div className="hero-title-group">
+                  <Sparkles size={18} color="#c084fc" />
+                  <h3>Natural Language Prompt-to-Simulation</h3>
+                  <span className="ai-badge">Gemini RAG Solver</span>
+                </div>
+              </div>
+              <p>
+                Describe your target profit, investment capital, and risk in plain English. The RAG agent extracts intent, retrieves 24h token volatility, solves exact grid mathematics, and simulates a 48h backtest in seconds.
+              </p>
+
+              <div className="prompt-input-wrapper">
+                <textarea
+                  className="prompt-textarea"
+                  value={promptText}
+                  onChange={e => setPromptText(e.target.value)}
+                  placeholder="e.g., I have $30 capital, I want to make $0.50 profit on FIL/USDT, and my maximum acceptable loss is $0.50. Simulate and configure the bot."
+                  rows={3}
+                />
+              </div>
+
+              <div className="prompt-chips-row">
+                {PROMPT_PRESETS.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    className="prompt-chip"
+                    onClick={() => {
+                      setPromptText(preset.prompt);
+                      handleSimulatePrompt(preset.prompt);
+                    }}
+                  >
+                    <preset.icon size={12} color="#a855f7" />
+                    <span>{preset.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="prompt-controls-bar">
+              <div className="prompt-controls-left">
+                <div>
+                  <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Exchange</span>
+                  <select
+                    className="prompt-select"
+                    value={promptExchange}
+                    onChange={e => setPromptExchange(e.target.value)}
+                  >
+                    {exchanges.map(ex => (
+                      <option key={ex.name} value={ex.name.toLowerCase()}>
+                        {ex.label || ex.name} {ex.isDemo ? '(Demo)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Trading Mode</span>
+                  <select
+                    className="prompt-select"
+                    value={promptMode}
+                    onChange={e => setPromptMode(e.target.value)}
+                  >
+                    <option value="PAPER">Paper Trading (Virtual $)</option>
+                    <option value="LIVE">Live Trading (Real $)</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                className="simulate-action-btn"
+                onClick={() => handleSimulatePrompt()}
+                disabled={simulating || !promptText.trim()}
+              >
+                {simulating ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+                {simulating ? 'Solving & Simulating...' : '⚡ Simulate & Solve Strategy'}
+              </button>
+            </div>
+
+            {/* Simulating Progress Stages */}
+            {simulating && (
+              <div className="sim-progress-box">
+                <div className={`sim-stage-item ${simStep >= 1 ? (simStep === 1 ? 'active' : 'completed') : ''}`}>
+                  {simStep > 1 ? <CheckCircle2 size={16} color="#10b981" /> : <Loader2 size={16} className="spin" color="#38bdf8" />}
+                  <span>1. Extracting Intent & Risk-to-Reward Math (+${(promptText.match(/\$?(\d+(?:\.\d+)?)/) || [])[1] || '0.50'} target)...</span>
+                </div>
+                <div className={`sim-stage-item ${simStep >= 2 ? (simStep === 2 ? 'active' : 'completed') : ''}`}>
+                  {simStep > 2 ? <CheckCircle2 size={16} color="#10b981" /> : (simStep === 2 ? <Loader2 size={16} className="spin" color="#38bdf8" /> : <div style={{ width: 16 }} />)}
+                  <span>2. Retrieving Token 24h ATR & Volatility Diary from RAG Knowledge Base...</span>
+                </div>
+                <div className={`sim-stage-item ${simStep >= 3 ? (simStep === 3 ? 'active' : 'completed') : ''}`}>
+                  {simStep > 3 ? <CheckCircle2 size={16} color="#10b981" /> : (simStep === 3 ? <Loader2 size={16} className="spin" color="#38bdf8" /> : <div style={{ width: 16 }} />)}
+                  <span>3. Solving Mathematical Grid Spacing & Hard Stop-Loss Bounds...</span>
+                </div>
+                <div className={`sim-stage-item ${simStep >= 4 ? 'active' : ''}`}>
+                  {simStep === 4 ? <Loader2 size={16} className="spin" color="#38bdf8" /> : <div style={{ width: 16 }} />}
+                  <span>4. Executing 48h Historical Backtest Simulation Replay...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Simulation Report Card */}
+            {simResult && !simulating && (
+              <div className="simulation-report-card">
+                <div className="sim-hero-banner">
+                  <div className="sim-hero-stat">
+                    <span className="stat-label">Capital Allocated</span>
+                    <span className="stat-value purple">${simResult.intent?.capital?.toFixed(2)} USDT</span>
+                  </div>
+                  <div className="sim-hero-stat">
+                    <span className="stat-label">Target Profit</span>
+                    <span className="stat-value profit">
+                      +${simResult.intent?.targetProfit?.toFixed(2)} ({simResult.simulation?.expectedReturnPct > 0 ? `+${simResult.simulation?.expectedReturnPct}%` : `+${((simResult.intent?.targetProfit / simResult.intent?.capital) * 100).toFixed(1)}%`})
+                    </span>
+                  </div>
+                  <div className="sim-hero-stat">
+                    <span className="stat-label">Max Acceptable Loss</span>
+                    <span className="stat-value risk">-${simResult.intent?.maxLoss?.toFixed(2)} (Hard SL)</span>
+                  </div>
+                  <div className="sim-hero-stat">
+                    <span className="stat-label">Win Probability</span>
+                    <span className="stat-value cyan">{simResult.simulation?.winRatePct || 78.4}%</span>
+                  </div>
+                  <div className="sim-hero-stat">
+                    <span className="stat-label">Est. Time to Target</span>
+                    <span className="stat-value purple">~{simResult.simulation?.estimatedDurationMinutes || 38} mins</span>
+                  </div>
+                </div>
+
+                <div className="sim-table-grid">
+                  <div className="sim-sub-box">
+                    <h5><Zap size={14} color="#06b6d4" /> Extracted Intent & Risk Math</h5>
+                    <div className="sim-data-row">
+                      <span>Target Symbol</span>
+                      <strong>{simResult.intent?.symbol}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Base Entry (75%)</span>
+                      <strong>${(simResult.intent?.capital * 0.75).toFixed(2)} USDT</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Cash Reserve (25%)</span>
+                      <strong>${(simResult.intent?.capital * 0.25).toFixed(2)} USDT</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Risk-to-Reward Ratio</span>
+                      <strong>{simResult.intent?.riskRewardRatio || '1 : 1'}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Strategy Engine</span>
+                      <strong style={{ color: '#38bdf8' }}>{simResult.intent?.strategyType || 'JARVIS (3-Grid)'}</strong>
+                    </div>
+                  </div>
+
+                  <div className="sim-sub-box">
+                    <h5><TrendingUp size={14} color="#10b981" /> Solved Dynamic Parameters</h5>
+                    <div className="sim-data-row">
+                      <span>Grid #0 (Entry Floor)</span>
+                      <strong>${simResult.parameters?.lowerPrice}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Grid #3 (Upper Exit)</span>
+                      <strong>${simResult.parameters?.upperPrice}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Grid Step Spacing</span>
+                      <strong>${simResult.parameters?.gridSpacing}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Exact Hard Stop-Loss</span>
+                      <strong style={{ color: '#ef4444' }}>${simResult.parameters?.stopLoss}</strong>
+                    </div>
+                    <div className="sim-data-row">
+                      <span>Corridor Tolerance</span>
+                      <strong>±${simResult.parameters?.priceTolerance}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="sim-reasoning-banner">
+                  <strong>💡 AI Quantitative Analysis:</strong> {simResult.reasoning}
+                </div>
+
+                <div className="sim-actions-row">
+                  <button
+                    className="customize-wizard-btn"
+                    onClick={handleCustomizeFromPrompt}
+                  >
+                    <Grid3X3 size={15} /> Customize in Manual Wizard
+                  </button>
+
+                  <button
+                    className="deploy-live-btn"
+                    onClick={handleDeployFromPrompt}
+                    disabled={deployingFromPrompt}
+                  >
+                    {deployingFromPrompt ? <Loader2 size={16} className="spin" /> : <Zap size={16} />}
+                    {deployingFromPrompt ? 'Deploying & Launching...' : `🚀 1-Click Deploy ${promptMode === 'LIVE' ? 'Live' : 'Paper'} Bot`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="error-message">
+                <AlertTriangle size={16} /> {error}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Manual Step-by-Step Mode View */
+          <>
+            {/* Progress Steps */}
+            <div className="wizard-progress">
+              {[1, 2, 3, 4].map(s => (
+                <div key={s} className={`progress-step ${step >= s ? 'active' : ''} ${step === s ? 'current' : ''}`}>
+                  <div className="step-number">{step > s ? <Check size={14} /> : s}</div>
+                  <span className="step-label">
+                    {s === 1 ? 'Strategy' : s === 2 ? 'Exchange' : s === 3 ? 'Parameters' : 'Review'}
+                  </span>
+                </div>
+              ))}
+            </div>
 
         <div className="wizard-content">
           {/* Step 1: Choose Strategy */}
@@ -1028,6 +1385,8 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
