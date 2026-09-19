@@ -103,26 +103,21 @@ export function isTokenExpired() {
   return tokenExpiry && Date.now() >= tokenExpiry;
 }
 
-function getAuthHeaders() {
-  if (!accessToken) {
+function getAuthHeaders(customToken = null) {
+  const token = customToken || accessToken;
+  if (!token) {
     const err = new Error('Upstox not authenticated. Please connect your Upstox account.');
     err.code = 'NOT_AUTHENTICATED';
     throw err;
   }
-  if (isTokenExpired()) {
-    const err = new Error('Session expired. Please re-authenticate with Upstox.');
-    err.code = 'TOKEN_EXPIRED';
-    err.status = 401;
-    throw err;
-  }
   return {
-    'Authorization': `Bearer ${accessToken}`,
+    'Authorization': `Bearer ${token}`,
     'Accept': 'application/json'
   };
 }
 
 // Handle API errors with proper status codes
-async function apiRequest(method, url, options = {}) {
+async function apiRequest(method, url, options = {}, customToken = null) {
   const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
   console.log(`[Upstox API] ${method} ${fullUrl}`);
 
@@ -130,7 +125,10 @@ async function apiRequest(method, url, options = {}) {
     const response = await axios({
       method,
       url: fullUrl,
-      headers: getAuthHeaders(),
+      headers: {
+        ...getAuthHeaders(customToken),
+        ...options.headers
+      },
       timeout: 15000,
       ...options
     });
@@ -146,8 +144,6 @@ async function apiRequest(method, url, options = {}) {
   } catch (err) {
     if (err.response?.status === 401) {
       console.error('[Upstox] 401 Unauthorized - Token may be expired');
-      accessToken = null;
-      tokenExpiry = null;
       const error = new Error('Session expired. Please re-authenticate with Upstox.');
       error.code = 'TOKEN_EXPIRED';
       error.status = 401;
@@ -409,9 +405,9 @@ export async function getIntradayOHLCV(symbol, interval = '1minute', exchange = 
 
 // ============ FUNDS & PROFILE (ISSUE 3) ============
 
-export async function getFunds() {
+export async function getFunds(customToken = null) {
   // Use segment=SEC for equity as per Upstox API
-  const data = await apiRequest('GET', '/v2/user/get-funds-and-margin?segment=SEC');
+  const data = await apiRequest('GET', '/v2/user/get-funds-and-margin?segment=SEC', {}, customToken);
 
   const equity = data.data?.equity || data.data || {};
 
@@ -431,8 +427,8 @@ export async function getFunds() {
   };
 }
 
-export async function getProfile() {
-  const data = await apiRequest('GET', '/v2/user/profile');
+export async function getProfile(customToken = null) {
+  const data = await apiRequest('GET', '/v2/user/profile', {}, customToken);
 
   return {
     userId: data.data?.user_id,
@@ -448,7 +444,7 @@ export async function getProfile() {
 
 // ============ ORDERS (ISSUE 4) ============
 
-export async function placeOrder({ symbol, side, orderType, quantity, price, stopPrice, exchange = 'NSE', product = 'D' }) {
+export async function placeOrder({ symbol, side, orderType, quantity, price, stopPrice, exchange = 'NSE', product = 'D' }, customToken = null) {
   const instrument = await findInstrument(symbol, exchange);
 
   // Map order types to Upstox format
@@ -483,7 +479,7 @@ export async function placeOrder({ symbol, side, orderType, quantity, price, sto
       orderPayload,
       {
         headers: {
-          ...getAuthHeaders(),
+          ...getAuthHeaders(customToken),
           'Content-Type': 'application/json'
         },
         timeout: 15000
@@ -522,8 +518,8 @@ export async function placeOrder({ symbol, side, orderType, quantity, price, sto
   }
 }
 
-export async function getOrderStatus(orderId) {
-  const data = await apiRequest('GET', `/v2/order/history?order_id=${orderId}`);
+export async function getOrderStatus(orderId, customToken = null) {
+  const data = await apiRequest('GET', `/v2/order/history?order_id=${orderId}`, {}, customToken);
 
   const orders = data.data || [];
   if (orders.length === 0) {
@@ -550,15 +546,15 @@ export async function getOrderStatus(orderId) {
   };
 }
 
-export async function cancelOrder(orderId) {
-  const data = await apiRequest('DELETE', `/v2/order/cancel?order_id=${orderId}`);
+export async function cancelOrder(orderId, customToken = null) {
+  const data = await apiRequest('DELETE', `/v2/order/cancel?order_id=${orderId}`, {}, customToken);
 
   console.log('[Upstox] Order cancelled:', orderId);
   return { orderId, status: 'cancelled' };
 }
 
-export async function getOpenOrders() {
-  const data = await apiRequest('GET', '/v2/order/retrieve-all');
+export async function getOpenOrders(customToken = null) {
+  const data = await apiRequest('GET', '/v2/order/retrieve-all', {}, customToken);
 
   return (data.data || [])
     .filter(o => ['open', 'pending', 'trigger pending', 'not modified', 'modify pending', 'transit'].includes(o.status?.toLowerCase()))
@@ -576,8 +572,8 @@ export async function getOpenOrders() {
     }));
 }
 
-export async function getOrderHistory() {
-  const data = await apiRequest('GET', '/v2/order/retrieve-all');
+export async function getOrderHistory(customToken = null) {
+  const data = await apiRequest('GET', '/v2/order/retrieve-all', {}, customToken);
 
   return (data.data || []).map(o => ({
     orderId: o.order_id,
@@ -597,8 +593,8 @@ export async function getOrderHistory() {
 
 // ============ POSITIONS & HOLDINGS ============
 
-export async function getPositions() {
-  const data = await apiRequest('GET', '/v2/portfolio/short-term-positions');
+export async function getPositions(customToken = null) {
+  const data = await apiRequest('GET', '/v2/portfolio/short-term-positions', {}, customToken);
 
   return (data.data || []).map(p => ({
     symbol: p.trading_symbol,
@@ -613,8 +609,8 @@ export async function getPositions() {
   }));
 }
 
-export async function getHoldings() {
-  const data = await apiRequest('GET', '/v2/portfolio/long-term-holdings');
+export async function getHoldings(customToken = null) {
+  const data = await apiRequest('GET', '/v2/portfolio/long-term-holdings', {}, customToken);
 
   return (data.data || []).map(h => ({
     symbol: h.trading_symbol,

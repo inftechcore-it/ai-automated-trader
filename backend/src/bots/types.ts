@@ -4,6 +4,8 @@
 
 export type BotStrategyType =
   | 'GRID'
+  | 'PRECISION_GRID'
+  | 'JARVIS'
   | 'INFINITY_GRID'
   | 'DCA'
   | 'SMART_TRADE'
@@ -114,6 +116,37 @@ export interface GridBotParams {
   maxBuysPerLevel?: number;  // Max buys allowed per grid level (default: 1)
 }
 
+export interface PrecisionGridParams {
+  lowerPrice: number;
+  upperPrice: number;
+  gridCount: number;
+  totalInvestment: number;
+  priceTolerance?: number;        // Tolerance in price units (e.g. 0.0009)
+  toleranceDigits?: number;       // Decimal precision matching (e.g. 3 digits)
+  executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT'; // Instant fill on band touch
+  stopLoss?: number;
+  takeProfit?: number;
+  maxBuysPerLevel?: number;       // Max buys allowed per grid level (default: 1)
+}
+
+export interface JarvisParams {
+  lowerPrice: number;
+  upperPrice: number;
+  gridCount?: number;              // Fixed 3 grids (4 levels: #0, #1, #2, #3), defaults to 3
+  totalInvestment: number;
+  stopLoss?: number;
+  maxBuysPerLevel?: number;        // Max buys allowed per grid level (default: 1)
+  autoIncrementEnabled?: boolean;  // Autonomously increase upper bound on surge (default: true)
+  incrementStepSpace?: number;     // Custom step space (defaults to (upperPrice - lowerPrice)/gridCount)
+  priceTolerance?: number;         // Decimal tolerance corridor (e.g. 0.0009 for 1-9 in 4th decimal place)
+  toleranceDigits?: number;        // Number of decimal digits for precision matching (e.g. 4 for 4th point after decimal)
+  executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT'; // Precision instant fill on corridor touch
+  interGridStopLossPrice?: number; // Dynamic midpoint stop loss between Grid #2 and Grid #1
+  interGridSLActive?: boolean;     // Whether the inter-grid stop loss is currently active
+  lastInterGridSLTime?: number;    // Timestamp of last inter-grid stop loss trigger
+  stageStatus?: string;            // Current progressive execution stage
+}
+
 export interface InfinityGridParams {
   lowerPrice: number;
   gridSpacingPercent: number;
@@ -221,6 +254,8 @@ export interface CoinTradeState {
 
 export type BotParams =
   | GridBotParams
+  | PrecisionGridParams
+  | JarvisParams
   | InfinityGridParams
   | DCABotParams
   | SmartTradeParams

@@ -5,22 +5,22 @@ import { validate } from '../middlewares/validate.js';
 import { ok, fail } from '../utils/apiResponse.js';
 import * as angeloneAdapter from '../services/adapters/angeloneAdapter.js';
 import { query } from '../config/db.js';
+import { getUserBrokerCredentials } from '../services/exchangeService.js';
 
 const router = Router();
 
 // Get Angel One status & config
 router.get('/status', requireAuth, async (req, res) => {
   try {
-    const config = angeloneAdapter.getConfig();
-    const [dbRecord] = await query(
-      'SELECT api_key, api_secret, is_active, last_synced_at FROM exchange_accounts WHERE user_id = :userId AND exchange_name = :name AND is_active = 1',
-      { userId: req.user.id, name: 'AngelOne' }
-    );
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
 
     return ok(res, {
-      ...config,
-      dbConnected: !!dbRecord,
-      lastSynced: dbRecord?.last_synced_at
+      configured: !!creds,
+      authenticated: !!creds,
+      paperMode: creds?.paperMode || false,
+      dbConnected: !!creds,
+      clientCode: creds?.clientCode || creds?.apiSecret ? '******' : '',
+      apiKey: creds?.apiKey ? '******' : ''
     });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -39,7 +39,39 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const result = await angeloneAdapter.loginByPassword(req.body);
+      const { apiKey, clientCode, password, totp, totpSecret } = req.body;
+      const effectiveClientCode = clientCode || '';
+      const effectiveTotp = totp || totpSecret || '';
+
+      let credsToUse = { apiKey, clientCode: effectiveClientCode, password, totpSecret: effectiveTotp, totp };
+
+      if (!apiKey || !effectiveClientCode || !password || !effectiveTotp) {
+        const dbCreds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+        if (dbCreds) {
+          credsToUse = { ...dbCreds, ...credsToUse };
+        }
+      }
+
+      const result = await angeloneAdapter.loginByPassword(credsToUse);
+
+      if (apiKey && effectiveClientCode) {
+        await query(
+          `INSERT INTO exchange_accounts (user_id, exchange_name, exchange_type, api_key, api_secret, additional_params, broker_type, paper_mode, is_active)
+           VALUES (:userId, 'AngelOne', 'stock', :apiKey, :apiSecret, :additionalParams, 'api', 0, 1)
+           ON DUPLICATE KEY UPDATE api_key = :apiKey, api_secret = :apiSecret, additional_params = :additionalParams, is_active = 1`,
+          {
+            userId: req.user.id,
+            apiKey,
+            apiSecret: effectiveClientCode,
+            additionalParams: JSON.stringify({
+              clientCode: effectiveClientCode,
+              password,
+              totpSecret: effectiveTotp
+            })
+          }
+        );
+      }
+
       return ok(res, { message: 'Angel One login successful', ...result });
     } catch (err) {
       return fail(res, 400, err.message);
@@ -50,10 +82,9 @@ router.post(
 // Disconnect session
 router.post('/disconnect', requireAuth, async (req, res) => {
   try {
-    angeloneAdapter.setCredentials('', '', '', '', null, null);
     await query(
-      'UPDATE exchange_accounts SET is_active = 0 WHERE user_id = :userId AND exchange_name = :name',
-      { userId: req.user.id, name: 'AngelOne' }
+      'UPDATE exchange_accounts SET is_active = 0 WHERE user_id = :userId AND LOWER(exchange_name) = "angelone"',
+      { userId: req.user.id }
     );
     return ok(res, { message: 'Angel One session disconnected' });
   } catch (err) {
@@ -64,7 +95,11 @@ router.post('/disconnect', requireAuth, async (req, res) => {
 // User profile
 router.get('/profile', requireAuth, async (req, res) => {
   try {
-    const profile = await angeloneAdapter.getProfile();
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const profile = await angeloneAdapter.getProfile(creds);
     return ok(res, { profile });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -74,7 +109,11 @@ router.get('/profile', requireAuth, async (req, res) => {
 // RMS Funds & Margins
 router.get('/funds', requireAuth, async (req, res) => {
   try {
-    const funds = await angeloneAdapter.getRMS();
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const funds = await angeloneAdapter.getRMS(creds);
     return ok(res, { funds });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -84,7 +123,11 @@ router.get('/funds', requireAuth, async (req, res) => {
 // Holdings
 router.get('/holdings', requireAuth, async (req, res) => {
   try {
-    const holdings = await angeloneAdapter.getHoldings();
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const holdings = await angeloneAdapter.getHoldings(creds);
     return ok(res, { holdings });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -94,7 +137,11 @@ router.get('/holdings', requireAuth, async (req, res) => {
 // Positions
 router.get('/positions', requireAuth, async (req, res) => {
   try {
-    const positions = await angeloneAdapter.getPositions();
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const positions = await angeloneAdapter.getPositions(creds);
     return ok(res, { positions });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -104,7 +151,11 @@ router.get('/positions', requireAuth, async (req, res) => {
 // Orders list
 router.get('/orders', requireAuth, async (req, res) => {
   try {
-    const orders = await angeloneAdapter.getOrderBook();
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const orders = await angeloneAdapter.getOrderBook(creds);
     return ok(res, { orders });
   } catch (err) {
     return fail(res, 500, err.message);
@@ -125,6 +176,10 @@ router.post(
   validate,
   async (req, res) => {
     try {
+      const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+      if (!creds) {
+        return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+      }
       const { symbol, exchange = 'NSE', side, quantity, orderType = 'MARKET', productType = 'DELIVERY', price = 0 } = req.body;
       const order = await angeloneAdapter.placeOrder({
         symbol,
@@ -134,7 +189,7 @@ router.post(
         productType: productType.toUpperCase(),
         quantity,
         price
-      });
+      }, creds);
       return ok(res, { message: 'Order placed successfully on Angel One', order }, 201);
     } catch (err) {
       return fail(res, 400, err.message);
@@ -145,7 +200,11 @@ router.post(
 // Cancel order
 router.post('/orders/:orderId/cancel', requireAuth, async (req, res) => {
   try {
-    const result = await angeloneAdapter.cancelOrder(req.params.orderId, req.body.variety || 'NORMAL');
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const result = await angeloneAdapter.cancelOrder(req.params.orderId, req.body.variety || 'NORMAL', creds);
     return ok(res, { message: 'Order cancellation submitted', ...result });
   } catch (err) {
     return fail(res, 400, err.message);
@@ -155,14 +214,18 @@ router.post('/orders/:orderId/cancel', requireAuth, async (req, res) => {
 // Order status
 router.get('/orders/:orderId/status', requireAuth, async (req, res) => {
   try {
-    const order = await angeloneAdapter.getOrderStatus(req.params.orderId);
+    const creds = await getUserBrokerCredentials(req.user.id, 'AngelOne');
+    if (!creds) {
+      return fail(res, 401, 'Angel One not connected for your account', 'BROKER_NOT_CONNECTED');
+    }
+    const order = await angeloneAdapter.getOrderStatus(req.params.orderId, creds);
     return ok(res, { order });
   } catch (err) {
     return fail(res, 400, err.message);
   }
 });
 
-// Live quote
+// Live quote (market data - public)
 router.get('/quote/:symbol', requireAuth, async (req, res) => {
   try {
     const exchange = req.query.exchange || 'NSE';
@@ -173,7 +236,7 @@ router.get('/quote/:symbol', requireAuth, async (req, res) => {
   }
 });
 
-// Historical candles
+// Historical candles (market data - public)
 router.get('/candles', requireAuth, async (req, res) => {
   try {
     const { symbol, exchange = 'NSE', interval = '1d', limit = 100 } = req.query;

@@ -76,9 +76,9 @@ export function setBotSocket(io) {
 // Get exchanges available for bot trading (auto-connected from env + user-connected)
 router.get('/exchanges', requireAuth, async (req, res) => {
   try {
-    const connected = getConnectedExchanges();
-    const supported = getSupportedExchanges();
+    const connected = await getConnectedExchanges(req.user.id);
     const connectedNames = new Set(connected.map(c => c.name.toLowerCase()));
+    const supported = getSupportedExchanges(connected.map(c => c.name));
 
     // Merge supported and connected for easy frontend use
     const mergedExchanges = supported.map(ex => ({
@@ -97,6 +97,7 @@ router.get('/exchanges', requireAuth, async (req, res) => {
       exchanges: mergedExchanges
     });
   } catch (error) {
+    console.error('[BotRoutes] Error loading exchanges:', error);
     return fail(res, 500, error.message);
   }
 });
@@ -354,6 +355,46 @@ router.post('/:id/stop', requireAuth, async (req, res) => {
   }
 });
 
+// Take All IN / Panic Sell (Emergency 1-click liquidation)
+router.post('/:id/panic-sell', requireAuth, async (req, res) => {
+  try {
+    const engine = await getBotEngine();
+    if (!engine) {
+      return fail(res, 500, 'Bot Engine not available');
+    }
+
+    const { reason } = req.body;
+    const result = await engine.panicSellBot(req.params.id, reason || 'Take All IN / 1-Click Liquidation');
+
+    return ok(res, {
+      result,
+      message: `Take All IN executed successfully! Sold ${result.soldQuantity} ${result.symbol} for $${result.receivedAmount.toFixed(2)}.`
+    });
+  } catch (error) {
+    return fail(res, 400, error.message);
+  }
+});
+
+// Take All IN alias
+router.post('/:id/take-all-in', requireAuth, async (req, res) => {
+  try {
+    const engine = await getBotEngine();
+    if (!engine) {
+      return fail(res, 500, 'Bot Engine not available');
+    }
+
+    const { reason } = req.body;
+    const result = await engine.panicSellBot(req.params.id, reason || 'Take All IN / 1-Click Liquidation');
+
+    return ok(res, {
+      result,
+      message: `Take All IN executed successfully! Sold ${result.soldQuantity} ${result.symbol} for $${result.receivedAmount.toFixed(2)}.`
+    });
+  } catch (error) {
+    return fail(res, 400, error.message);
+  }
+});
+
 // Pause bot
 router.post('/:id/pause', requireAuth, async (req, res) => {
   try {
@@ -534,6 +575,48 @@ router.post('/ai-suggest', requireAuth, async (req, res) => {
         break;
       }
 
+      case 'PRECISION_GRID': {
+        const pGridRange = maxPrice - minPrice;
+        const pGridLower = currentPrice - pGridRange * 0.3;
+        const pGridUpper = currentPrice + pGridRange * 0.3;
+        const pGridCount = volatility > 3 ? 20 : volatility > 1.5 ? 15 : 10;
+        const pGridSpacing = (pGridUpper - pGridLower) / pGridCount;
+        const pTolerance = Number((Math.min(pGridSpacing * 0.20, currentPrice < 1.0 ? 0.0009 : currentPrice < 100 ? 0.05 : 1.0)).toFixed(6));
+
+        suggestedParams = {
+          lowerPrice: Number(pGridLower.toFixed(6)),
+          upperPrice: Number(pGridUpper.toFixed(6)),
+          gridCount: pGridCount,
+          totalInvestment: 100,
+          priceTolerance: pTolerance,
+          toleranceDigits: currentPrice < 1.0 ? 4 : 2,
+          executionMode: 'MARKET_ON_TOUCH',
+          maxBuysPerLevel: 1,
+        };
+        reasoning = `Based on current price ($${currentPrice.toFixed(4)}) and ${volatility.toFixed(1)}% volatility, suggesting Precision Grid with ±$${pTolerance} tolerance corridor to prevent stranded limit orders.`;
+        break;
+      }
+
+      case 'JARVIS': {
+        const incGridRange = maxPrice - minPrice;
+        const incGridLower = currentPrice - incGridRange * 0.3;
+        const incGridUpper = currentPrice + incGridRange * 0.3;
+        const incGridCount = 3;
+        const incStepSpace = Number(((incGridUpper - incGridLower) / incGridCount).toFixed(6));
+
+        suggestedParams = {
+          lowerPrice: Number(incGridLower.toFixed(6)),
+          upperPrice: Number(incGridUpper.toFixed(6)),
+          gridCount: 3,
+          totalInvestment: 100,
+          incrementStepSpace: incStepSpace,
+          autoIncrementEnabled: true,
+          maxBuysPerLevel: 1,
+        };
+        reasoning = `Based on current price ($${currentPrice.toFixed(4)}) and ${volatility.toFixed(1)}% volatility, suggesting JARVIS 3-Grid Progressive Bot with 75%/25% staged entry, 70% harvest, and dynamic midpoint Inter-Grid SL.`;
+        break;
+      }
+
       case 'DCA': {
         const dcaInterval = trend === 'bearish' ? 'every_4h' : 'daily';
         suggestedParams = {
@@ -648,6 +731,22 @@ router.post('/ai-suggest', requireAuth, async (req, res) => {
 
 router.get('/strategies', requireAuth, async (req, res) => {
   const strategies = [
+    {
+      type: 'JARVIS',
+      name: 'JARVIS Bot',
+      description: 'Autonomous upper-expanding AI grid bot. When market price surges and reaches the upper price, it automatically increases its upper price boundary (current price + Grid Step Space) and resumes active trading without stalling.',
+      risk: 'medium',
+      requiredParams: ['lowerPrice', 'upperPrice', 'gridCount', 'totalInvestment'],
+      optionalParams: ['autoIncrementEnabled', 'incrementStepSpace', 'maxBuysPerLevel', 'stopLoss'],
+    },
+    {
+      type: 'PRECISION_GRID',
+      name: 'Precision Grid Bot',
+      description: 'High-precision tolerance corridor grid bot. Eliminates slow execution & missed fills by executing instant market fills when price touches the decimal corridor (e.g. 0.5820 - 0.5829).',
+      risk: 'medium',
+      requiredParams: ['lowerPrice', 'upperPrice', 'gridCount', 'totalInvestment'],
+      optionalParams: ['priceTolerance', 'toleranceDigits', 'executionMode', 'maxBuysPerLevel', 'stopLoss', 'takeProfit'],
+    },
     {
       type: 'GRID',
       name: 'Grid Trading Bot',

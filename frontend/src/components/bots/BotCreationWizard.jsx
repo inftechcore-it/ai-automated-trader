@@ -5,6 +5,8 @@ import {
   AlertTriangle, Info, Search, Zap, FlaskConical, Wallet, BookOpen, ShieldCheck, CheckCircle2, TrendingUp, TrendingDown
 } from 'lucide-react';
 import GridBotForm from './forms/GridBotForm.jsx';
+import PrecisionGridForm from './forms/PrecisionGridForm.jsx';
+import JarvisForm from './forms/JarvisForm.jsx';
 import DCABotForm from './forms/DCABotForm.jsx';
 import SmartTradeForm from './forms/SmartTradeForm.jsx';
 import TrailingBotForm from './forms/TrailingBotForm.jsx';
@@ -20,6 +22,23 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGIES = [
+  {
+    type: 'JARVIS',
+    name: 'JARVIS Bot',
+    icon: TrendingUp,
+    description: '3-Grid progressive capital engine. 75%/25% staged entry, 70% harvest, midpoint Inter-Grid SL & runner surges.',
+    difficulty: 'Intermediate',
+    color: '#06b6d4',
+    featured: true,
+  },
+  {
+    type: 'PRECISION_GRID',
+    name: 'Precision Grid',
+    icon: Zap,
+    description: 'Decimal tolerance corridor grid. Eliminates stranded orders with instant market fills on touch.',
+    difficulty: 'Intermediate',
+    color: '#0ea5e9',
+  },
   {
     type: 'GRID',
     name: 'Grid Bot',
@@ -238,18 +257,36 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
   const loadExchanges = async () => {
     try {
-      // Get connected and supported exchanges from endpoint
-      const res = await api('/bots/exchanges');
+      // Get connected and supported exchanges from endpoints
+      const [res, brokerRes] = await Promise.all([
+        api('/bots/exchanges').catch(() => null),
+        api('/brokers/status').catch(() => null),
+      ]);
 
-      if (res.success && res.exchanges && res.exchanges.length > 0) {
-        const apiExchanges = res.exchanges.map(ex => ({
-          name: ex.name,
-          label: ex.label || ex.name,
-          type: ex.type || 'crypto',
-          isDemo: false,
-          isConnected: !!ex.isConnected,
-          tradingEnabled: !!ex.tradingEnabled
-        }));
+      const connectedSet = new Set();
+
+      if (res?.success && Array.isArray(res.connected)) {
+        res.connected.forEach(c => connectedSet.add((c.name || '').toLowerCase()));
+      }
+      if (brokerRes?.success && Array.isArray(brokerRes.connectedBrokers)) {
+        brokerRes.connectedBrokers.forEach(b => connectedSet.add((b.exchange || '').toLowerCase()));
+      }
+      if (brokerRes?.success && Array.isArray(brokerRes.exchanges)) {
+        brokerRes.exchanges.filter(e => e.connected).forEach(e => connectedSet.add((e.name || '').toLowerCase()));
+      }
+
+      if (res?.success && res.exchanges && res.exchanges.length > 0) {
+        const apiExchanges = res.exchanges.map(ex => {
+          const isConn = connectedSet.has((ex.name || '').toLowerCase()) || !!ex.isConnected;
+          return {
+            name: ex.name,
+            label: ex.label || ex.name,
+            type: ex.type || 'crypto',
+            isDemo: false,
+            isConnected: isConn,
+            tradingEnabled: isConn || !!ex.tradingEnabled
+          };
+        });
 
         const merged = [
           { name: 'Demo', label: 'Demo Exchange', isDemo: true, isConnected: true },
@@ -267,7 +304,10 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
         setExchanges(unique);
       } else {
-        setExchanges(DEFAULT_SUPPORTED_EXCHANGES);
+        setExchanges(DEFAULT_SUPPORTED_EXCHANGES.map(ex => ({
+          ...ex,
+          isConnected: ex.isDemo || connectedSet.has((ex.name || '').toLowerCase())
+        })));
       }
     } catch (e) {
       console.error('Failed to load exchanges:', e);
@@ -391,6 +431,10 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
 
   const renderStrategyForm = () => {
     switch (config.strategyType) {
+      case 'JARVIS':
+        return <JarvisForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
+      case 'PRECISION_GRID':
+        return <PrecisionGridForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
       case 'GRID':
         return <GridBotForm params={config.params} onChange={p => setConfig(c => ({ ...c, params: p }))} symbolInfo={symbolInfo} />;
       case 'INFINITY_GRID':

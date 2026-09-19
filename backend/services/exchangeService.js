@@ -16,154 +16,69 @@ let binanceSymbolsCache = null;
 let binanceSymbolsCacheTime = 0;
 const BINANCE_CACHE_TTL = 30 * 60 * 1000; // 30 min
 
-const connectedBrokers = new Map();
+export function getSupportedExchanges(userConnectedExchanges = []) {
+  const connectedSet = new Set(userConnectedExchanges.map(e => (e || '').toLowerCase()));
 
-// Auto-connect exchanges from environment variables on module load
-function autoConnectFromEnv() {
-  // Binance
-  if (env.binance?.apiKey && env.binance?.apiSecret) {
-    connectedBrokers.set('binance', {
-      apiKey: env.binance.apiKey,
-      apiSecret: env.binance.apiSecret,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Binance from environment');
-  }
-
-  // Bybit
-  if (env.bybit?.apiKey && env.bybit?.apiSecret) {
-    connectedBrokers.set('bybit', {
-      apiKey: env.bybit.apiKey,
-      apiSecret: env.bybit.apiSecret,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Bybit from environment');
-  }
-
-  // Kraken
-  if (env.kraken?.apiKey && env.kraken?.apiSecret) {
-    connectedBrokers.set('kraken', {
-      apiKey: env.kraken.apiKey,
-      apiSecret: env.kraken.apiSecret,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Kraken from environment');
-  }
-
-  // Pionex
-  if (env.pionex?.apiKey && env.pionex?.apiSecret) {
-    connectedBrokers.set('pionex', {
-      apiKey: env.pionex.apiKey,
-      apiSecret: env.pionex.apiSecret,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Pionex from environment');
-  }
-
-  // Jupiter (Solana DEX Aggregator)
-  if (env.jupiter?.apiKey) {
-    jupiterAdapter.setCredentials(env.jupiter.apiKey, env.jupiter.rpcUrl, env.jupiter.privateKey);
-    connectedBrokers.set('jupiter', {
-      apiKey: env.jupiter.apiKey,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Jupiter DEX from environment');
-  }
-
-  // Angel One SmartAPI (Indian Stocks - NSE/BSE)
-  if (env.angelone?.apiKey) {
-    angeloneAdapter.setCredentials(
-      env.angelone.apiKey,
-      env.angelone.clientCode,
-      env.angelone.password,
-      env.angelone.totpSecret,
-      env.angelone.jwtToken,
-      env.angelone.feedToken
-    );
-    connectedBrokers.set('angelone', {
-      apiKey: env.angelone.apiKey,
-      clientCode: env.angelone.clientCode,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Angel One SmartAPI from environment');
-  }
-
-  // Alpaca (US Stocks)
-  if (env.alpaca?.apiKey && env.alpaca?.apiSecret) {
-    alpacaAdapter.setCredentials(env.alpaca.apiKey, env.alpaca.apiSecret, env.alpaca.paperMode);
-    connectedBrokers.set('alpaca', {
-      apiKey: env.alpaca.apiKey,
-      apiSecret: env.alpaca.apiSecret,
-      paperMode: env.alpaca.paperMode,
-      source: 'env'
-    });
-    console.log('[Exchange] Auto-connected Alpaca from environment (paper:', env.alpaca.paperMode, ')');
-  }
-}
-
-// Run auto-connect on module load
-autoConnectFromEnv();
-
-export function getSupportedExchanges() {
   return [
-    { name: 'Binance', type: 'crypto', description: 'Crypto spot trading', live: true, tradingEnabled: connectedBrokers.has('binance') },
-    { name: 'Pionex', type: 'crypto', description: 'Crypto trading with built-in bots', live: true, tradingEnabled: connectedBrokers.has('pionex') },
-    { name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator (Swaps, Limit, DCA)', live: true, tradingEnabled: jupiterAdapter.isConfigured() || connectedBrokers.has('jupiter') },
-    { name: 'AngelOne', type: 'stock', description: 'Indian stocks via Angel One SmartAPI', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured() || connectedBrokers.has('angelone') },
-    { name: 'Bybit', type: 'crypto', description: 'Crypto derivatives & spot', live: true, tradingEnabled: connectedBrokers.has('bybit') },
-    { name: 'Kraken', type: 'crypto', description: 'Crypto trading', live: true, tradingEnabled: connectedBrokers.has('kraken') },
+    { name: 'Binance', type: 'crypto', description: 'Crypto spot trading', live: true, tradingEnabled: connectedSet.has('binance') },
+    { name: 'Pionex', type: 'crypto', description: 'Crypto trading with built-in bots', live: true, tradingEnabled: connectedSet.has('pionex') },
+    { name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator (Swaps, Limit, DCA)', live: true, tradingEnabled: connectedSet.has('jupiter') },
+    { name: 'AngelOne', type: 'stock', description: 'Indian stocks via Angel One SmartAPI', live: true, tradingEnabled: connectedSet.has('angelone') },
+    { name: 'Bybit', type: 'crypto', description: 'Crypto derivatives & spot', live: true, tradingEnabled: connectedSet.has('bybit') },
+    { name: 'Kraken', type: 'crypto', description: 'Crypto trading', live: true, tradingEnabled: connectedSet.has('kraken') },
     { name: 'Coinbase', type: 'crypto', description: 'Crypto brokerage', live: false, tradingEnabled: false },
-    { name: 'NASDAQ', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: alpacaAdapter.isConfigured() || connectedBrokers.has('alpaca') },
-    { name: 'NYSE', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: alpacaAdapter.isConfigured() || connectedBrokers.has('alpaca') },
-    { name: 'NSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || upstoxAdapter.isAuthenticated() },
-    { name: 'BSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: angeloneAdapter.isAuthenticated() || upstoxAdapter.isAuthenticated() }
+    { name: 'NASDAQ', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: connectedSet.has('alpaca') || connectedSet.has('nasdaq') },
+    { name: 'NYSE', type: 'stock', description: 'US stocks via Alpaca', live: true, tradingEnabled: connectedSet.has('alpaca') || connectedSet.has('nyse') },
+    { name: 'NSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: connectedSet.has('angelone') || connectedSet.has('upstox') },
+    { name: 'BSE', type: 'stock', description: 'Indian stocks via Angel One / Upstox', live: true, tradingEnabled: connectedSet.has('angelone') || connectedSet.has('upstox') }
   ];
 }
 
-// Get only the exchanges that are connected and ready for trading
-export function getConnectedExchanges() {
+// Get only the exchanges that are connected and ready for trading for a specific user
+export async function getConnectedExchanges(userId) {
+  if (!userId) return [];
+
+  const rows = await query(
+    `SELECT exchange_name, exchange_type, paper_mode
+     FROM exchange_accounts WHERE user_id = :userId AND is_active = 1`,
+    { userId }
+  );
+
+  const oldRows = await query(
+    `SELECT exchange_name FROM exchange_connections WHERE user_id = :userId AND is_active = 1`,
+    { userId }
+  ).catch(() => []);
+
+  const seen = new Set();
   const connected = [];
 
-  if (connectedBrokers.has('binance')) {
-    connected.push({ name: 'Binance', type: 'crypto', isActive: true });
+  for (const r of (rows || [])) {
+    const nameLower = (r.exchange_name || '').toLowerCase();
+    if (nameLower && !seen.has(nameLower)) {
+      seen.add(nameLower);
+      connected.push({
+        name: r.exchange_name,
+        type: r.exchange_type || 'crypto',
+        paperMode: !!r.paper_mode,
+        isActive: true
+      });
+    }
   }
-  if (connectedBrokers.has('pionex')) {
-    connected.push({ name: 'Pionex', type: 'crypto', isActive: true });
-  }
-  if (connectedBrokers.has('jupiter') || jupiterAdapter.isConfigured()) {
-    connected.push({ name: 'Jupiter', type: 'dex', isActive: true, markets: ['SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC'] });
-  }
-  if (connectedBrokers.has('angelone') || angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
-    connected.push({ name: 'AngelOne', type: 'stock', isActive: true, markets: ['NSE', 'BSE'] });
-  }
-  if (connectedBrokers.has('bybit')) {
-    connected.push({ name: 'Bybit', type: 'crypto', isActive: true });
-  }
-  if (connectedBrokers.has('kraken')) {
-    connected.push({ name: 'Kraken', type: 'crypto', isActive: true });
-  }
-  if (connectedBrokers.has('alpaca') || alpacaAdapter.isConfigured()) {
-    connected.push({ name: 'Alpaca', type: 'stock', isActive: true, markets: ['NASDAQ', 'NYSE'] });
-  }
-  if (upstoxAdapter.isAuthenticated()) {
-    connected.push({ name: 'Upstox', type: 'stock', isActive: true, markets: ['NSE', 'BSE'] });
+
+  for (const r of (oldRows || [])) {
+    const nameLower = (r.exchange_name || '').toLowerCase();
+    if (nameLower && !seen.has(nameLower)) {
+      seen.add(nameLower);
+      connected.push({
+        name: r.exchange_name,
+        type: 'crypto',
+        paperMode: false,
+        isActive: true
+      });
+    }
   }
 
   return connected;
-}
-
-export function connectBroker(exchangeName, credentials) {
-  const name = exchangeName.toLowerCase();
-  connectedBrokers.set(name, credentials);
-  console.log(`[Broker] Connected: ${exchangeName}`);
-}
-
-export function disconnectBroker(exchangeName) {
-  connectedBrokers.delete(exchangeName.toLowerCase());
-}
-
-export function getBrokerCredentials(exchangeName) {
-  return connectedBrokers.get(exchangeName.toLowerCase());
 }
 
 export const supportedExchanges = getSupportedExchanges();
@@ -186,15 +101,9 @@ function getAdapter(exchange, symbol) {
   if (exLower === 'angelone') {
     return angeloneAdapter;
   }
-  // Indian exchanges - prefer Angel One or Upstox if authenticated, fallback to Yahoo
+  // Indian exchanges - use Yahoo for public quotes if not authenticated
   if (['nse', 'bse'].includes(exLower)) {
-    if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
-      return angeloneAdapter;
-    }
-    if (upstoxAdapter.isAuthenticated()) {
-      return upstoxAdapter;
-    }
-    return yahooAdapter; // Free live data
+    return yahooAdapter;
   }
   // US exchanges - use Yahoo Finance (free, no rate limits)
   if (['nasdaq', 'nyse'].includes(exLower)) {
@@ -241,174 +150,113 @@ export async function getHistory(symbol, exchange = 'Binance', interval = '1h', 
 }
 
 async function getCachedBinanceSymbols() {
-  // Return cache if valid
   if (binanceSymbolsCache && binanceSymbolsCache.length > 0 && Date.now() - binanceSymbolsCacheTime < BINANCE_CACHE_TTL) {
-    console.log(`[Binance] Using cached ${binanceSymbolsCache.length} symbols`);
     return binanceSymbolsCache;
   }
-
-  console.log('[Binance] Fetching fresh symbols from API...');
 
   try {
-    // Use native fetch instead of dynamic axios import
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch('https://api.binance.com/api/v3/exchangeInfo', {
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`Binance API error: ${response.status}`);
+    const symbols = await binanceAdapter.ensureSymbolsCache();
+    if (symbols && symbols.length > 0) {
+      binanceSymbolsCache = symbols;
+      binanceSymbolsCacheTime = Date.now();
+      return symbols;
     }
-
-    const data = await response.json();
-    console.log(`[Binance] API returned ${data.symbols?.length || 0} total symbols`);
-
-    binanceSymbolsCache = data.symbols
-      .filter(s => s.status === 'TRADING' && s.quoteAsset === 'USDT')
-      .map(s => ({
-        symbol: `${s.baseAsset}/${s.quoteAsset}`,
-        exchange: 'Binance',
-        name: s.baseAsset,
-        baseAsset: s.baseAsset,
-        quoteAsset: s.quoteAsset
-      }));
-    binanceSymbolsCacheTime = Date.now();
-    console.log(`[Binance] Cached ${binanceSymbolsCache.length} USDT trading pairs`);
-    return binanceSymbolsCache;
-  } catch (err) {
-    console.error('[Binance] Failed to fetch symbols:', err.message);
-    // Return empty array but DON'T cache it - so next request will retry
-    return binanceSymbolsCache || [];
+  } catch (e) {
+    console.warn('[Binance] Symbol fetch failed, fallback to defaults');
   }
+
+  return binanceAdapter.POPULAR_BINANCE_SYMBOLS;
 }
 
-export async function searchSymbols(q = '', exchange = null) {
-  if (!q.trim()) return [];
-
-  const cacheKey = `search:${exchange || 'all'}:${q.toLowerCase()}`;
+export async function searchSymbols(query = '', exchange = null) {
+  const cacheKey = `search:${exchange || 'all'}:${query}`;
   const cached = cache.get(cacheKey);
-  if (cached && cached.length > 0) return cached; // Only use cache if it has results
+  if (cached) return cached;
 
   const results = [];
-  const exLower = exchange?.toLowerCase();
-  const needle = q.toLowerCase();
+  const q = (query || '').toLowerCase();
 
-  console.log(`[Search] query="${q}" exchange="${exchange}"`);
+  // If specific exchange requested
+  if (exchange) {
+    const exLower = exchange.toLowerCase();
 
-  // Stock exchanges - use Yahoo Finance (fast, no auth needed)
-  if (['nse', 'bse', 'nasdaq', 'nyse', 'alpaca'].includes(exLower)) {
-    try {
-      const yahooResults = await yahooAdapter.searchSymbols(q, exchange.toUpperCase());
-      results.push(...yahooResults);
-    } catch (err) {
-      console.error('[Yahoo] Search error:', err.message);
-      // Fallback to demo
-      const demoResults = await demoAdapter.searchSymbols(q, exchange);
-      results.push(...demoResults);
-    }
-
-    if (results.length > 0) {
-      cache.set(cacheKey, results, 2 * 60 * 1000); // 2 min cache
-    }
-    return results.slice(0, 30);
-  }
-
-  // Crypto exchanges - use Binance symbols as source (most comprehensive)
-  const cryptoExchanges = ['binance', 'pionex', 'bybit', 'kraken', 'okx', 'kucoin', 'gate'];
-
-  if (!exchange || cryptoExchanges.includes(exLower)) {
-    try {
-      console.log('[Search] Fetching Binance symbols...');
-      const allSymbols = await getCachedBinanceSymbols();
-      console.log(`[Search] Got ${allSymbols.length} Binance symbols`);
-
-      if (allSymbols.length === 0) {
-        console.log('[Search] WARNING: No symbols cached, returning fallback');
-        // Comprehensive fallback for major coins
-        const fallbackSymbols = [
-          // Top coins
-          { symbol: 'BTC/USDT', name: 'Bitcoin', baseAsset: 'BTC', quoteAsset: 'USDT' },
-          { symbol: 'ETH/USDT', name: 'Ethereum', baseAsset: 'ETH', quoteAsset: 'USDT' },
-          { symbol: 'BNB/USDT', name: 'BNB', baseAsset: 'BNB', quoteAsset: 'USDT' },
-          { symbol: 'SOL/USDT', name: 'Solana', baseAsset: 'SOL', quoteAsset: 'USDT' },
-          { symbol: 'XRP/USDT', name: 'XRP', baseAsset: 'XRP', quoteAsset: 'USDT' },
-          { symbol: 'DOGE/USDT', name: 'Dogecoin', baseAsset: 'DOGE', quoteAsset: 'USDT' },
-          { symbol: 'ADA/USDT', name: 'Cardano', baseAsset: 'ADA', quoteAsset: 'USDT' },
-          { symbol: 'AVAX/USDT', name: 'Avalanche', baseAsset: 'AVAX', quoteAsset: 'USDT' },
-          { symbol: 'SHIB/USDT', name: 'Shiba Inu', baseAsset: 'SHIB', quoteAsset: 'USDT' },
-          { symbol: 'DOT/USDT', name: 'Polkadot', baseAsset: 'DOT', quoteAsset: 'USDT' },
-          { symbol: 'MATIC/USDT', name: 'Polygon', baseAsset: 'MATIC', quoteAsset: 'USDT' },
-          { symbol: 'LTC/USDT', name: 'Litecoin', baseAsset: 'LTC', quoteAsset: 'USDT' },
-          { symbol: 'LINK/USDT', name: 'Chainlink', baseAsset: 'LINK', quoteAsset: 'USDT' },
-          { symbol: 'UNI/USDT', name: 'Uniswap', baseAsset: 'UNI', quoteAsset: 'USDT' },
-          { symbol: 'ATOM/USDT', name: 'Cosmos', baseAsset: 'ATOM', quoteAsset: 'USDT' },
-          { symbol: 'XLM/USDT', name: 'Stellar', baseAsset: 'XLM', quoteAsset: 'USDT' },
-          { symbol: 'ETC/USDT', name: 'Ethereum Classic', baseAsset: 'ETC', quoteAsset: 'USDT' },
-          { symbol: 'FIL/USDT', name: 'Filecoin', baseAsset: 'FIL', quoteAsset: 'USDT' },
-          { symbol: 'TRX/USDT', name: 'TRON', baseAsset: 'TRX', quoteAsset: 'USDT' },
-          { symbol: 'NEAR/USDT', name: 'NEAR Protocol', baseAsset: 'NEAR', quoteAsset: 'USDT' },
-          { symbol: 'APT/USDT', name: 'Aptos', baseAsset: 'APT', quoteAsset: 'USDT' },
-          { symbol: 'ARB/USDT', name: 'Arbitrum', baseAsset: 'ARB', quoteAsset: 'USDT' },
-          { symbol: 'OP/USDT', name: 'Optimism', baseAsset: 'OP', quoteAsset: 'USDT' },
-          { symbol: 'INJ/USDT', name: 'Injective', baseAsset: 'INJ', quoteAsset: 'USDT' },
-          { symbol: 'SUI/USDT', name: 'Sui', baseAsset: 'SUI', quoteAsset: 'USDT' },
-          { symbol: 'PEPE/USDT', name: 'Pepe', baseAsset: 'PEPE', quoteAsset: 'USDT' },
-          // USDT pairs with other quote assets
-          { symbol: 'USDT/USD', name: 'Tether', baseAsset: 'USDT', quoteAsset: 'USD' },
-          { symbol: 'USDC/USDT', name: 'USD Coin', baseAsset: 'USDC', quoteAsset: 'USDT' },
-          { symbol: 'BUSD/USDT', name: 'Binance USD', baseAsset: 'BUSD', quoteAsset: 'USDT' },
-        ].filter(s =>
-          s.symbol.toLowerCase().includes(needle) ||
-          s.baseAsset.toLowerCase().includes(needle) ||
-          s.name.toLowerCase().includes(needle)
-        );
-        results.push(...fallbackSymbols.map(s => ({ ...s, exchange: exchange || 'Binance' })));
-      } else {
-        const filtered = allSymbols
-          .filter(s => s.symbol.toLowerCase().includes(needle) || s.baseAsset.toLowerCase().includes(needle))
-          .slice(0, 20)
-          .map(s => ({
-            ...s,
-            exchange: exchange || 'Binance' // Use the requested exchange name
-          }));
-        console.log(`[Search] Filtered to ${filtered.length} matches`);
-        results.push(...filtered);
+    if (exLower === 'binance') {
+      try {
+        const symbols = await binanceAdapter.searchSymbols(query);
+        cache.set(cacheKey, symbols.slice(0, 30), 5 * 60 * 1000);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        console.warn('[exchangeService] Binance symbol search error:', e.message);
       }
-    } catch (err) {
-      console.error('[Crypto] Search error:', err.message, err.stack);
+    }
+
+    if (exLower === 'pionex') {
+      try {
+        const symbols = await pionexAdapter.searchSymbols(query);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    if (exLower === 'kraken') {
+      try {
+        const symbols = await krakenAdapter.searchSymbols(query);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    if (exLower === 'jupiter') {
+      try {
+        const symbols = await jupiterAdapter.searchSymbols(query);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    if (exLower === 'angelone' || ['nse', 'bse'].includes(exLower)) {
+      try {
+        const symbols = await angeloneAdapter.searchSymbols(query, exchange.toUpperCase());
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    if (['nasdaq', 'nyse', 'alpaca'].includes(exLower)) {
+      try {
+        const symbols = await yahooAdapter.searchSymbols(query);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
     }
   }
 
-  // Kraken-specific search
-  if (!exchange || exLower === 'kraken') {
-    try {
-      const krakenResults = await krakenAdapter.searchSymbols(q);
-      for (const kr of krakenResults) {
-        if (!results.find(r => r.symbol === kr.symbol)) {
-          results.push(kr);
-        }
-      }
-    } catch (err) {
-      console.error('[Kraken] Search error:', err.message);
-    }
-  }
+  // Cross-exchange search
+  const [binanceSyms, pionexSyms, jupiterSyms] = await Promise.all([
+    binanceAdapter.searchSymbols(query).catch(() => []),
+    pionexAdapter.searchSymbols(query).catch(() => []),
+    jupiterAdapter.searchSymbols(query).catch(() => [])
+  ]);
+
+  results.push(...binanceSyms.slice(0, 15));
+  results.push(...pionexSyms.slice(0, 10));
+  results.push(...jupiterSyms.slice(0, 10));
 
   const unique = [];
   const seen = new Set();
   for (const item of results) {
-    const key = item.symbol;
+    const key = `${item.exchange}:${item.symbol}`;
     if (!seen.has(key)) {
       seen.add(key);
       unique.push(item);
     }
   }
 
-  console.log(`[Search] Returning ${unique.length} results`);
-
-  // Only cache if we have results
   if (unique.length > 0) {
     cache.set(cacheKey, unique, 2 * 60 * 1000);
   }
@@ -419,10 +267,14 @@ export async function placeLiveOrder(orderParams) {
   const { userId, symbol, exchange, side, orderType, quantity, price, stopPrice, broker } = orderParams;
   const exLower = exchange?.toLowerCase();
 
+  if (!userId) {
+    throw createError('User ID required for live order placement', 400, 'USER_REQUIRED');
+  }
+
   // Crypto exchanges
   if (exLower === 'binance') {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
-    if (!creds) throw createError('Binance not connected. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Binance not connected for your account. Please add your API keys in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
 
     return binanceAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
       symbol, side, orderType: mapOrderType(orderType, 'binance'), quantity, price, stopPrice
@@ -431,7 +283,7 @@ export async function placeLiveOrder(orderParams) {
 
   if (exLower === 'kraken') {
     const creds = await getUserBrokerCredentials(userId, 'Kraken');
-    if (!creds) throw createError('Kraken not connected. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Kraken not connected for your account. Please add your API keys in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
 
     return krakenAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
       symbol, side, orderType, quantity, price, stopPrice
@@ -440,7 +292,7 @@ export async function placeLiveOrder(orderParams) {
 
   if (exLower === 'pionex') {
     const creds = await getUserBrokerCredentials(userId, 'Pionex');
-    if (!creds) throw createError('Pionex not connected. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Pionex not connected for your account. Please add your API keys in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
 
     return pionexAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
       symbol, side, orderType: mapOrderType(orderType, 'pionex'), quantity, price
@@ -449,23 +301,25 @@ export async function placeLiveOrder(orderParams) {
 
   // Jupiter (Solana DEX)
   if (exLower === 'jupiter') {
+    const creds = await getUserBrokerCredentials(userId, 'Jupiter');
+    if (!creds || !creds.privateKey) {
+      throw createError('Jupiter not connected. Please configure your Solana Private Key in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
+    }
     return jupiterAdapter.placeOrder({
       symbol,
       side,
       orderType,
       quantity,
-      price
-    });
+      price,
+      dryRun: false
+    }, creds.privateKey, creds.rpcUrl);
   }
 
   // Angel One SmartAPI
   if (exLower === 'angelone') {
     const creds = await getUserBrokerCredentials(userId, 'AngelOne');
-    if (creds) {
-      angeloneAdapter.setCredentials(creds.apiKey, creds.clientCode || creds.apiSecret, creds.password, creds.totpSecret);
-    }
-    if (!angeloneAdapter.isAuthenticated() && !angeloneAdapter.isConfigured()) {
-      throw createError('Angel One not connected. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) {
+      throw createError('Angel One not connected for your account. Please add your API credentials in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
     }
 
     return angeloneAdapter.placeOrder({
@@ -476,20 +330,16 @@ export async function placeLiveOrder(orderParams) {
       price: price || 0,
       quantity,
       exchange: 'NSE'
-    });
+    }, creds);
   }
 
-  // Indian stock exchanges
+  // Indian stock exchanges (NSE/BSE)
   if (['nse', 'bse'].includes(exLower)) {
-    const brokerChoice = (orderParams.broker || '').toLowerCase();
+    const brokerChoice = (broker || '').toLowerCase();
 
-    // Prefer Angel One if specified or if authenticated/configured
-    if (brokerChoice === 'angelone' || (!brokerChoice && (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()))) {
+    if (brokerChoice === 'angelone' || !brokerChoice) {
       const creds = await getUserBrokerCredentials(userId, 'AngelOne');
       if (creds) {
-        angeloneAdapter.setCredentials(creds.apiKey, creds.clientCode, creds.password, creds.totpSecret);
-      }
-      if (angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured()) {
         return angeloneAdapter.placeOrder({
           symbol,
           transactionType: side.toUpperCase(),
@@ -498,33 +348,32 @@ export async function placeLiveOrder(orderParams) {
           price: price || 0,
           quantity,
           exchange: exchange.toUpperCase()
-        });
+        }, creds);
       }
     }
 
-    // Upstox execution
-    if (brokerChoice === 'upstox' || (!brokerChoice && upstoxAdapter.isAuthenticated())) {
-      if (!upstoxAdapter.isAuthenticated()) {
-        throw createError('Upstox not connected. Please authenticate your Upstox account.', 401, 'BROKER_NOT_CONNECTED');
+    if (brokerChoice === 'upstox' || !brokerChoice) {
+      const creds = await getUserBrokerCredentials(userId, 'Upstox');
+      if (creds && creds.apiSecret) {
+        return upstoxAdapter.placeOrder({
+          symbol, side, orderType, quantity, price, stopPrice, exchange: exchange.toUpperCase()
+        }, creds.apiSecret);
       }
-
-      return upstoxAdapter.placeOrder({
-        symbol, side, orderType, quantity, price, stopPrice, exchange: exchange.toUpperCase()
-      });
     }
 
-    throw createError('No Indian broker connected (Angel One or Upstox required).', 401, 'BROKER_NOT_CONNECTED');
+    throw createError('No Indian broker connected for your account (Angel One or Upstox required).', 401, 'BROKER_NOT_CONNECTED');
   }
 
   // US stock exchanges
   if (['nasdaq', 'nyse'].includes(exLower)) {
-    if (!alpacaAdapter.isConfigured()) {
-      throw createError('Alpaca not configured. Add API credentials first.', 401, 'BROKER_NOT_CONNECTED');
+    const creds = await getUserBrokerCredentials(userId, 'Alpaca');
+    if (!creds) {
+      throw createError('Alpaca not connected for your account. Please add your API credentials in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
     }
 
     return alpacaAdapter.placeOrder({
       symbol, side, orderType, quantity, price, stopPrice
-    });
+    }, creds);
   }
 
   throw createError(`Live trading not supported for ${exchange}`, 400, 'EXCHANGE_NOT_SUPPORTED');
@@ -539,35 +388,40 @@ export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
 
   if (exLower === 'binance') {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
-    if (!creds) throw createError('Binance not connected', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Binance not connected for your account', 401, 'BROKER_NOT_CONNECTED');
     return binanceAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
   if (exLower === 'kraken') {
     const creds = await getUserBrokerCredentials(userId, 'Kraken');
-    if (!creds) throw createError('Kraken not connected', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Kraken not connected for your account', 401, 'BROKER_NOT_CONNECTED');
     return krakenAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
   if (exLower === 'pionex') {
     const creds = await getUserBrokerCredentials(userId, 'Pionex');
-    if (!creds) throw createError('Pionex not connected', 401, 'BROKER_NOT_CONNECTED');
+    if (!creds) throw createError('Pionex not connected for your account', 401, 'BROKER_NOT_CONNECTED');
     return pionexAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
   if (exLower === 'angelone') {
-    return angeloneAdapter.cancelOrder(orderId);
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (!creds) throw createError('Angel One not connected for your account', 401, 'BROKER_NOT_CONNECTED');
+    return angeloneAdapter.cancelOrder(orderId, 'NORMAL', creds);
   }
 
   if (['nse', 'bse'].includes(exLower)) {
-    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.cancelOrder(orderId);
-    if (!upstoxAdapter.isAuthenticated()) throw createError('Broker not connected', 401, 'BROKER_NOT_CONNECTED');
-    return upstoxAdapter.cancelOrder(orderId);
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (creds) return angeloneAdapter.cancelOrder(orderId, 'NORMAL', creds);
+    const upstoxCreds = await getUserBrokerCredentials(userId, 'Upstox');
+    if (upstoxCreds) return upstoxAdapter.cancelOrder(orderId, upstoxCreds.apiSecret);
+    throw createError('Broker not connected for your account', 401, 'BROKER_NOT_CONNECTED');
   }
 
   if (['nasdaq', 'nyse'].includes(exLower)) {
-    if (!alpacaAdapter.isConfigured()) throw createError('Alpaca not configured', 401, 'BROKER_NOT_CONNECTED');
-    return alpacaAdapter.cancelOrder(orderId);
+    const creds = await getUserBrokerCredentials(userId, 'Alpaca');
+    if (!creds) throw createError('Alpaca not connected for your account', 401, 'BROKER_NOT_CONNECTED');
+    return alpacaAdapter.cancelOrder(orderId, creds);
   }
 
   throw createError(`Exchange ${exchange} not supported`, 400, 'EXCHANGE_NOT_SUPPORTED');
@@ -577,7 +431,9 @@ export async function getLivePositions(userId, exchange) {
   const exLower = exchange?.toLowerCase();
 
   if (exLower === 'jupiter') {
-    return jupiterAdapter.getBalances();
+    const creds = await getUserBrokerCredentials(userId, 'Jupiter');
+    if (!creds || !creds.privateKey) return [];
+    return jupiterAdapter.getBalances(creds.privateKey, creds.rpcUrl);
   }
 
   if (exLower === 'binance') {
@@ -595,16 +451,22 @@ export async function getLivePositions(userId, exchange) {
   }
 
   if (exLower === 'angelone') {
-    return angeloneAdapter.getHoldings();
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (!creds) return [];
+    return angeloneAdapter.getHoldings(creds);
   }
 
   if (['nse', 'bse'].includes(exLower)) {
-    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.getHoldings();
-    if (upstoxAdapter.isAuthenticated()) return upstoxAdapter.getPositions();
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (creds) return angeloneAdapter.getHoldings(creds);
+    const upstoxCreds = await getUserBrokerCredentials(userId, 'Upstox');
+    if (upstoxCreds) return upstoxAdapter.getPositions(upstoxCreds.apiSecret);
   }
 
-  if (['nasdaq', 'nyse'].includes(exLower) && alpacaAdapter.isConfigured()) {
-    return alpacaAdapter.getPositions();
+  if (['nasdaq', 'nyse'].includes(exLower)) {
+    const creds = await getUserBrokerCredentials(userId, 'Alpaca');
+    if (!creds) return [];
+    return alpacaAdapter.getPositions(creds);
   }
 
   return [];
@@ -632,67 +494,78 @@ export async function getLiveOpenOrders(userId, exchange) {
   }
 
   if (exLower === 'angelone') {
-    return angeloneAdapter.getOrderBook();
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (!creds) return [];
+    return angeloneAdapter.getOrderBook(creds);
   }
 
   if (['nse', 'bse'].includes(exLower)) {
-    if (angeloneAdapter.isAuthenticated()) return angeloneAdapter.getOrderBook();
-    if (upstoxAdapter.isAuthenticated()) return upstoxAdapter.getOpenOrders();
+    const creds = await getUserBrokerCredentials(userId, 'AngelOne');
+    if (creds) return angeloneAdapter.getOrderBook(creds);
+    const upstoxCreds = await getUserBrokerCredentials(userId, 'Upstox');
+    if (upstoxCreds) return upstoxAdapter.getOpenOrders(upstoxCreds.apiSecret);
   }
 
-  if (exLower === 'kraken') {
-    const creds = await getUserBrokerCredentials(userId, 'Kraken');
+  if (['nasdaq', 'nyse'].includes(exLower)) {
+    const creds = await getUserBrokerCredentials(userId, 'Alpaca');
     if (!creds) return [];
-    return krakenAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
-  }
-
-  if (exLower === 'pionex') {
-    const creds = await getUserBrokerCredentials(userId, 'Pionex');
-    if (!creds) return [];
-    return pionexAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
-  }
-
-  if (['nse', 'bse'].includes(exLower) && upstoxAdapter.isAuthenticated()) {
-    return upstoxAdapter.getOpenOrders();
-  }
-
-  if (['nasdaq', 'nyse'].includes(exLower) && alpacaAdapter.isConfigured()) {
-    return alpacaAdapter.getOpenOrders();
+    return alpacaAdapter.getOpenOrders(creds);
   }
 
   return [];
 }
 
-async function getUserBrokerCredentials(userId, exchangeName) {
+export async function getUserBrokerCredentials(userId, exchangeName) {
+  if (!userId || !exchangeName) return null;
+
+  // 1. Check exchange_accounts table (active for this user)
   const [row] = await query(
-    'SELECT api_key, api_secret, additional_params FROM exchange_accounts WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName) AND is_active = 1',
+    'SELECT api_key, api_secret, additional_params, paper_mode FROM exchange_accounts WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName) AND is_active = 1',
     { userId, exchangeName }
   );
 
-  if (!row) {
-    const memoryCreds = getBrokerCredentials(exchangeName);
-    if (memoryCreds) return memoryCreds;
-    if (exchangeName.toLowerCase() === 'pionex') {
-      const pionexDef = pionexAdapter.getDefaultCredentials();
-      if (pionexDef) return pionexDef;
-    }
-    return null;
-  }
-  let additional = {};
-  try {
-    if (row.additional_params) {
-      additional = typeof row.additional_params === 'string' ? JSON.parse(row.additional_params) : row.additional_params;
-    }
-  } catch {}
+  if (row) {
+    let additional = {};
+    try {
+      if (row.additional_params) {
+        additional = typeof row.additional_params === 'string' ? JSON.parse(row.additional_params) : row.additional_params;
+      }
+    } catch {}
 
-  return {
-    apiKey: row.api_key,
-    apiSecret: row.api_secret,
-    clientCode: additional.clientCode || row.api_secret,
-    password: additional.password || '',
-    totpSecret: additional.totpSecret || '',
-    ...additional
-  };
+    return {
+      apiKey: row.api_key,
+      apiSecret: row.api_secret,
+      paperMode: !!row.paper_mode,
+      clientCode: additional.clientCode || row.api_secret,
+      password: additional.password || '',
+      totpSecret: additional.totpSecret || '',
+      privateKey: additional.privateKey || row.api_secret,
+      rpcUrl: additional.rpcUrl || '',
+      ...additional
+    };
+  }
+
+  // 2. Check exchange_connections table (encrypted)
+  const [conn] = await query(
+    'SELECT api_key_encrypted, api_secret_encrypted FROM exchange_connections WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName) AND is_active = 1',
+    { userId, exchangeName }
+  );
+
+  if (conn) {
+    try {
+      const { decrypt } = await import('../utils/encryption.js');
+      return {
+        apiKey: decrypt(conn.api_key_encrypted),
+        apiSecret: decrypt(conn.api_secret_encrypted),
+        paperMode: false
+      };
+    } catch (err) {
+      console.error('[Exchange] Decryption error:', err.message);
+    }
+  }
+
+  // STRICT: Do NOT return global credentials or environment variables for user actions!
+  return null;
 }
 
 function mapOrderType(orderType, exchange) {
@@ -723,3 +596,8 @@ function createError(message, status, code) {
   error.publicMessage = message;
   return error;
 }
+
+// Fallback compatibility exports
+export async function connectBroker() {}
+export async function disconnectBroker() {}
+

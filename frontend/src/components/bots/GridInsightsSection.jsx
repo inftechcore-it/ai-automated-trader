@@ -2,7 +2,8 @@ import { useState } from 'react';
 import {
   Grid3X3, Layers, DollarSign, TrendingUp, Shield, Target,
   Info, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertCircle,
-  HelpCircle, ChevronDown, ChevronUp, Zap, Coins, Calculator
+  HelpCircle, ChevronDown, ChevronUp, Zap, Coins, Calculator,
+  Sparkles, Crosshair, Infinity as InfinityIcon
 } from 'lucide-react';
 
 export default function GridInsightsSection({ bot }) {
@@ -24,56 +25,128 @@ export default function GridInsightsSection({ bot }) {
   const [baseAsset = 'COINS', quoteAsset = 'USDT'] = symbol.split('/');
 
   // ─────────────────────────────────────────────────────────────
-  // 1. GRID BOT / INFINITY GRID INSIGHTS
+  // 1. GRID BOT / JARVIS / PRECISION GRID / INFINITY GRID INSIGHTS
   // ─────────────────────────────────────────────────────────────
-  if (strategyType === 'GRID' || strategyType === 'INFINITY_GRID') {
-    const lowerPrice = Number(params.lowerPrice || bot.strategyStatus?.metrics?.lowerPrice || 0);
-    const upperPrice = Number(params.upperPrice || bot.strategyStatus?.metrics?.upperPrice || 0);
-    const gridCount = Number(params.gridCount || bot.strategyStatus?.metrics?.gridCount || 3);
+  const isGridBased = ['GRID', 'INFINITY_GRID', 'JARVIS', 'PRECISION_GRID'].includes(strategyType);
+
+  if (isGridBased) {
+    const lowerPrice = Number(bot.strategyStatus?.metrics?.lowerPrice || params.lowerPrice || 0);
+    const initialUpperPrice = Number(bot.strategyStatus?.metrics?.initialUpperPrice || params.upperPrice || 0);
+    const initialLowerPrice = Number(bot.strategyStatus?.metrics?.initialLowerPrice || params.lowerPrice || 0);
+    let upperPrice = Number(bot.strategyStatus?.metrics?.upperPrice || params.upperPrice || 0);
+    const upperPriceIncrementsCount = Number(bot.strategyStatus?.metrics?.upperPriceIncrementsCount || 0);
+    const gridCount = Number(params.gridCount || bot.strategyStatus?.metrics?.gridCount || 10);
     const totalInvestment = Number(params.totalInvestment || bot.investedAmount || bot.invested || 0);
     const maxBuysPerLevel = Number(params.maxBuysPerLevel || bot.strategyStatus?.metrics?.maxBuysPerLevel || 1);
     const stopLoss = Number(params.stopLoss || 0);
     const takeProfit = Number(params.takeProfit || 0);
+    const gridSpacingPercent = Number(params.gridSpacingPercent || 1);
+    const executionMode = params.executionMode || 'MARKET_ON_TOUCH';
 
-    // Current price from open orders, metrics, or current value estimation
+    // For Infinity Grid, derive upper price if not explicitly provided
+    if (strategyType === 'INFINITY_GRID' && (!upperPrice || upperPrice <= lowerPrice) && lowerPrice > 0) {
+      upperPrice = lowerPrice * Math.pow(1 + gridSpacingPercent / 100, gridCount);
+    }
+
+    // Grid spacing calculation
+    let gridSpacing = 0;
+    if (strategyType === 'JARVIS' && params.incrementStepSpace && Number(params.incrementStepSpace) > 0) {
+      gridSpacing = Number(params.incrementStepSpace);
+    } else if (strategyType === 'INFINITY_GRID' && lowerPrice > 0) {
+      gridSpacing = lowerPrice * (gridSpacingPercent / 100);
+    } else if (gridCount > 0 && upperPrice > lowerPrice) {
+      gridSpacing = (upperPrice - lowerPrice) / gridCount;
+    }
+
+    // Price tolerance calculation for Precision Grid & JARVIS
+    let priceTolerance = 0;
+    if (['PRECISION_GRID', 'JARVIS'].includes(strategyType)) {
+      if (params.priceTolerance && Number(params.priceTolerance) > 0) {
+        priceTolerance = Number(params.priceTolerance);
+      } else if (bot.strategyStatus?.metrics?.priceTolerance) {
+        priceTolerance = Number(bot.strategyStatus.metrics.priceTolerance);
+      } else if (params.toleranceDigits) {
+        priceTolerance = Math.pow(10, -Number(params.toleranceDigits)) * 9;
+      } else if (gridSpacing > 0) {
+        priceTolerance = Math.min(gridSpacing * 0.20, lowerPrice < 100 ? 0.0009 : 0.05);
+      }
+    }
+
+    // Current price from open orders, metrics, or midpoint estimation
     const metricPrice = Number(bot.strategyStatus?.metrics?.currentPrice || 0);
     const openOrderPrice = bot.openOrders?.[0]?.price ? Number(bot.openOrders[0].price) : 0;
     const currentPrice = metricPrice > 0 ? metricPrice : (openOrderPrice > 0 ? openOrderPrice : (lowerPrice + upperPrice) / 2);
 
-    const priceRange = upperPrice - lowerPrice;
-    const gridSpacing = gridCount > 0 && priceRange > 0 ? priceRange / gridCount : 0;
     const spacingPercent = lowerPrice > 0 ? (gridSpacing / lowerPrice) * 100 : 0;
     const investmentPerGrid = gridCount > 0 ? totalInvestment / gridCount : 0;
 
+    // Inter-Grid Stop-Loss metrics for JARVIS
+    const interGridStopLossPrice = Number(
+      bot.strategyStatus?.metrics?.interGridStopLossPrice ||
+      bot.customState?.interGridStopLossPrice ||
+      ((lowerPrice + 2 * gridSpacing + lowerPrice + gridSpacing) / 2)
+    );
+    const isInterGridSLActive = !!(bot.strategyStatus?.metrics?.interGridSLActive || bot.customState?.interGridSLActive);
+    const stageStatus = bot.customState?.stageStatus || 'ACTIVE';
+
     // Generate grid levels matrix
     const levels = [];
-    if (gridCount > 0 && upperPrice > lowerPrice) {
+    if (gridCount > 0 && (upperPrice > lowerPrice || gridSpacing > 0)) {
       for (let i = gridCount; i >= 0; i--) {
-        const levelPrice = lowerPrice + i * gridSpacing;
-        const coinsQty = levelPrice > 0 ? investmentPerGrid / levelPrice : 0;
-        const profitPerCycle = coinsQty * gridSpacing;
-        const profitPercent = levelPrice > 0 ? (gridSpacing / levelPrice) * 100 : 0;
+        const levelPrice = strategyType === 'INFINITY_GRID'
+          ? lowerPrice * Math.pow(1 + gridSpacingPercent / 100, i)
+          : lowerPrice + i * gridSpacing;
 
-        // Check if there is an active matching open order at this price level
-        const matchingOrder = (bot.openOrders || []).find(o =>
-          Math.abs(Number(o.price || 0) - levelPrice) < (gridSpacing * 0.45)
-        );
+        let coinsQty = levelPrice > 0 ? investmentPerGrid / levelPrice : 0;
+        let orderValue = investmentPerGrid;
+        let profitPerCycle = coinsQty * gridSpacing;
+        let profitPercent = levelPrice > 0 ? (gridSpacing / levelPrice) * 100 : 0;
 
+        // Custom 3-Grid Level Roles & Capital Allocations for JARVIS
         let role = 'BUY';
         let badgeType = 'buy';
-        if (i === gridCount) {
-          role = 'Upper Exit / Take Profit';
-          badgeType = 'exit';
-        } else if (i === 0) {
-          role = 'Base Buy Level';
-          badgeType = 'base';
-        } else if (currentPrice > 0 && levelPrice > currentPrice) {
-          role = 'Sell Target';
-          badgeType = 'sell';
+
+        if (strategyType === 'JARVIS') {
+          if (i === 3) {
+            role = 'Grid #3 (Surge Top) — 50% Runner Exit / Auto-Surge';
+            badgeType = 'exit';
+            orderValue = totalInvestment * 0.15; // approximate runner value
+          } else if (i === 2) {
+            role = 'Grid #2 — 70% Profit Harvest + Inter-Grid SL';
+            badgeType = 'sell';
+            orderValue = totalInvestment * 0.35;
+          } else if (i === 1) {
+            role = 'Grid #1 — 50% Take Profit + 25% Reserve Buy';
+            badgeType = 'buy';
+            orderValue = totalInvestment * 0.25;
+            coinsQty = levelPrice > 0 ? (totalInvestment * 0.25) / levelPrice : 0;
+          } else if (i === 0) {
+            role = 'Grid #0 (Base) — Initial 75% Investment Entry';
+            badgeType = 'base';
+            orderValue = totalInvestment * 0.75;
+            coinsQty = levelPrice > 0 ? (totalInvestment * 0.75) / levelPrice : 0;
+          }
         } else {
-          role = 'Dip Buy Level';
-          badgeType = 'buy';
+          if (i === gridCount) {
+            role = 'Upper Exit / Take Profit';
+            badgeType = 'exit';
+          } else if (i === 0) {
+            role = 'Base Buy Level';
+            badgeType = 'base';
+          } else if (currentPrice > 0 && levelPrice > currentPrice) {
+            role = 'Sell Target';
+            badgeType = 'sell';
+          } else {
+            role = 'Dip Buy Level';
+            badgeType = 'buy';
+          }
         }
+
+        // Check if there is an active matching open order at this price level
+        const toleranceWindow = priceTolerance > 0 ? priceTolerance * 1.5 : (gridSpacing * 0.45 || 0.01);
+        const matchingOrder = (bot.openOrders || []).find(o =>
+          Math.abs(Number(o.price || 0) - levelPrice) <= toleranceWindow
+        );
 
         levels.push({
           index: i,
@@ -81,7 +154,7 @@ export default function GridInsightsSection({ bot }) {
           role,
           badgeType,
           coinsQty,
-          orderValue: investmentPerGrid,
+          orderValue,
           profitPerCycle,
           profitPercent,
           matchingOrder,
@@ -89,24 +162,41 @@ export default function GridInsightsSection({ bot }) {
       }
     }
 
-    const minCoins = levels.length > 1 ? levels[0].coinsQty : 0; // At top price (fewer coins)
+    const minCoins = levels.length > 1 ? levels[0].coinsQty : (levels[0]?.coinsQty || 0); // At top price (fewer coins)
     const maxCoins = levels.length > 0 ? levels[levels.length - 1].coinsQty : 0; // At bottom price (more coins)
-    const avgProfitPerCycle = levels.length > 1 ? levels[1].profitPerCycle : 0;
-    const avgProfitPercent = levels.length > 1 ? levels[1].profitPercent : 0;
+    const avgProfitPerCycle = levels.length > 1 ? levels[1].profitPerCycle : (levels[0]?.profitPerCycle || 0);
+    const avgProfitPercent = levels.length > 1 ? levels[1].profitPercent : (levels[0]?.profitPercent || 0);
+
+    // Dynamic Title & Icon based on Strategy
+    let title = 'Grid Sizing & Allocation Matrix';
+    let subtitle = 'Exact breakdown of prices, coin quantities, and expected profits per grid step';
+    let HeaderIcon = Grid3X3;
+
+    if (strategyType === 'JARVIS') {
+      title = 'JARVIS 3-Grid Progressive Allocation & Risk Matrix';
+      subtitle = '75%/25% staged entry, 70% harvest, midpoint Inter-Grid Stop-Loss & runner surges';
+      HeaderIcon = Sparkles;
+    } else if (strategyType === 'PRECISION_GRID') {
+      title = 'Precision Grid & Corridor Allocation Matrix';
+      subtitle = 'Decimal tolerance corridor breakdown, coin quantities, and instant execution levels';
+      HeaderIcon = Zap;
+    } else if (strategyType === 'INFINITY_GRID') {
+      title = 'Infinity Grid Sizing & Matrix';
+      subtitle = 'Upward-extending price steps, coin allocation per level, and profit roundtrips';
+      HeaderIcon = InfinityIcon;
+    }
 
     return (
       <div className="grid-insights-card">
         {/* Header with Title and Toggle */}
         <div className="grid-insights-header">
           <div className="title-group">
-            <div className="icon-badge">
-              <Grid3X3 size={20} />
+            <div className={`icon-badge ${strategyType.toLowerCase()}`}>
+              <HeaderIcon size={20} />
             </div>
             <div>
-              <h3>Grid Sizing & Allocation Matrix</h3>
-              <p className="subtitle">
-                Exact breakdown of prices, coin quantities, and expected profits per grid step
-              </p>
+              <h3>{title}</h3>
+              <p className="subtitle">{subtitle}</p>
             </div>
           </div>
           <div className="header-actions">
@@ -121,11 +211,84 @@ export default function GridInsightsSection({ bot }) {
             <button
               className="expand-btn"
               onClick={() => setExpandedView(!expandedView)}
+              aria-label="Toggle Expand"
             >
               {expandedView ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
           </div>
         </div>
+
+        {/* Strategy Specific Interactive Highlight Banners */}
+        {strategyType === 'JARVIS' && (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
+            border: '1px solid rgba(6, 182, 212, 0.35)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px' }}>
+              <ArrowUpRight size={22} style={{ color: '#06b6d4', flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px' }}>
+                  🚀 JARVIS 3-Grid Progressive Execution Active
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', lineHeight: '1.4' }}>
+                  <strong>Stage 0:</strong> 75% Entry ($0) + 25% Reserve &bull; <strong>Stage 1:</strong> 50% Profit Sell + 25% Buy ($1) &bull; <strong>Stage 2:</strong> 70% Harvest + Inter-Grid SL Midpoint (${interGridStopLossPrice.toFixed(4)}) &bull; <strong>Stage 3:</strong> 50% Runner Exit ($3).
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <span className="footer-pill" style={{
+                background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.18)' : 'rgba(245, 158, 11, 0.15)',
+                borderColor: isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.3)',
+                color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+              }}>
+                <strong>Inter-Grid SL:</strong> ${interGridStopLossPrice.toFixed(4)} ({isInterGridSLActive ? 'ARMED' : 'Standby'})
+              </span>
+              <span className="footer-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
+                <strong>Surge Shifts:</strong> {upperPriceIncrementsCount}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {strategyType === 'PRECISION_GRID' && (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
+            border: '1px solid rgba(59, 130, 246, 0.35)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px' }}>
+              <Crosshair size={22} style={{ color: '#38bdf8', flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px' }}>
+                  ⚡ Decimal Tolerance Corridor Active: ±${priceTolerance.toFixed(6)}
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', lineHeight: '1.4' }}>
+                  Mode: <strong>{executionMode === 'MARKET_ON_TOUCH' ? 'Market on Touch (Instant Fill)' : 'Corridor Limit Orders'}</strong> — Eliminates slow fills and stranded orders when price touches corridor.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <span className="footer-pill" style={{ background: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}>
+                <strong>Tolerance Band:</strong> ±${priceTolerance.toFixed(6)}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Highlight Insights Grid */}
         <div className="grid-stats-row">
@@ -196,20 +359,34 @@ export default function GridInsightsSection({ bot }) {
             <div className="formula-items">
               <div className="formula-item">
                 <strong>1. Grid Step Spacing:</strong>
-                <code>(Upper Price - Lower Price) / Grid Count = (${upperPrice} - ${lowerPrice}) / {gridCount} = ${gridSpacing.toFixed(5)}</code>
+                <code>(Upper Price - Lower Price) / Grid Count = (${upperPrice.toFixed(5)} - ${lowerPrice.toFixed(5)}) / {gridCount} = ${gridSpacing.toFixed(5)}</code>
               </div>
               <div className="formula-item">
                 <strong>2. Money per Order:</strong>
-                <code>Total Investment / Grid Count = ${totalInvestment} / {gridCount} = ${investmentPerGrid.toFixed(2)} {quoteAsset}</code>
+                <code>Total Investment / Grid Count = ${totalInvestment.toFixed(2)} / {gridCount} = ${investmentPerGrid.toFixed(2)} {quoteAsset}</code>
               </div>
               <div className="formula-item">
                 <strong>3. Coins Quantity:</strong>
-                <code>Money to Spend ($${investmentPerGrid.toFixed(2)}) / Grid Level Price = Exact {baseAsset} to buy</code>
+                <code>Money to Spend (${investmentPerGrid.toFixed(2)}) / Grid Level Price = Exact {baseAsset} to buy</code>
               </div>
               <div className="formula-item">
                 <strong>4. Cycle Profit:</strong>
                 <code>Coins Quantity × Grid Spacing (${gridSpacing.toFixed(5)}) = Profit in {quoteAsset} upon selling at next level</code>
               </div>
+
+              {strategyType === 'JARVIS' && (
+                <div className="formula-item" style={{ borderLeft: '3px solid #06b6d4', paddingLeft: '8px' }}>
+                  <strong>5. JARVIS Autonomous Upper Surge Equation:</strong>
+                  <code>When currentPrice &gt;= ${upperPrice.toFixed(5)}, newUpper = currentPrice + ${gridSpacing.toFixed(5)} (Grid Step Space). Bot dynamically recalibrates without halting.</code>
+                </div>
+              )}
+
+              {strategyType === 'PRECISION_GRID' && (
+                <div className="formula-item" style={{ borderLeft: '3px solid #38bdf8', paddingLeft: '8px' }}>
+                  <strong>5. Precision Corridor Execution Equation:</strong>
+                  <code>Corridor Band = [Level Price - ${priceTolerance.toFixed(6)}, Level Price + ${priceTolerance.toFixed(6)}]. Any market tick touching this corridor triggers an immediate fill.</code>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -221,7 +398,7 @@ export default function GridInsightsSection({ bot }) {
               <thead>
                 <tr>
                   <th>Grid Level</th>
-                  <th>Target Price</th>
+                  <th>Target Price {strategyType === 'PRECISION_GRID' ? '& Corridor' : ''}</th>
                   <th>Role / Strategy Zone</th>
                   <th>Order Capital</th>
                   <th>Quantity of Coins</th>
@@ -238,12 +415,22 @@ export default function GridInsightsSection({ bot }) {
                     <td className="level-index">
                       <span className="index-pill">
                         Grid #{lvl.index}
-                        {lvl.index === gridCount && ' (Top)'}
+                        {lvl.index === gridCount && (strategyType === 'JARVIS' ? ' (Surge Top)' : ' (Top)')}
                         {lvl.index === 0 && ' (Base)'}
                       </span>
                     </td>
                     <td className="font-mono price-cell">
                       ${lvl.price.toFixed(5)}
+                      {strategyType === 'PRECISION_GRID' && priceTolerance > 0 && (
+                        <div style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 500, marginTop: '2px' }}>
+                          ±${priceTolerance.toFixed(5)} [${(lvl.price - priceTolerance).toFixed(5)} - ${(lvl.price + priceTolerance).toFixed(5)}]
+                        </div>
+                      )}
+                      {strategyType === 'JARVIS' && lvl.index === gridCount && (
+                        <div style={{ fontSize: '10px', color: '#06b6d4', fontWeight: 500, marginTop: '2px' }}>
+                          🚀 Expands on breakout
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span className={`role-tag ${lvl.badgeType}`}>
@@ -272,12 +459,62 @@ export default function GridInsightsSection({ bot }) {
                         </span>
                       ) : (
                         <span className="order-idle-badge">
-                          {lvl.index === gridCount ? 'Target Exit' : 'Ready on Dip'}
+                          {lvl.index === gridCount
+                            ? (strategyType === 'JARVIS' ? 'Surge Ready' : 'Target Exit')
+                            : 'Ready on Dip'}
                         </span>
                       )}
                     </td>
                   </tr>
                 ))}
+
+                {/* Inter-Grid Stop-Loss Row for JARVIS Strategy */}
+                {strategyType === 'JARVIS' && (
+                  <tr className="grid-level-row intergrid-sl-row" style={{
+                    background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+                    borderLeft: isInterGridSLActive ? '3px solid #ef4444' : '3px solid #f59e0b'
+                  }}>
+                    <td className="level-index">
+                      <span className="index-pill" style={{
+                        background: isInterGridSLActive ? '#ef4444' : '#f59e0b',
+                        color: '#fff',
+                        fontWeight: 600
+                      }}>
+                        Inter-Grid SL
+                      </span>
+                    </td>
+                    <td className="font-mono price-cell" style={{ color: isInterGridSLActive ? '#f87171' : '#fbbf24', fontWeight: 600 }}>
+                      ${interGridStopLossPrice.toFixed(5)}
+                      <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                        Midpoint: (Grid #2 + Grid #1) / 2
+                      </div>
+                    </td>
+                    <td>
+                      <span className="role-tag" style={{
+                        background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.15)',
+                        color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+                      }}>
+                        <Shield size={13} /> {isInterGridSLActive ? 'Active Runner Exit Guard' : 'Standby (Arms at Grid #2)'}
+                      </span>
+                    </td>
+                    <td colSpan={2} style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      Liquidates 100% of runner holding to cash if price drops from Grid #2 to Midpoint
+                    </td>
+                    <td colSpan={2}>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                        color: isInterGridSLActive ? '#f87171' : '#94a3b8',
+                        border: `1px solid ${isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`
+                      }}>
+                        {isInterGridSLActive ? '🛡️ Armed & Active' : 'Standby'}
+                      </span>
+                    </td>
+                  </tr>
+                )}
 
                 {/* Stop Loss Guard row if configured */}
                 {stopLoss > 0 && (
@@ -298,7 +535,34 @@ export default function GridInsightsSection({ bot }) {
                     </td>
                     <td colSpan={2}>
                       <span className="stoploss-guard-badge">
-                        Protects capital below lower bound (${lowerPrice})
+                        Protects capital below lower bound (${lowerPrice.toFixed(5)})
+                      </span>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Take Profit Guard row if configured */}
+                {takeProfit > 0 && (
+                  <tr className="grid-level-row" style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
+                    <td className="level-index">
+                      <span className="index-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                        Take Profit
+                      </span>
+                    </td>
+                    <td className="font-mono price-cell text-positive">
+                      ${takeProfit.toFixed(5)}
+                    </td>
+                    <td>
+                      <span className="role-tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                        <Target size={13} /> Profit Lock Guard
+                      </span>
+                    </td>
+                    <td colSpan={2} className="text-muted text-xs">
+                      Liquidates all positions to cash on target reach
+                    </td>
+                    <td colSpan={2}>
+                      <span style={{ fontSize: '11px', color: '#34d399', fontWeight: 500 }}>
+                        Locks profit above upper bound (${upperPrice.toFixed(5)})
                       </span>
                     </td>
                   </tr>
@@ -312,11 +576,31 @@ export default function GridInsightsSection({ bot }) {
         <div className="grid-insights-footer">
           <div className="footer-left">
             <span className="footer-pill">
-              <strong>Price Range:</strong> ${lowerPrice} – ${upperPrice} {quoteAsset}
+              <strong>Price Range:</strong> ${lowerPrice.toFixed(5)} – ${upperPrice.toFixed(5)} {quoteAsset}
             </span>
             <span className="footer-pill">
               <strong>Max Buys / Level:</strong> {maxBuysPerLevel}
             </span>
+            {strategyType === 'JARVIS' && (
+              <>
+                <span className="footer-pill" style={{ borderColor: 'rgba(6, 182, 212, 0.4)', color: '#06b6d4' }}>
+                  <strong>Auto-Surge:</strong> Active
+                </span>
+                <span className="footer-pill">
+                  <strong>Expansions:</strong> {upperPriceIncrementsCount}
+                </span>
+              </>
+            )}
+            {strategyType === 'PRECISION_GRID' && (
+              <>
+                <span className="footer-pill" style={{ borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}>
+                  <strong>Tolerance:</strong> ±${priceTolerance.toFixed(6)}
+                </span>
+                <span className="footer-pill">
+                  <strong>Execution:</strong> {executionMode}
+                </span>
+              </>
+            )}
             {stopLoss > 0 && (
               <span className="footer-pill stoploss">
                 <strong>Stop Loss:</strong> ${stopLoss}
@@ -330,7 +614,7 @@ export default function GridInsightsSection({ bot }) {
           </div>
           <div className="footer-right">
             <span className="text-xs text-muted">
-              Auto-calibrated on market ticks
+              Auto-calibrated on live market ticks
             </span>
           </div>
         </div>

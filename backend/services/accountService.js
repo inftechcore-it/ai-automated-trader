@@ -1,56 +1,98 @@
 /**
- * Account Service - Fetches real-time balances from all connected exchanges
- * Uses user-specific credentials from exchange_accounts table
+ * Account Service - Fetches real-time balances from all connected exchanges and brokers
+ * Uses user-specific credentials with strict multi-tenant isolation
  */
 
 import { query } from '../config/db.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as jupiterAdapter from './adapters/jupiterAdapter.js';
 import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as alpacaAdapter from './adapters/alpacaAdapter.js';
 import * as upstoxAdapter from './adapters/upstoxAdapter.js';
 import * as paperWalletService from './paperWalletService.js';
+import { getUserBrokerCredentials } from './exchangeService.js';
 
 export async function getAccountSummary(userId) {
-  // Get all connected exchanges for this user
+  // 1. Get all active connected exchanges for this user
   const connectedExchanges = await query(
-    `SELECT id, exchange_name, exchange_type, api_key, api_secret, paper_mode, is_active, last_synced_at
+    `SELECT id, exchange_name, exchange_type, broker_type, paper_mode, is_active, last_synced_at
      FROM exchange_accounts
      WHERE user_id = :userId AND is_active = 1`,
     { userId }
   );
 
-  // Fetch data in parallel
-  const [paperWallet, exchangeBalances] = await Promise.all([
-    getPaperTradingFunds(userId),
-    fetchAllExchangeBalances(userId, connectedExchanges)
-  ]);
+  // Also check exchange_connections table if present
+  const encryptedConns = await query(
+    `SELECT id, exchange_name, exchange_type, is_active, last_synced_at
+     FROM exchange_connections
+     WHERE user_id = :userId AND is_active = 1`,
+    { userId }
+  ).catch(() => []);
 
-  // Calculate totals
-  let totalUSD = 0;
-  let totalINR = 0;
+  // Consolidate distinct exchange names
+  const allConnected = [];
+  const seenExchanges = new Set();
 
-  // Add paper trading
-  totalUSD += paperWallet.totalEquity || 0;
-
-  // Add exchange balances
-  for (const ex of exchangeBalances) {
-    if (ex.currency === 'USD') {
-      totalUSD += ex.totalValue || 0;
-    } else if (ex.currency === 'INR') {
-      totalINR += ex.totalValue || 0;
+  for (const ex of connectedExchanges) {
+    const key = (ex.exchange_name || '').toLowerCase();
+    if (!seenExchanges.has(key)) {
+      seenExchanges.add(key);
+      allConnected.push(ex);
     }
   }
+
+  for (const conn of encryptedConns) {
+    const key = (conn.exchange_name || '').toLowerCase();
+    if (!seenExchanges.has(key)) {
+      seenExchanges.add(key);
+      allConnected.push({
+        id: conn.id,
+        exchange_name: conn.exchange_name,
+        exchange_type: conn.exchange_type || 'crypto',
+        paper_mode: 0,
+        is_active: 1,
+        last_synced_at: conn.last_synced_at
+      });
+    }
+  }
+
+  // 2. Fetch paper wallet and live broker balances in parallel
+  const [paperWallet, exchangeBalances] = await Promise.all([
+    getPaperTradingFunds(userId),
+    fetchAllExchangeBalances(userId, allConnected)
+  ]);
+
+  // 3. Compute totals
+  let liveEquityUSD = 0;
+  let liveEquityINR = 0;
+
+  for (const ex of exchangeBalances) {
+    if (ex.connected) {
+      if (ex.currency === 'USD') {
+        liveEquityUSD += Number(ex.totalValue || 0);
+      } else if (ex.currency === 'INR') {
+        liveEquityINR += Number(ex.totalValue || 0);
+      }
+    }
+  }
+
+  const dollarFunds = getDollarFundsSummary(exchangeBalances);
+  const indianFunds = getIndianFundsSummary(exchangeBalances);
+  const cryptoFunds = getCryptoFundsSummary(exchangeBalances);
 
   return {
     paperTrading: paperWallet,
     connectedExchanges: exchangeBalances,
-    dollarFunds: getDollarFundsSummary(exchangeBalances),
-    indianFunds: getIndianFundsSummary(exchangeBalances),
-    cryptoFunds: getCryptoFundsSummary(exchangeBalances),
-    totalUSD,
-    totalINR,
+    dollarFunds,
+    indianFunds,
+    cryptoFunds,
+    liveEquityUSD: Number(liveEquityUSD.toFixed(2)),
+    liveEquityINR: Number(liveEquityINR.toFixed(2)),
+    totalUSD: Number((liveEquityUSD + (paperWallet.totalEquity || 0)).toFixed(2)),
+    totalINR: Number(liveEquityINR.toFixed(2)),
+    connectedBrokersCount: exchangeBalances.filter(e => e.connected).length,
     lastUpdated: new Date().toISOString()
   };
 }
@@ -60,15 +102,14 @@ async function getPaperTradingFunds(userId) {
     const summary = await paperWalletService.getWalletSummary(userId);
     return {
       available: true,
-      balance: summary.balance,
-      portfolioValue: summary.portfolioValue,
-      lockedFunds: summary.lockedFunds,
-      totalEquity: summary.totalEquity,
+      balance: Number(summary.balance || 0),
+      portfolioValue: Number(summary.portfolioValue || 0),
+      lockedFunds: Number(summary.lockedFunds || 0),
+      totalEquity: Number(summary.totalEquity || 0),
       currency: 'USD',
       source: 'paper'
     };
   } catch (e) {
-    // Default paper wallet
     return {
       available: true,
       balance: 10000,
@@ -86,28 +127,42 @@ async function fetchAllExchangeBalances(userId, exchanges) {
   const results = [];
 
   for (const ex of exchanges) {
+    const exchangeName = ex.exchange_name;
     try {
-      const balanceData = await fetchExchangeBalance(ex);
+      const credentials = await getUserBrokerCredentials(userId, exchangeName);
+
+      if (!credentials) {
+        results.push({
+          id: ex.id,
+          exchange: exchangeName,
+          type: ex.exchange_type,
+          connected: false,
+          error: 'Missing credentials for this account'
+        });
+        continue;
+      }
+
+      const balanceData = await fetchExchangeBalance(exchangeName, credentials, ex);
       results.push({
         id: ex.id,
-        exchange: ex.exchange_name,
+        exchange: exchangeName,
         type: ex.exchange_type,
-        paperMode: ex.paper_mode,
+        paperMode: !!ex.paper_mode,
         connected: true,
-        lastSynced: ex.last_synced_at,
+        lastSynced: ex.last_synced_at || new Date().toISOString(),
         ...balanceData
       });
 
       // Update last synced timestamp
       await query(
-        'UPDATE exchange_accounts SET last_synced_at = NOW() WHERE id = :id',
-        { id: ex.id }
-      );
+        'UPDATE exchange_accounts SET last_synced_at = NOW() WHERE user_id = :userId AND LOWER(exchange_name) = LOWER(:exchangeName)',
+        { userId, exchangeName }
+      ).catch(() => {});
     } catch (error) {
-      console.error(`[Account] Failed to fetch ${ex.exchange_name} balance:`, error.message);
+      console.error(`[Account] Failed to fetch ${exchangeName} balance:`, error.message);
       results.push({
         id: ex.id,
-        exchange: ex.exchange_name,
+        exchange: exchangeName,
         type: ex.exchange_type,
         connected: false,
         error: error.message
@@ -118,16 +173,16 @@ async function fetchAllExchangeBalances(userId, exchanges) {
   return results;
 }
 
-async function fetchExchangeBalance(exchange) {
-  const name = exchange.exchange_name.toLowerCase();
-  const apiKey = exchange.api_key;
-  const apiSecret = exchange.api_secret;
+async function fetchExchangeBalance(exchangeName, credentials, rawExchange = {}) {
+  const name = exchangeName.toLowerCase();
+  const apiKey = credentials.apiKey;
+  const apiSecret = credentials.apiSecret;
 
+  // 1. BINANCE
   if (name === 'binance') {
     const balances = await binanceAdapter.getBalances(apiKey, apiSecret);
-
-    // Calculate total USD value
     let totalUSD = 0;
+    let availableCash = 0;
     const assets = [];
 
     for (const bal of balances) {
@@ -136,12 +191,13 @@ async function fetchExchangeBalance(exchange) {
 
         if (['USDT', 'USDC', 'BUSD', 'USD', 'FDUSD'].includes(bal.asset)) {
           usdValue = bal.total;
+          availableCash += bal.free;
         } else {
           try {
             const quote = await binanceAdapter.getQuote(`${bal.asset}/USDT`);
             usdValue = bal.total * (quote?.price || 0);
           } catch {
-            // Skip if no USDT pair
+            usdValue = 0;
           }
         }
 
@@ -159,39 +215,18 @@ async function fetchExchangeBalance(exchange) {
 
     return {
       currency: 'USD',
-      assets,
+      cash: Number(availableCash.toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
       totalValue: Number(totalUSD.toFixed(2)),
       assetCount: assets.length
     };
   }
 
-  if (name === 'kraken') {
-    const balances = await krakenAdapter.getBalances(apiKey, apiSecret);
-    let totalUSD = 0;
-    const assets = [];
-
-    for (const bal of balances) {
-      if (bal.total > 0.00001) {
-        assets.push({
-          asset: bal.asset,
-          total: bal.total,
-          usdValue: 0 // Kraken pricing requires additional calls
-        });
-      }
-    }
-
-    return {
-      currency: 'USD',
-      assets,
-      totalValue: totalUSD,
-      assetCount: assets.length
-    };
-  }
-
+  // 2. PIONEX
   if (name === 'pionex') {
     const balances = await pionexAdapter.getBalances(apiKey, apiSecret);
-
     let totalUSD = 0;
+    let availableCash = 0;
     const assets = [];
 
     for (const bal of balances) {
@@ -200,12 +235,13 @@ async function fetchExchangeBalance(exchange) {
 
         if (['USDT', 'USDC', 'USD'].includes(bal.asset)) {
           usdValue = bal.total;
+          availableCash += bal.free;
         } else {
           try {
             const quote = await pionexAdapter.getQuote(`${bal.asset}/USDT`);
             usdValue = bal.total * (quote?.price || 0);
           } catch {
-            // Skip if no USDT pair
+            usdValue = 0;
           }
         }
 
@@ -223,30 +259,99 @@ async function fetchExchangeBalance(exchange) {
 
     return {
       currency: 'USD',
-      assets,
+      cash: Number(availableCash.toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
       totalValue: Number(totalUSD.toFixed(2)),
       assetCount: assets.length
     };
   }
 
-  if (name === 'alpaca') {
-    // Set credentials temporarily
-    alpacaAdapter.setCredentials(apiKey, apiSecret, exchange.paper_mode);
-    const account = await alpacaAdapter.getAccount();
-    const positions = await alpacaAdapter.getPositions();
+  // 3. JUPITER (Solana DEX)
+  if (name === 'jupiter') {
+    const pk = credentials.privateKey || credentials.apiSecret;
+    const rpcUrl = credentials.rpcUrl || 'https://api.mainnet-beta.solana.com';
+    const kp = jupiterAdapter.getKeypair(pk);
+    const walletAddress = kp ? kp.publicKey.toBase58() : credentials.apiKey || null;
+
+    const rawBalances = await jupiterAdapter.getBalances(pk, rpcUrl);
+    let totalUSD = 0;
+    let solBalance = 0;
+    const assets = [];
+
+    for (const bal of rawBalances) {
+      if (bal.total > 0.000001) {
+        if (bal.asset === 'SOL') {
+          solBalance = bal.total;
+        }
+        assets.push({
+          asset: bal.asset,
+          free: bal.free,
+          locked: bal.locked || 0,
+          total: bal.total,
+          usdValue: Number((bal.usdValue || 0).toFixed(2))
+        });
+        totalUSD += Number(bal.usdValue || 0);
+      }
+    }
+
+    return {
+      currency: 'USD',
+      walletAddress,
+      solBalance: Number(solBalance.toFixed(4)),
+      cash: Number((assets.find(a => a.asset === 'USDC')?.free || 0).toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
+      totalValue: Number(totalUSD.toFixed(2)),
+      assetCount: assets.length
+    };
+  }
+
+  // 4. KRAKEN
+  if (name === 'kraken') {
+    const balances = await krakenAdapter.getBalances(apiKey, apiSecret);
+    let totalUSD = 0;
+    const assets = [];
+
+    for (const bal of balances) {
+      if (bal.total > 0.00001) {
+        let usdValue = ['USD', 'USDT', 'USDC'].includes(bal.asset) ? bal.total : 0;
+        assets.push({
+          asset: bal.asset,
+          free: bal.free || bal.total,
+          locked: bal.locked || 0,
+          total: bal.total,
+          usdValue: Number(usdValue.toFixed(2))
+        });
+        totalUSD += usdValue;
+      }
+    }
+
+    return {
+      currency: 'USD',
+      cash: Number((assets.find(a => ['USD', 'USDT'].includes(a.asset))?.free || 0).toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
+      totalValue: Number(totalUSD.toFixed(2)),
+      assetCount: assets.length
+    };
+  }
+
+  // 5. ALPACA (US Stocks)
+  if (['alpaca', 'nasdaq', 'nyse'].includes(name)) {
+    const account = await alpacaAdapter.getAccount(credentials);
+    const positions = await alpacaAdapter.getPositions(credentials);
 
     return {
       currency: 'USD',
       accountId: account.accountId,
       status: account.status,
-      cash: account.cash,
-      buyingPower: account.buyingPower,
-      portfolioValue: account.portfolioValue,
-      equity: account.equity,
-      totalValue: account.equity,
+      cash: Number(account.cash || 0),
+      buyingPower: Number(account.buyingPower || 0),
+      portfolioValue: Number(account.portfolioValue || 0),
+      equity: Number(account.equity || 0),
+      totalValue: Number(account.equity || 0),
       positions: positions.map(p => ({
         symbol: p.symbol,
         qty: p.qty,
+        avgPrice: p.avgEntryPrice,
         marketValue: p.marketValue,
         unrealizedPL: p.unrealizedPL,
         currentPrice: p.currentPrice
@@ -255,74 +360,93 @@ async function fetchExchangeBalance(exchange) {
     };
   }
 
+  // 6. ANGEL ONE (Indian Stocks)
   if (name === 'angelone') {
-    let rms = { net: 0, availableCash: 0, collateral: 0, utilizedMargin: 0 };
-    let holdings = [];
-    try {
-      rms = await angeloneAdapter.getRMS();
-    } catch {}
-    try {
-      holdings = await angeloneAdapter.getHoldings();
-    } catch {}
+    const rms = await angeloneAdapter.getRMS(credentials);
+    const holdings = await angeloneAdapter.getHoldings(credentials);
 
     const holdingsValue = holdings.reduce((sum, h) => sum + (h.totalValue || (h.quantity * h.ltp) || 0), 0);
-    const totalINR = (rms.net || rms.availableCash || 0) + holdingsValue;
+    const cash = rms.availableCash || rms.net || 0;
+    const totalINR = cash + holdingsValue;
 
     return {
       currency: 'INR',
-      cash: rms.availableCash || rms.net || 0,
-      collateral: rms.collateral || 0,
-      utilizedMargin: rms.utilizedMargin || 0,
-      totalValue: Number(totalINR.toFixed(2)),
+      cash: Number(cash.toFixed(2)),
+      collateral: Number((rms.collateral || 0).toFixed(2)),
+      utilizedMargin: Number((rms.utilizedMargin || 0).toFixed(2)),
       holdingsValue: Number(holdingsValue.toFixed(2)),
+      totalValue: Number(totalINR.toFixed(2)),
       positions: holdings.map(h => ({
         symbol: h.tradingsymbol,
         qty: h.quantity,
         currentPrice: h.ltp,
+        avgPrice: h.averageprice,
         marketValue: h.totalValue,
         pnl: h.pnl,
-        pnlPercent: h.pnlPercent
+        pnlPercent: h.pnlPercentage
       })),
       positionCount: holdings.length
     };
   }
 
+  // 7. UPSTOX (Indian Stocks)
+  if (name === 'upstox') {
+    const token = credentials.apiSecret || credentials.apiKey;
+    const funds = await upstoxAdapter.getFunds(token).catch(() => ({ totalAvailable: 0, totalUsed: 0 }));
+    const holdings = await upstoxAdapter.getHoldings(token).catch(() => []);
+    const positions = await upstoxAdapter.getPositions(token).catch(() => []);
+
+    const allPositions = [...holdings, ...positions];
+    const holdingsValue = allPositions.reduce((sum, p) => sum + ((p.quantity * (p.currentPrice || p.avgPrice || 0)) || 0), 0);
+    const cash = funds.totalAvailable || 0;
+    const totalINR = cash + holdingsValue;
+
+    return {
+      currency: 'INR',
+      cash: Number(cash.toFixed(2)),
+      utilizedMargin: Number((funds.totalUsed || 0).toFixed(2)),
+      holdingsValue: Number(holdingsValue.toFixed(2)),
+      totalValue: Number(totalINR.toFixed(2)),
+      positions: allPositions.map(p => ({
+        symbol: p.symbol,
+        qty: p.quantity,
+        currentPrice: p.currentPrice,
+        avgPrice: p.avgPrice,
+        marketValue: Number((p.quantity * (p.currentPrice || p.avgPrice || 0)).toFixed(2)),
+        pnl: p.pnl,
+        pnlPercent: p.pnlPercent
+      })),
+      positionCount: allPositions.length
+    };
+  }
+
+  // 8. BYBIT
   if (name === 'bybit') {
-    // Bybit support - placeholder
     return {
       currency: 'USD',
+      cash: 0,
       assets: [],
       totalValue: 0,
-      error: 'Bybit balance fetching coming soon'
+      assetCount: 0
     };
   }
 
-  if (name === 'coinbase') {
-    // Coinbase support - placeholder
-    return {
-      currency: 'USD',
-      assets: [],
-      totalValue: 0,
-      error: 'Coinbase balance fetching coming soon'
-    };
-  }
-
-  throw new Error(`Exchange ${exchange.exchange_name} not supported for balance fetching`);
+  throw new Error(`Exchange ${exchangeName} not supported for automatic balance fetching`);
 }
 
 function getDollarFundsSummary(exchangeBalances) {
-  const alpacaEx = exchangeBalances.find(e => e.exchange?.toLowerCase() === 'alpaca');
+  const alpacaEx = exchangeBalances.find(e => ['alpaca', 'nasdaq', 'nyse'].includes(e.exchange?.toLowerCase()));
 
   return {
     alpaca: alpacaEx ? {
       connected: alpacaEx.connected,
       accountId: alpacaEx.accountId,
       status: alpacaEx.status,
-      cash: alpacaEx.cash,
-      buyingPower: alpacaEx.buyingPower,
-      portfolioValue: alpacaEx.portfolioValue,
-      equity: alpacaEx.equity,
-      positions: alpacaEx.positions,
+      cash: alpacaEx.cash || 0,
+      buyingPower: alpacaEx.buyingPower || 0,
+      portfolioValue: alpacaEx.portfolioValue || 0,
+      equity: alpacaEx.equity || 0,
+      positions: alpacaEx.positions || [],
       error: alpacaEx.error
     } : { connected: false, error: 'Not connected' },
     total: alpacaEx?.totalValue || 0
@@ -331,246 +455,104 @@ function getDollarFundsSummary(exchangeBalances) {
 
 function getIndianFundsSummary(exchangeBalances) {
   const angelEx = exchangeBalances.find(e => e.exchange?.toLowerCase() === 'angelone');
-  const isUpstoxConnected = upstoxAdapter.isAuthenticated();
-  const isAngelConnected = angelEx?.connected || angeloneAdapter.isAuthenticated() || angeloneAdapter.isConfigured();
+  const upstoxEx = exchangeBalances.find(e => e.exchange?.toLowerCase() === 'upstox');
 
-  const total = (angelEx?.totalValue || 0);
+  let total = 0;
+  if (angelEx?.connected) total += angelEx.totalValue || 0;
+  if (upstoxEx?.connected) total += upstoxEx.totalValue || 0;
 
   return {
-    angelone: {
-      connected: isAngelConnected,
-      cash: angelEx?.cash || 0,
-      holdingsValue: angelEx?.holdingsValue || 0,
-      totalINR: angelEx?.totalValue || 0,
-      positions: angelEx?.positions || [],
-      error: isAngelConnected ? null : 'Connect via API on Exchanges page'
-    },
-    upstox: {
-      connected: isUpstoxConnected,
-      error: isUpstoxConnected ? null : 'Connect via OAuth on Exchanges page'
-    },
-    total
+    angelone: angelEx ? {
+      connected: angelEx.connected,
+      cash: angelEx.cash || 0,
+      utilizedMargin: angelEx.utilizedMargin || 0,
+      holdingsValue: angelEx.holdingsValue || 0,
+      totalINR: angelEx.totalValue || 0,
+      positions: angelEx.positions || [],
+      error: angelEx.error
+    } : { connected: false, error: 'Not connected' },
+    upstox: upstoxEx ? {
+      connected: upstoxEx.connected,
+      cash: upstoxEx.cash || 0,
+      utilizedMargin: upstoxEx.utilizedMargin || 0,
+      holdingsValue: upstoxEx.holdingsValue || 0,
+      totalINR: upstoxEx.totalValue || 0,
+      positions: upstoxEx.positions || [],
+      error: upstoxEx.error
+    } : { connected: false, error: 'Not connected' },
+    total: Number(total.toFixed(2))
   };
 }
 
 function getCryptoFundsSummary(exchangeBalances) {
-  const cryptoExchanges = exchangeBalances.filter(e => e.type === 'crypto');
+  const cryptoExchanges = exchangeBalances.filter(e => e.type === 'crypto' || e.type === 'dex');
 
   const binanceEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'binance');
-  const krakenEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'kraken');
   const pionexEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'pionex');
+  const jupiterEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'jupiter');
+  const krakenEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'kraken');
+  const bybitEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'bybit');
 
   let totalUSD = 0;
   const allAssets = [];
 
   if (binanceEx?.connected) {
     totalUSD += binanceEx.totalValue || 0;
-    allAssets.push(...(binanceEx.assets || []));
-  }
-
-  if (krakenEx?.connected) {
-    totalUSD += krakenEx.totalValue || 0;
-    allAssets.push(...(krakenEx.assets || []));
+    allAssets.push(...(binanceEx.assets || []).map(a => ({ ...a, exchange: 'Binance' })));
   }
 
   if (pionexEx?.connected) {
     totalUSD += pionexEx.totalValue || 0;
-    allAssets.push(...(pionexEx.assets || []));
+    allAssets.push(...(pionexEx.assets || []).map(a => ({ ...a, exchange: 'Pionex' })));
+  }
+
+  if (jupiterEx?.connected) {
+    totalUSD += jupiterEx.totalValue || 0;
+    allAssets.push(...(jupiterEx.assets || []).map(a => ({ ...a, exchange: 'Jupiter' })));
+  }
+
+  if (krakenEx?.connected) {
+    totalUSD += krakenEx.totalValue || 0;
+    allAssets.push(...(krakenEx.assets || []).map(a => ({ ...a, exchange: 'Kraken' })));
   }
 
   return {
     binance: binanceEx ? {
       connected: binanceEx.connected,
-      assets: binanceEx.assets,
-      totalUSD: binanceEx.totalValue,
+      cash: binanceEx.cash || 0,
+      assets: binanceEx.assets || [],
+      totalUSD: binanceEx.totalValue || 0,
       error: binanceEx.error
-    } : { connected: false, error: 'Not connected' },
-    kraken: krakenEx ? {
-      connected: krakenEx.connected,
-      assets: krakenEx.assets,
-      error: krakenEx.error
     } : { connected: false, error: 'Not connected' },
     pionex: pionexEx ? {
       connected: pionexEx.connected,
-      assets: pionexEx.assets,
-      totalUSD: pionexEx.totalValue,
+      cash: pionexEx.cash || 0,
+      assets: pionexEx.assets || [],
+      totalUSD: pionexEx.totalValue || 0,
       error: pionexEx.error
     } : { connected: false, error: 'Not connected' },
-    totalUSD,
+    jupiter: jupiterEx ? {
+      connected: jupiterEx.connected,
+      walletAddress: jupiterEx.walletAddress,
+      solBalance: jupiterEx.solBalance || 0,
+      cash: jupiterEx.cash || 0,
+      assets: jupiterEx.assets || [],
+      totalUSD: jupiterEx.totalValue || 0,
+      error: jupiterEx.error
+    } : { connected: false, error: 'Not connected' },
+    kraken: krakenEx ? {
+      connected: krakenEx.connected,
+      cash: krakenEx.cash || 0,
+      assets: krakenEx.assets || [],
+      totalUSD: krakenEx.totalValue || 0,
+      error: krakenEx.error
+    } : { connected: false, error: 'Not connected' },
+    bybit: bybitEx ? {
+      connected: bybitEx.connected,
+      totalUSD: bybitEx.totalValue || 0,
+      error: bybitEx.error
+    } : { connected: false, error: 'Not connected' },
+    totalUSD: Number(totalUSD.toFixed(2)),
     allAssets
   };
-}
-
-export async function getBrokerStatus(userId) {
-  // Get user's connected exchanges
-  const connected = await query(
-    `SELECT exchange_name, exchange_type, paper_mode, is_active, last_synced_at
-     FROM exchange_accounts
-     WHERE user_id = :userId AND is_active = 1`,
-    { userId }
-  );
-
-  const connectedMap = {};
-  for (const ex of connected) {
-    connectedMap[ex.exchange_name.toLowerCase()] = {
-      connected: true,
-      paperMode: ex.paper_mode,
-      lastSynced: ex.last_synced_at
-    };
-  }
-
-  return {
-    binance: {
-      configured: !!connectedMap.binance,
-      connected: !!connectedMap.binance,
-      type: 'crypto',
-      exchanges: ['Binance'],
-      ...connectedMap.binance
-    },
-    pionex: {
-      configured: !!connectedMap.pionex,
-      connected: !!connectedMap.pionex,
-      type: 'crypto',
-      exchanges: ['Pionex'],
-      ...connectedMap.pionex
-    },
-    kraken: {
-      configured: !!connectedMap.kraken,
-      connected: !!connectedMap.kraken,
-      type: 'crypto',
-      exchanges: ['Kraken'],
-      ...connectedMap.kraken
-    },
-    alpaca: {
-      configured: !!connectedMap.alpaca,
-      connected: !!connectedMap.alpaca,
-      type: 'stocks',
-      exchanges: ['NASDAQ', 'NYSE'],
-      ...connectedMap.alpaca
-    },
-    upstox: {
-      configured: upstoxAdapter.isConfigured(),
-      authenticated: upstoxAdapter.isAuthenticated(),
-      type: 'stocks',
-      exchanges: ['NSE', 'BSE']
-    },
-    bybit: {
-      configured: !!connectedMap.bybit,
-      connected: !!connectedMap.bybit,
-      type: 'crypto',
-      exchanges: ['Bybit'],
-      ...connectedMap.bybit
-    },
-    coinbase: {
-      configured: !!connectedMap.coinbase,
-      connected: !!connectedMap.coinbase,
-      type: 'crypto',
-      exchanges: ['Coinbase'],
-      ...connectedMap.coinbase
-    }
-  };
-}
-
-// Get live portfolio from all connected exchanges
-export async function getLivePortfolio(userId) {
-  const connected = await query(
-    `SELECT id, exchange_name, exchange_type, api_key, api_secret, paper_mode
-     FROM exchange_accounts
-     WHERE user_id = :userId AND is_active = 1`,
-    { userId }
-  );
-
-  const portfolio = {
-    positions: [],
-    totalValue: 0,
-    exchanges: []
-  };
-
-  for (const ex of connected) {
-    try {
-      const name = ex.exchange_name.toLowerCase();
-
-      if (name === 'alpaca') {
-        alpacaAdapter.setCredentials(ex.api_key, ex.api_secret, ex.paper_mode);
-        const positions = await alpacaAdapter.getPositions();
-
-        for (const pos of positions) {
-          portfolio.positions.push({
-            exchange: 'Alpaca',
-            symbol: pos.symbol,
-            quantity: pos.qty,
-            avgPrice: pos.avgEntryPrice,
-            currentPrice: pos.currentPrice,
-            marketValue: pos.marketValue,
-            unrealizedPL: pos.unrealizedPL,
-            unrealizedPLPercent: pos.unrealizedPLPercent,
-            side: pos.side
-          });
-          portfolio.totalValue += pos.marketValue || 0;
-        }
-
-        portfolio.exchanges.push({ name: 'Alpaca', positionCount: positions.length });
-      }
-
-      if (name === 'binance') {
-        const balances = await binanceAdapter.getBalances(ex.api_key, ex.api_secret);
-
-        for (const bal of balances) {
-          if (bal.total > 0.00001 && !['USDT', 'USDC', 'BUSD', 'USD'].includes(bal.asset)) {
-            try {
-              const quote = await binanceAdapter.getQuote(`${bal.asset}/USDT`);
-              const marketValue = bal.total * (quote?.price || 0);
-
-              portfolio.positions.push({
-                exchange: 'Binance',
-                symbol: `${bal.asset}/USDT`,
-                quantity: bal.total,
-                currentPrice: quote?.price || 0,
-                marketValue,
-                unrealizedPL: 0,
-                side: 'long'
-              });
-              portfolio.totalValue += marketValue;
-            } catch {
-              // Skip assets without USDT pair
-            }
-          }
-        }
-
-        portfolio.exchanges.push({ name: 'Binance', positionCount: balances.filter(b => b.total > 0).length });
-      }
-
-      if (name === 'pionex') {
-        const balances = await pionexAdapter.getBalances(ex.api_key, ex.api_secret);
-
-        for (const bal of balances) {
-          if (bal.total > 0.00001 && !['USDT', 'USDC', 'USD'].includes(bal.asset)) {
-            try {
-              const quote = await pionexAdapter.getQuote(`${bal.asset}/USDT`);
-              const marketValue = bal.total * (quote?.price || 0);
-
-              portfolio.positions.push({
-                exchange: 'Pionex',
-                symbol: `${bal.asset}/USDT`,
-                quantity: bal.total,
-                currentPrice: quote?.price || 0,
-                marketValue,
-                unrealizedPL: 0,
-                side: 'long'
-              });
-              portfolio.totalValue += marketValue;
-            } catch {
-              // Skip assets without USDT pair
-            }
-          }
-        }
-
-        portfolio.exchanges.push({ name: 'Pionex', positionCount: balances.filter(b => b.total > 0).length });
-      }
-    } catch (error) {
-      console.error(`[Portfolio] Error fetching ${ex.exchange_name}:`, error.message);
-    }
-  }
-
-  return portfolio;
 }

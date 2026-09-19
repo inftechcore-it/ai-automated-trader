@@ -1,40 +1,44 @@
 /**
- * GridBot Strategy - Buy low sell high within a price range
- * Best for sideways/ranging markets
+ * PrecisionGridBot Strategy - Precision Tolerance Band Grid Trading Bot
+ * Solves slow execution & missed fills by executing orders within a configurable
+ * decimal tolerance corridor (e.g., matching 0.5820 - 0.5829 when target is 0.5823).
+ * Eliminates stranded limit orders by executing instant market fills on corridor touch.
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
 import { toNum, parseSymbol } from '../utils.js';
 import type {
   BotParams,
-  GridBotParams,
+  PrecisionGridParams,
   BotState,
   BotAction,
   PriceTick,
   ValidationResult,
 } from '../types.js';
 
-interface GridLevel {
+interface PrecisionGridLevel {
   price: number;
   index: number;
   type: 'buy' | 'sell';
   orderId?: string;
   filled: boolean;
-  buyCount: number;  // Track buys per grid level
+  buyCount: number;
+  lastActionTimestamp?: number;
 }
 
-export class GridBot extends BaseBotStrategy {
-  readonly name = 'Grid Trading Bot';
-  readonly type = 'GRID' as const;
+export class PrecisionGridBot extends BaseBotStrategy {
+  readonly name = 'Precision Grid Bot';
+  readonly type = 'PRECISION_GRID' as const;
 
-  private gridLevels: GridLevel[] = [];
+  private gridLevels: PrecisionGridLevel[] = [];
   private gridSpacing = 0;
+  private priceTolerance = 0;
   private gridProfit = 0;
   private gridProfitCount = 0;
   private lastPrice = 0;
   private asset = '';
   private quote = '';
 
-  // Error handling state
+  // Error & Status handling
   private lastError = '';
   private insufficientBalance = false;
   private lastBalanceCheck = 0;
@@ -46,7 +50,7 @@ export class GridBot extends BaseBotStrategy {
   private lastTakeProfitLog = 0;
 
   validate(params: BotParams): ValidationResult {
-    const p = params as GridBotParams;
+    const p = params as PrecisionGridParams;
     const errors: string[] = [];
 
     const lowerPrice = toNum(p.lowerPrice);
@@ -56,6 +60,7 @@ export class GridBot extends BaseBotStrategy {
     const stopLoss = toNum(p.stopLoss);
     const takeProfit = toNum(p.takeProfit);
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
+    const priceTolerance = toNum(p.priceTolerance);
 
     if (!lowerPrice || lowerPrice <= 0) errors.push('Lower price must be positive');
     if (!upperPrice || upperPrice <= 0) errors.push('Upper price must be positive');
@@ -65,12 +70,13 @@ export class GridBot extends BaseBotStrategy {
     if (stopLoss && stopLoss >= lowerPrice) errors.push('Stop loss must be below lower price');
     if (takeProfit && takeProfit <= upperPrice) errors.push('Take profit must be above upper price');
     if (maxBuysPerLevel < 1 || maxBuysPerLevel > 10) errors.push('Max buys per level must be between 1 and 10');
+    if (priceTolerance && priceTolerance < 0) errors.push('Price tolerance cannot be negative');
 
     return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
 
   protected async onInitialize(initialState?: Partial<BotState>): Promise<void> {
-    const p = this.params as GridBotParams;
+    const p = this.params as PrecisionGridParams;
 
     const lowerPrice = toNum(p.lowerPrice);
     const upperPrice = toNum(p.upperPrice);
@@ -78,6 +84,16 @@ export class GridBot extends BaseBotStrategy {
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
 
     this.gridSpacing = (upperPrice - lowerPrice) / gridCount;
+
+    // Calculate Decimal Tolerance Band
+    if (p.priceTolerance && p.priceTolerance > 0) {
+      this.priceTolerance = toNum(p.priceTolerance);
+    } else if (p.toleranceDigits && p.toleranceDigits > 0) {
+      this.priceTolerance = Math.pow(10, -toNum(p.toleranceDigits));
+    } else {
+      // Auto-derive precision buffer (15% of grid spacing or sub-decimal bucket e.g. 0.0009 for low-price assets)
+      this.priceTolerance = Math.min(this.gridSpacing * 0.20, lowerPrice < 1.0 ? 0.0009 : lowerPrice < 100 ? 0.05 : 1.0);
+    }
 
     this.gridLevels = [];
     for (let i = 0; i <= gridCount; i++) {
@@ -91,9 +107,8 @@ export class GridBot extends BaseBotStrategy {
       });
     }
 
-    this.log(`Initialized with ${gridCount} grids, spacing: $${this.gridSpacing.toFixed(6)}`);
-    this.log(`Max buys per grid level: ${maxBuysPerLevel}`);
-    this.log(`Grid range: $${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}`);
+    this.log(`🎯 Precision Grid initialized with ${gridCount} grids | Spacing: $${this.gridSpacing.toFixed(6)} | Tolerance Corridor: ±$${this.priceTolerance.toFixed(6)}`);
+    this.log(`Max buys per level: ${maxBuysPerLevel} | Range: $${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}`);
 
     if (initialState?.customState) {
       this.gridProfit = toNum(initialState.customState.gridProfit);
@@ -103,7 +118,6 @@ export class GridBot extends BaseBotStrategy {
       this.isStopLossActive = initialState.customState.isStopLossActive || false;
       this.isTakeProfitActive = initialState.customState.isTakeProfitActive || false;
 
-      // Restore buy counts per grid
       if (Array.isArray(initialState.customState.gridLevels)) {
         for (const savedGrid of initialState.customState.gridLevels) {
           const grid = this.gridLevels.find(g => g.index === savedGrid.index);
@@ -117,20 +131,10 @@ export class GridBot extends BaseBotStrategy {
     }
   }
 
-  // Dynamically expand grid spacing when RAG guardrail flags elevated volatility
-  widenGrid(factor: number = 1.5): void {
-    if (factor <= 1.0) return;
-    const oldSpacing = this.gridSpacing;
-    this.gridSpacing = oldSpacing * factor;
-    this.log(`[RAG WIDEN_GRID] Expanding grid spacing from $${oldSpacing.toFixed(5)} to $${this.gridSpacing.toFixed(5)} (factor ${factor}x) due to market volatility.`, 'info');
-  }
-
-  // Handle errors from order execution
   handleError(error: string): void {
     this.lastError = error;
     this.log(`ERROR: ${error}`, 'error');
 
-    // Check if it's a balance-related error
     if (error.toLowerCase().includes('insufficient') ||
         error.toLowerCase().includes('balance') ||
         error.includes('NOTIONAL')) {
@@ -139,12 +143,19 @@ export class GridBot extends BaseBotStrategy {
     }
   }
 
+  /**
+   * Helper to determine if current market price is within the tolerance band of a target price
+   */
+  private isWithinTolerance(currentPrice: number, targetPrice: number): boolean {
+    return Math.abs(currentPrice - targetPrice) <= this.priceTolerance;
+  }
+
   async evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]> {
     if (!this.params) {
       this.log('Strategy not initialized, skipping tick', 'warn');
       return [{ action: 'hold' }];
     }
-    const p = this.params as GridBotParams;
+    const p = this.params as PrecisionGridParams;
     const actions: BotAction[] = [];
 
     const lowerPrice = toNum(p.lowerPrice);
@@ -153,9 +164,10 @@ export class GridBot extends BaseBotStrategy {
     const takeProfit = toNum(p.takeProfit);
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
     const investmentPerGrid = toNum(p.totalInvestment) / toNum(p.gridCount);
+    const executionMode = p.executionMode || 'MARKET_ON_TOUCH';
 
-    // Check balance status every 30 seconds
     const now = Date.now();
+
     // Auto-clear insufficient balance flag whenever live available balance >= 5.00 or >= investmentPerGrid
     if (state.availableBalance >= investmentPerGrid || state.availableBalance >= 5.0) {
       if (this.insufficientBalance) {
@@ -170,12 +182,11 @@ export class GridBot extends BaseBotStrategy {
       this.log(`Waiting for balance. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}`, 'warn');
     }
 
-    // Show balance status in tick log (throttled to once every 30 seconds to avoid spam)
     if (now - this.lastStatusLog > 30000) {
       this.lastStatusLog = now;
       const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
       const stopStatus = this.isStopLossActive ? ' [STOP LOSS ACTIVE]' : '';
-      this.log(`Tick: $${tick.price.toFixed(6)} | Balance: $${state.availableBalance.toFixed(2)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
+      this.log(`Tick: $${tick.price.toFixed(6)} | Tolerance: ±$${this.priceTolerance.toFixed(6)} | Orders: ${state.openOrders.length} | Profits: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
     }
 
     if (!this.asset) {
@@ -187,12 +198,11 @@ export class GridBot extends BaseBotStrategy {
     const currentPrice = tick.price;
     this.lastPrice = currentPrice;
 
-    // 1. Check stop loss
+    // 1. Stop Loss Protection
     if (stopLoss && currentPrice <= stopLoss) {
       if (!this.isStopLossActive) {
         this.isStopLossActive = true;
-        this.log(`⚠️ STOP LOSS triggered at $${currentPrice.toFixed(6)} (stop: $${stopLoss.toFixed(6)}). Liquidating all open orders & holdings to cash...`, 'warn');
-        // Reset grid level states
+        this.log(`⚠️ STOP LOSS triggered at $${currentPrice.toFixed(6)} (stop: $${stopLoss.toFixed(6)}). Liquidating all positions to cash...`, 'warn');
         for (const grid of this.gridLevels) {
           grid.filled = false;
           grid.orderId = undefined;
@@ -201,19 +211,18 @@ export class GridBot extends BaseBotStrategy {
         }
         return this.createExitActions(state, 'STOP_LOSS');
       } else {
-        // While stop loss is active and price stays below stop loss, log throttled status and wait
         if (now - this.lastStopLossLog > 30000) {
           this.lastStopLossLog = now;
-          this.log(`[STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Holdings liquidated. Waiting for price to recover...`);
+          this.log(`[STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Waiting for recovery...`);
         }
         return [{ action: 'hold' }];
       }
     }
 
-    // When price recovers above stop loss
+    // Recover from stop loss
     if (this.isStopLossActive && currentPrice > stopLoss) {
       this.isStopLossActive = false;
-      this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming normal grid cycle and placing initial BUY orders!`);
+      this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming Precision Grid cycle!`);
       for (const grid of this.gridLevels) {
         grid.filled = false;
         grid.orderId = undefined;
@@ -222,7 +231,7 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    // 2. Check take profit
+    // 2. Take Profit Protection
     if (takeProfit && currentPrice >= takeProfit) {
       if (!this.isTakeProfitActive) {
         this.isTakeProfitActive = true;
@@ -237,16 +246,15 @@ export class GridBot extends BaseBotStrategy {
       } else {
         if (now - this.lastTakeProfitLog > 30000) {
           this.lastTakeProfitLog = now;
-          this.log(`[TAKE PROFIT ACTIVE] Price $${currentPrice.toFixed(6)} >= TP $${takeProfit.toFixed(6)}. Profits secured. Waiting for pullback...`);
+          this.log(`[TAKE PROFIT ACTIVE] Price $${currentPrice.toFixed(6)} >= TP $${takeProfit.toFixed(6)}. Profits secured.`);
         }
         return [{ action: 'hold' }];
       }
     }
 
-    // When price pulls back below take profit
     if (this.isTakeProfitActive && currentPrice < takeProfit) {
       this.isTakeProfitActive = false;
-      this.log(`Price pulled back to $${currentPrice.toFixed(6)} (below take profit $${takeProfit.toFixed(6)}). Resuming normal grid cycle.`);
+      this.log(`Price pulled back to $${currentPrice.toFixed(6)} (below take profit $${takeProfit.toFixed(6)}). Resuming Precision Grid cycle.`);
       for (const grid of this.gridLevels) {
         grid.filled = false;
         grid.orderId = undefined;
@@ -255,16 +263,16 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    // Check if price is in range
-    if (currentPrice < lowerPrice || currentPrice > upperPrice) {
+    // Range Check with Tolerance
+    if (currentPrice < (lowerPrice - this.priceTolerance) || currentPrice > (upperPrice + this.priceTolerance)) {
       if (now - this.lastRangeLog > 30000) {
         this.lastRangeLog = now;
-        this.log(`Price $${currentPrice.toFixed(6)} outside grid range [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
+        this.log(`Price $${currentPrice.toFixed(6)} outside grid corridor [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
       }
       return [{ action: 'hold' }];
     }
 
-    // 3. Process grid levels for BUY and SELL orders
+    // 3. Process Precision Grid Levels
     const gridCount = toNum(p.gridCount);
     const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
     const totalHoldingQty = holding?.quantity || 0;
@@ -273,7 +281,7 @@ export class GridBot extends BaseBotStrategy {
       .reduce((sum, o) => sum + (o.quantity - (o.filledQuantity || 0)), 0);
     let availableHoldingQty = Math.max(0, totalHoldingQty - lockedHoldingQty);
 
-    // Synchronize grid order IDs with live open orders
+    // Sync live order IDs
     for (const grid of this.gridLevels) {
       const openOrder = state.openOrders.find(o =>
         Math.abs(Number(o.price || 0) - grid.price) < this.gridSpacing * 0.45
@@ -285,14 +293,99 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    const MIN_NOTIONAL = 0.50; // Minimum order value in USDT
+    // ═══════════════════════════════════════════════════════════════
+    // A. SELL & TOLERANCE AUTO-SELL LOGIC (Grid 1 to gridCount)
+    // ═══════════════════════════════════════════════════════════════
+    for (let i = 1; i <= gridCount; i++) {
+      const grid = this.gridLevels[i];
+      if (!grid) continue;
 
-    // A. BUY & DIP BUY LOGIC (Grids BELOW current price)
-    for (const grid of this.gridLevels) {
-      if (grid.price < currentPrice * 0.9995 && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
+      // Tolerance Touch: Market price reached or entered target corridor (currentPrice >= grid.price - tolerance)
+      const isTargetReachedOrInBand = currentPrice >= (grid.price - this.priceTolerance);
+
+      if (isTargetReachedOrInBand && availableHoldingQty > 0 && !grid.orderId) {
+        // Cooldown check (prevent multiple sells on same grid within 4 seconds)
+        if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 4000) {
+          continue;
+        }
+
+        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
+        if (sellQty > 0) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: currentPrice,
+            orderType: 'MARKET',
+            gridLevel: grid.index,
+            metadata: { toleranceBandTriggered: true, targetPrice: grid.price, tolerance: this.priceTolerance }
+          });
+          availableHoldingQty -= sellQty;
+          grid.lastActionTimestamp = now;
+          this.log(`⚡ Precision Auto-Sell Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(6)} touched within tolerance corridor (Current: $${currentPrice.toFixed(6)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
+
+          // Reset lower buy grid level for dip re-entry
+          const lowerBuyGrid = this.gridLevels[grid.index - 1];
+          if (lowerBuyGrid) {
+            lowerBuyGrid.buyCount = 0;
+            lowerBuyGrid.filled = false;
+          }
+        }
+      }
+      // If price is below tolerance band, place limit order if mode is TOLERANCE_LIMIT
+      else if (grid.price > (currentPrice + this.priceTolerance) && availableHoldingQty > 0 && !grid.orderId && executionMode === 'TOLERANCE_LIMIT') {
+        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
+        if (sellQty * grid.price >= 0.50) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: grid.price,
+            orderType: 'LIMIT',
+            gridLevel: grid.index,
+          });
+          availableHoldingQty -= sellQty;
+          grid.type = 'sell';
+          this.log(`Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // B. BUY & TOLERANCE DIP-BUY LOGIC (Grid 0 to gridCount - 1)
+    // ═══════════════════════════════════════════════════════════════
+    for (let i = 0; i < gridCount; i++) {
+      const grid = this.gridLevels[i];
+      if (!grid) continue;
+
+      // Check if price touched or is in the buy corridor [grid.price - tolerance, grid.price + tolerance]
+      const isInBuyCorridor = this.isWithinTolerance(currentPrice, grid.price) || (currentPrice <= grid.price && currentPrice >= (grid.price - this.priceTolerance));
+
+      if (isInBuyCorridor && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
+        if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 5000) {
+          continue;
+        }
+
+        if (!this.insufficientBalance && state.availableBalance >= investmentPerGrid) {
+          const buyQty = (investmentPerGrid * 1.02) / currentPrice;
+          if (buyQty * currentPrice >= 0.50) {
+            actions.push({
+              action: 'buy',
+              quantity: buyQty,
+              price: currentPrice,
+              orderType: 'MARKET',
+              gridLevel: grid.index,
+              metadata: { toleranceBandTriggered: true, targetPrice: grid.price, tolerance: this.priceTolerance }
+            });
+            grid.type = 'buy';
+            grid.lastActionTimestamp = now;
+            this.log(`⚡ Precision Dip-Buy Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(6)} matched in tolerance band (Current: $${currentPrice.toFixed(6)}). Buying ${buyQty.toFixed(4)} ${this.asset}...`);
+          }
+        }
+      }
+      // Standard limit buy if below market and mode is TOLERANCE_LIMIT
+      else if (grid.price < (currentPrice - this.priceTolerance) && !grid.orderId && grid.buyCount < maxBuysPerLevel && executionMode === 'TOLERANCE_LIMIT') {
         if (!this.insufficientBalance && state.availableBalance >= investmentPerGrid) {
           const buyQty = (investmentPerGrid * 1.02) / grid.price;
-          if (buyQty * grid.price >= MIN_NOTIONAL) {
+          if (buyQty * grid.price >= 0.50) {
             actions.push({
               action: 'buy',
               quantity: buyQty,
@@ -307,31 +400,10 @@ export class GridBot extends BaseBotStrategy {
       }
     }
 
-    // B. SELL TARGET LOGIC (Grids ABOVE current price)
-    // Only place sell orders if we have sufficient holdings to form a valid order (>= MIN_NOTIONAL)
-    if (availableHoldingQty * currentPrice >= MIN_NOTIONAL) {
-      for (const grid of this.gridLevels) {
-        if (grid.price > currentPrice * 1.0005 && !grid.orderId && availableHoldingQty * grid.price >= MIN_NOTIONAL) {
-          const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / grid.price);
-          if (sellQty * grid.price >= MIN_NOTIONAL) {
-            actions.push({
-              action: 'sell',
-              quantity: sellQty,
-              price: grid.price,
-              orderType: 'LIMIT',
-              gridLevel: grid.index,
-            });
-            availableHoldingQty -= sellQty;
-            grid.type = 'sell';
-            this.log(`Placing limit SELL target at Grid #${grid.index}: ${sellQty.toFixed(4)} @ $${grid.price.toFixed(6)}`);
-          }
-        }
-      }
+    if (actions.length > 0) {
+      this.log(`[Precision Grid] Executing ${actions.length} action(s): ${actions.map(a => `${a.action.toUpperCase()} ${a.quantity?.toFixed(4)} @ $${a.price?.toFixed(6) || 'market'}`).join(', ')}`);
     }
 
-    if (actions.length > 0) {
-      this.log(`Placing ${actions.length} grid actions: ${actions.map(a => `${a.action.toUpperCase()} ${a.quantity?.toFixed(4)} @ $${a.price?.toFixed(6) || 'market'}`).join(', ')}`);
-    }
     return actions.length > 0 ? actions : [{ action: 'hold' }];
   }
 
@@ -361,36 +433,14 @@ export class GridBot extends BaseBotStrategy {
       });
     }
 
-    this.log(`Exiting: Cancelling all orders and selling holdings (${reason})`);
+    this.log(`Precision Exit: Cancelling all orders and liquidating holdings (${reason})`);
     return actions;
-  }
-
-  private calculateQuantity(price: number, state: BotState): number {
-    const p = this.params as GridBotParams;
-    const totalInvestment = toNum(p.totalInvestment);
-    const gridCount = toNum(p.gridCount);
-    const investmentPerGrid = totalInvestment / gridCount;
-    const quantity = investmentPerGrid / price;
-
-    if (state.availableBalance < investmentPerGrid) {
-      this.log(`Insufficient balance for grid buy. Need: $${investmentPerGrid.toFixed(2)}, Have: $${state.availableBalance.toFixed(2)}`, 'warn');
-      return 0;
-    }
-
-    return quantity;
-  }
-
-  private calculateSellQuantity(holdingQuantity: number): number {
-    const p = this.params as GridBotParams;
-    const gridCount = toNum(p.gridCount);
-    const quantityPerGrid = holdingQuantity / gridCount;
-    return Math.min(quantityPerGrid, holdingQuantity);
   }
 
   onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number): void {
     let grid = this.gridLevels.find(g => g.orderId === orderId);
     if (!grid && filledPrice > 0) {
-      grid = this.gridLevels.find(g => Math.abs(g.price - filledPrice) < this.gridSpacing * 0.45);
+      grid = this.gridLevels.find(g => Math.abs(g.price - filledPrice) <= (this.gridSpacing * 0.45 + this.priceTolerance));
     }
 
     if (grid) {
@@ -403,7 +453,6 @@ export class GridBot extends BaseBotStrategy {
         this.gridProfit += profit;
         this.gridProfitCount++;
         this.log(`SELL filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} | Profit: +$${profit.toFixed(4)} | Total cycles: ${this.gridProfitCount}`);
-        // Reset lower buy level so it can buy on dip again
         const lowerGrid = this.gridLevels[grid.index - 1];
         if (lowerGrid) {
           lowerGrid.buyCount = 0;
@@ -420,18 +469,7 @@ export class GridBot extends BaseBotStrategy {
     this.customState.lastError = this.lastError;
     this.customState.isStopLossActive = this.isStopLossActive;
     this.customState.isTakeProfitActive = this.isTakeProfitActive;
-  }
-
-  onOrderPlaced(orderId: string, gridLevel?: number, price?: number, side?: string): void {
-    const grid = gridLevel !== undefined && this.gridLevels[gridLevel]
-      ? this.gridLevels[gridLevel]
-      : this.gridLevels.find(g => price && Math.abs(g.price - price) < this.gridSpacing * 0.45);
-
-    if (grid) {
-      grid.orderId = orderId;
-      grid.type = side?.toLowerCase() === 'sell' ? 'sell' : 'buy';
-      grid.filled = false;
-    }
+    this.customState.priceTolerance = this.priceTolerance;
   }
 
   onOrderCancelled(orderId: string): void {
@@ -441,12 +479,10 @@ export class GridBot extends BaseBotStrategy {
     }
   }
 
-  // Called when order fails
   onOrderError(error: string): void {
     this.lastError = error;
     this.log(`Order error: ${error}`, 'error');
 
-    // Check for balance-related errors - pause buying but don't stop bot
     if (error.includes('NOTIONAL') ||
         error.toLowerCase().includes('insufficient') ||
         error.includes('MIN_NOTIONAL') ||
@@ -457,11 +493,12 @@ export class GridBot extends BaseBotStrategy {
   }
 
   protected getMetrics(): Record<string, number> {
-    const p = this.params as GridBotParams | null;
+    const p = this.params as PrecisionGridParams | null;
     if (!p) {
       return {
         gridCount: 0,
         gridSpacing: 0,
+        priceTolerance: 0,
         gridProfit: 0,
         gridProfitCount: 0,
         currentPrice: 0,
@@ -473,6 +510,7 @@ export class GridBot extends BaseBotStrategy {
     return {
       gridCount: toNum(p.gridCount),
       gridSpacing: this.gridSpacing,
+      priceTolerance: this.priceTolerance,
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
       currentPrice: this.lastPrice,
@@ -487,6 +525,7 @@ export class GridBot extends BaseBotStrategy {
     super.restoreState(customState);
     this.gridProfit = toNum(customState.gridProfit);
     this.gridProfitCount = toNum(customState.gridProfitCount);
+    this.priceTolerance = toNum(customState.priceTolerance) || this.priceTolerance;
     this.lastError = customState.lastError || '';
     this.insufficientBalance = customState.insufficientBalance || false;
     this.isStopLossActive = customState.isStopLossActive || false;
@@ -505,6 +544,7 @@ export class GridBot extends BaseBotStrategy {
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
       gridLevels: this.gridLevels,
+      priceTolerance: this.priceTolerance,
       lastError: this.lastError,
       insufficientBalance: this.insufficientBalance,
       isStopLossActive: this.isStopLossActive,

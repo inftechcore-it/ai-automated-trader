@@ -7,6 +7,7 @@ import type { IBotStrategy } from './IBotStrategy.js';
 import type { BotConfig, BotState, PriceTick, BotStatus, OpenOrder, TradeRecord, OrderSide, OrderType } from './types.js';
 interface ExecutionEngine {
     placeOrder(params: {
+        userId?: string;
         exchange: string;
         symbol: string;
         side: OrderSide;
@@ -25,6 +26,7 @@ interface ExecutionEngine {
         isPaper?: boolean;
     }>;
     cancelOrder(params: {
+        userId?: string;
         exchange: string;
         orderId: string;
         symbol: string;
@@ -66,6 +68,16 @@ export declare class BotInstance extends EventEmitter {
     pause(): Promise<void>;
     resume(): Promise<void>;
     stop(reason?: string): Promise<void>;
+    /**
+     * Take All IN / Panic Sell: Immediately cancels all open orders and places a Market SELL order
+     * to liquidate 100% of accumulated coin holdings to cash/quote currency in one click.
+     */
+    panicSell(reason?: string): Promise<{
+        success: boolean;
+        soldQuantity: number;
+        receivedAmount: number;
+        symbol: string;
+    }>;
     processTick(tick: PriceTick): Promise<void>;
     syncOrdersWithExchange(): Promise<void>;
     private loadExistingOrders;
@@ -81,6 +93,7 @@ export declare class BotInstance extends EventEmitter {
     private stopSnapshotTimer;
     private takeSnapshot;
     private getAdapter;
+    private getUserLiveBalances;
     getStats(): any;
     getOpenOrders(): OpenOrder[];
     /**

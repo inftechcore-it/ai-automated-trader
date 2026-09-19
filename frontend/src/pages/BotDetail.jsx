@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, Play, Pause, Square, Edit2, Trash2, Share2,
   TrendingUp, TrendingDown, DollarSign, Activity, Clock, Target,
   BarChart3, Wallet, FlaskConical, RefreshCw, Loader2, AlertTriangle,
-  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar
+  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar, Zap
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -20,6 +20,8 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGY_ICONS = {
+  JARVIS: TrendingUp,
+  PRECISION_GRID: Zap,
   GRID: Grid3X3,
   INFINITY_GRID: Grid3X3,
   DCA: Repeat,
@@ -52,6 +54,7 @@ export default function BotDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [timeframe, setTimeframe] = useState('7d');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPanicSellConfirm, setShowPanicSellConfirm] = useState(false);
   const socketRef = useRef(null);
   const logsContainerRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -193,6 +196,27 @@ export default function BotDetail() {
     }
   };
 
+  const handlePanicSell = async () => {
+    setActionLoading(true);
+    try {
+      const res = await api(`/bots/${id}/take-all-in`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Take All IN user triggered from bot details' })
+      });
+      if (res.success) {
+        setShowPanicSellConfirm(false);
+        await loadBot();
+        await loadOrders();
+        await loadLogs();
+      }
+    } catch (e) {
+      console.error('Take All IN failed:', e);
+    } finally {
+      setActionLoading(false);
+      setShowPanicSellConfirm(false);
+    }
+  };
+
   const handleDelete = async () => {
     setActionLoading(true);
     try {
@@ -291,6 +315,16 @@ export default function BotDetail() {
           {(bot.status === 'RUNNING' || bot.status === 'PAUSED') && (
             <button className="action-btn stop" onClick={() => handleAction('stop')} disabled={actionLoading}>
               <Square size={16} /> Stop
+            </button>
+          )}
+          {(bot.status === 'RUNNING' || bot.status === 'PAUSED') && (
+            <button
+              className="action-btn panic-sell"
+              onClick={() => setShowPanicSellConfirm(true)}
+              disabled={actionLoading}
+              title="Take All IN - 1-Click Emergency Liquidation"
+            >
+              <Zap size={16} /> Take All IN
             </button>
           )}
           <button className="action-btn delete" onClick={() => setShowDeleteConfirm(true)}>
@@ -661,6 +695,47 @@ export default function BotDetail() {
               <button className="delete-btn" onClick={handleDelete} disabled={actionLoading}>
                 {actionLoading ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
                 Delete Bot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Take All IN Panic Sell Confirmation Modal */}
+      {showPanicSellConfirm && (
+        <div className="modal-overlay">
+          <div className="delete-modal" style={{ maxWidth: '480px', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+            <h3 style={{ color: '#f87171' }}><Zap size={24} /> Take All IN — Emergency Liquidation</h3>
+            <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: '1.5' }}>
+              Are you sure you want to execute <strong>Take All IN</strong> on <strong>{bot.name}</strong> ({bot.symbol})?
+            </p>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '8px',
+              padding: '12px',
+              margin: '12px 0',
+              fontSize: '12px',
+              color: '#fca5a5',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ <strong>Immediate Actions Taken:</strong>
+              <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                <li>Cancels all active open orders immediately</li>
+                <li>Places market SELL order to liquidate 100% of accumulated coin holdings to cash/quote currency</li>
+                <li>Locks in all realized profits and safely stops the bot</li>
+              </ul>
+            </div>
+            <div className="modal-actions">
+              <button className="cancel-btn" onClick={() => setShowPanicSellConfirm(false)}>Cancel</button>
+              <button
+                className="delete-btn"
+                style={{ background: '#ef4444', borderColor: '#dc2626', color: '#fff' }}
+                onClick={handlePanicSell}
+                disabled={actionLoading}
+              >
+                {actionLoading ? <Loader2 size={16} className="spin" /> : <Zap size={16} />}
+                Confirm Take All IN
               </button>
             </div>
           </div>

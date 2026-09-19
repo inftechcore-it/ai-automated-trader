@@ -9996,6 +9996,8 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
 .bot-actions .action-btn.pause:hover { border-color: #f59e0b; color: #f59e0b; }
 .bot-actions .action-btn.resume:hover { border-color: #10b981; color: #10b981; }
 .bot-actions .action-btn.stop:hover { border-color: #ef4444; color: #ef4444; }
+.bot-actions .action-btn.panic-sell { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #f87171; font-weight: 600; }
+.bot-actions .action-btn.panic-sell:hover { background: #ef4444; border-color: #dc2626; color: #ffffff; box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
 .bot-actions .action-btn.view:hover { border-color: #3b82f6; color: #3b82f6; }
 .bot-actions .action-btn.share:hover { border-color: #8b5cf6; color: #8b5cf6; }
 
@@ -11438,6 +11440,8 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
 .detail-header .action-btn.pause:hover { border-color: #f59e0b; color: #f59e0b; }
 .detail-header .action-btn.resume:hover { border-color: #10b981; color: #10b981; }
 .detail-header .action-btn.stop:hover { border-color: #ef4444; color: #ef4444; }
+.detail-header .action-btn.panic-sell { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #f87171; font-weight: 600; }
+.detail-header .action-btn.panic-sell:hover { background: #ef4444; border-color: #dc2626; color: #ffffff; box-shadow: 0 0 14px rgba(239, 68, 68, 0.45); }
 .detail-header .action-btn.delete:hover { border-color: #ef4444; color: #ef4444; }
 
 /* Performance Cards */
@@ -12946,6 +12950,24 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
   color: #fbbf24;
 }
 
+.grid-insights-header .icon-badge.jarvis {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.35);
+  color: #06b6d4;
+}
+
+.grid-insights-header .icon-badge.precision_grid {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+.grid-insights-header .icon-badge.infinity_grid {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.35);
+  color: #a78bfa;
+}
+
 .grid-insights-header h3 {
   font-size: 18px;
   font-weight: 700;
@@ -13324,4 +13346,695 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
   border-color: rgba(16, 185, 129, 0.3);
   color: #34d399;
 }
+
+/* ==========================================================================
+   ACCOUNT & BROKER BALANCES PAGE STYLING
+   ========================================================================== */
+.account-page {
+  padding: 24px 32px;
+  max-width: 1440px;
+  margin: 0 auto;
+  color: #e2e8f0;
+}
+
+.account-loading-container,
+.account-error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 450px;
+  text-align: center;
+  gap: 14px;
+}
+
+.account-loading-container h2,
+.account-error-container h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.account-icon-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-header h1 {
+  font-size: 24px;
+  font-weight: 800;
+  color: #f8fafc;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.5px;
+}
+
+.account-header .subtitle {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sync-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse 1.5s infinite;
+}
+
+.refresh-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-account-btn:hover:not(:disabled) {
+  background: #334155;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.manage-exchanges-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.manage-exchanges-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #ffffff;
+}
+
+/* Executive Metrics Grid */
+.account-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.account-metric-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.account-metric-card:hover {
+  transform: translateY(-2px);
+  border-color: #334155;
+}
+
+.account-metric-card.live-usd {
+  border-top: 3px solid #38bdf8;
+}
+
+.account-metric-card.live-inr {
+  border-top: 3px solid #10b981;
+}
+
+.account-metric-card.paper {
+  border-top: 3px solid #a855f7;
+}
+
+.account-metric-card.brokers {
+  border-top: 3px solid #06b6d4;
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.metric-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+}
+
+.metric-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.metric-tag.live {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.metric-tag.inr {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.metric-tag.virtual {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.metric-tag.count {
+  background: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+}
+
+.account-metric-card .metric-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: #f8fafc;
+  line-height: 1.2;
+}
+
+.text-inr {
+  color: #34d399;
+}
+
+.text-paper {
+  color: #c084fc;
+}
+
+.text-sub {
+  font-size: 14px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.metric-caption {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.link-hover {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link-hover:hover {
+  text-decoration: underline;
+}
+
+/* Broker Category Sections */
+.broker-section {
+  margin-bottom: 36px;
+}
+
+.section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.section-icon.crypto { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+.section-icon.indian { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.section-icon.us-stocks { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.section-icon.paper { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+
+.section-title-group h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.section-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 2px 0 0 0;
+}
+
+/* Broker Cards Grid */
+.broker-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.broker-cards-grid.two-col {
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+}
+
+.broker-card {
+  background: #0d131f;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s;
+}
+
+.broker-card.connected {
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.broker-card.disconnected {
+  border-color: #1e293b;
+  opacity: 0.85;
+}
+
+.broker-card.full-width {
+  grid-column: 1 / -1;
+}
+
+.broker-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+}
+
+.broker-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.broker-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.broker-logo.binance { background: #f0b90b; color: #000; }
+.broker-logo.pionex { background: #2563eb; }
+.broker-logo.jupiter { background: linear-gradient(135deg, #f97316, #a855f7); }
+.broker-logo.kraken { background: #5741d9; }
+.broker-logo.angelone { background: #ea580c; }
+.broker-logo.upstox { background: #7c3aed; }
+.broker-logo.alpaca { background: #eab308; color: #000; }
+.broker-logo.paper { background: #10b981; }
+
+.broker-identity h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.broker-type {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.status-pill.active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-pill.inactive {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.status-pill.virtual {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+/* Balances & Stats */
+.broker-balance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.broker-balance-row.main {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  margin-bottom: 12px;
+}
+
+.broker-balance-row .label {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.broker-balance-row .val {
+  font-size: 16px;
+  color: #f8fafc;
+}
+
+.broker-balance-row.main .val {
+  font-size: 20px;
+  color: #38bdf8;
+}
+
+.broker-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mini-stat {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.mini-stat.highlight {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.mini-stat .label {
+  font-size: 11px;
+  color: #64748b;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.mini-stat .val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+/* Wallet Address Bar */
+.wallet-address-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+.wallet-address-bar .label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.wallet-address-bar .addr {
+  color: #38bdf8;
+}
+
+.copy-addr-btn,
+.explorer-link {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.copy-addr-btn:hover,
+.explorer-link:hover {
+  color: #ffffff;
+}
+
+/* Assets Breakdown List */
+.assets-breakdown {
+  margin-top: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.assets-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #090d14;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.assets-scroll-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.asset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.4);
+  font-size: 12px;
+}
+
+.asset-item:last-child {
+  border-bottom: none;
+}
+
+.asset-name-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.asset-sym {
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.asset-qty {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.asset-val-col {
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+.empty-assets {
+  padding: 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+}
+
+/* Holdings Tables */
+.holdings-table-container {
+  margin-top: 14px;
+}
+
+.holdings-table-container h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+}
+
+.account-holdings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.account-holdings-table th {
+  background: #090d14;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  border-bottom: 1px solid #1e293b;
+}
+
+.account-holdings-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.4);
+  color: #cbd5e1;
+}
+
+.account-holdings-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Broker Empty State */
+.broker-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+  gap: 8px;
+}
+
+.broker-empty-state p {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin: 0;
+}
+
+.broker-empty-state small {
+  font-size: 11px;
+  color: #64748b;
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+.connect-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.connect-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #ffffff;
+}
+
+/* Footer Bar */
+.account-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #1e293b;
+  margin-top: 16px;
+}
+
+.footer-info-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-right: 8px;
+}
+
+.last-synced-text {
+  font-size: 11px;
+  color: #64748b;
+}
+
 
