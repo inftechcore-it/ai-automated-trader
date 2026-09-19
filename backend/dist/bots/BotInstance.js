@@ -888,6 +888,19 @@ export class BotInstance extends EventEmitter {
                 };
                 this.state.tradeHistory.push(trade);
                 this.deps.onTrade(this.id, trade);
+                // Asynchronously log trade memory into RAG Knowledge Base for continuous learning
+                this.logTradeMemoryToRag({
+                    symbol: order.symbol,
+                    strategyType: this.config.strategyType,
+                    side: 'SELL',
+                    entryPrice: holding.avgEntryPrice,
+                    exitPrice: filledPrice,
+                    pnl: profit,
+                    pnlPercent: holding.avgEntryPrice > 0 ? ((filledPrice - holding.avgEntryPrice) / holding.avgEntryPrice) * 100 : 0,
+                    stageStatus: this.state.customState?.stageStatus,
+                    marketRegime: this.state.customState?.marketRegime,
+                    notes: `SELL fill at level ${order.gridLevel !== undefined ? order.gridLevel : 'market'} with $${profit.toFixed(4)} profit`
+                });
                 // Emit grid fill event if applicable
                 if (order.gridLevel !== undefined) {
                     this.emit('grid_fill', {
@@ -1063,6 +1076,40 @@ export class BotInstance extends EventEmitter {
                     this.log(`[RAG GUARDRAIL] Elevated volatility detected. Dynamically expanding grid spacing by 1.5x.`, 'info');
                 }
             }
+        }
+        catch (err) {
+            // Non-blocking fallback
+        }
+    }
+    /**
+     * Apply dynamic AI auto-calibrated parameters to the strategy
+     */
+    applyAdaptiveParameters(params) {
+        if (typeof this.strategy.applyAdaptiveParameters === 'function') {
+            this.strategy.applyAdaptiveParameters(params);
+            if (typeof this.strategy.getCustomState === 'function') {
+                this.state.customState = this.strategy.getCustomState();
+            }
+        }
+    }
+    /**
+     * Asynchronously log trade memory into RAG Knowledge Base
+     */
+    async logTradeMemoryToRag(tradeData) {
+        try {
+            const { ragService } = await import('../../services/ragService.js');
+            await ragService.logTradeMemory({
+                symbol: tradeData.symbol,
+                strategy_type: tradeData.strategyType,
+                side: tradeData.side,
+                entry_price: tradeData.entryPrice,
+                exit_price: tradeData.exitPrice,
+                pnl: tradeData.pnl,
+                pnl_percent: tradeData.pnlPercent,
+                stage_status: tradeData.stageStatus,
+                market_regime: tradeData.marketRegime,
+                notes: tradeData.notes,
+            });
         }
         catch (err) {
             // Non-blocking fallback

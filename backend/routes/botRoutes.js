@@ -59,12 +59,20 @@ async function getBotEngine() {
 
 // Initialize engine on first route access
 export function setBotSocket(io) {
-  getBotEngine().then(engine => {
+  getBotEngine().then(async engine => {
     if (engine && io) {
       engine.on('bot:trade', (data) => io.emit('bot:trade', data));
       engine.on('bot:status', (data) => io.emit('bot:status', data));
       engine.on('bot:error', (data) => io.emit('bot:error', data));
       engine.on('bot:log', (data) => io.emit('bot:log', data));
+
+      // Start JARVIS Autonomous AI Auto-Tuner Overseer
+      try {
+        const { jarvisAutoTuner } = await import('../services/jarvisAutoTuner.js');
+        jarvisAutoTuner.start(engine);
+      } catch (err) {
+        console.warn('[BotRoutes] Could not start jarvisAutoTuner:', err.message);
+      }
     }
   });
 }
@@ -352,6 +360,33 @@ router.post('/:id/stop', requireAuth, async (req, res) => {
     return ok(res, { message: 'Bot stopped' });
   } catch (error) {
     return fail(res, 400, error.message);
+  }
+});
+
+// AI Brain Auto-Calibration (On-demand RAG + Gemini dynamic parameter tuning)
+router.post('/:id/calibrate', requireAuth, async (req, res) => {
+  try {
+    const engine = await getBotEngine();
+    if (!engine) {
+      return fail(res, 500, 'Bot Engine not available');
+    }
+
+    const { jarvisAutoTuner } = await import('../services/jarvisAutoTuner.js');
+    jarvisAutoTuner.botEngine = engine;
+    const result = await jarvisAutoTuner.calibrateBot(req.params.id);
+
+    if (!result) {
+      return fail(res, 400, 'Bot not eligible for AI Auto-Tuning or market data unavailable');
+    }
+
+    const stats = engine.getBotStats(req.params.id);
+    return ok(res, {
+      message: 'AI Auto-Tuning calibrated successfully',
+      result,
+      bot: stats,
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
   }
 });
 

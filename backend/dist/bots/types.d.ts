@@ -116,6 +116,20 @@ export interface JarvisParams {
     interGridSLActive?: boolean;
     lastInterGridSLTime?: number;
     stageStatus?: string;
+    autoTuneEnabled?: boolean;
+    marketRegime?: string;
+    lastCalibrationTime?: number;
+    lastCalibrationReason?: string;
+    adaptationHistory?: Array<{
+        timestamp: number;
+        lowerPrice: number;
+        upperPrice: number;
+        gridSpacing: number;
+        stopLoss?: number;
+        marketRegime: string;
+        confidenceScore: number;
+        reasoning: string;
+    }>;
 }
 export interface InfinityGridParams {
     lowerPrice: number;

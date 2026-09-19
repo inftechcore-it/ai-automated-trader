@@ -60,6 +60,10 @@ export declare class JarvisBot extends BaseBotStrategy {
     private lastStatusLog;
     private isStopLossActive;
     private lastStopLossLog;
+    private marketRegime;
+    private lastCalibrationReason;
+    private lastCalibrationTime;
+    private adaptationHistory;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     private getGridRole;
@@ -67,6 +71,21 @@ export declare class JarvisBot extends BaseBotStrategy {
      * Rebuilds exact 3-grid spaces (4 levels: #0, #1, #2, #3) across active window
      */
     private rebuildGridLevels;
+    /**
+     * Autonomous AI Auto-Tuning Hook:
+     * Smoothly updates 3-Grid progressive rungs and risk floors based on RAG & Gemini Brain
+     * without interrupting active stage execution or position tracking.
+     */
+    applyAdaptiveParameters(newParams: {
+        lowerPrice?: number;
+        upperPrice?: number;
+        gridSpacing?: number;
+        stopLoss?: number;
+        priceTolerance?: number;
+        marketRegime?: string;
+        confidenceScore?: number;
+        reasoning?: string;
+    }): void;
     handleError(error: string): void;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;
     private createExitActions;

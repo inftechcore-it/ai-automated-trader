@@ -46,6 +46,7 @@ export declare class BotEngine extends EventEmitter {
     deleteBot(botId: string): Promise<void>;
     updateBotParams(botId: string, params: BotParams): Promise<BotConfig>;
     getBot(botId: string): BotInstance | undefined;
+    applyAdaptiveParameters(botId: string, params: any): Promise<void>;
     getBotStats(botId: string): any;
     getUserBots(userId: string): Promise<any[]>;
     getBotOrders(botId: string, limit?: number): Promise<any[]>;

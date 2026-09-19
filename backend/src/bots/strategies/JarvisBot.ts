@@ -76,6 +76,12 @@ export class JarvisBot extends BaseBotStrategy {
   private isStopLossActive = false;
   private lastStopLossLog = 0;
 
+  // AI Brain & RAG Continuous Learning State
+  private marketRegime = 'RANGING_CONSOLIDATION';
+  private lastCalibrationReason = '';
+  private lastCalibrationTime = 0;
+  private adaptationHistory: any[] = [];
+
   validate(params: BotParams): ValidationResult {
     const p = params as JarvisParams;
     const errors: string[] = [];
@@ -226,6 +232,71 @@ export class JarvisBot extends BaseBotStrategy {
       this.customState.interGridSLActive = this.interGridSLActive;
       this.customState.stageStatus = this.stageStatus;
     }
+  }
+
+  /**
+   * Autonomous AI Auto-Tuning Hook:
+   * Smoothly updates 3-Grid progressive rungs and risk floors based on RAG & Gemini Brain
+   * without interrupting active stage execution or position tracking.
+   */
+  applyAdaptiveParameters(newParams: {
+    lowerPrice?: number;
+    upperPrice?: number;
+    gridSpacing?: number;
+    stopLoss?: number;
+    priceTolerance?: number;
+    marketRegime?: string;
+    confidenceScore?: number;
+    reasoning?: string;
+  }): void {
+    if (!newParams) return;
+
+    if (newParams.lowerPrice && newParams.lowerPrice > 0) {
+      this.currentLowerPrice = Number(newParams.lowerPrice.toFixed(6));
+    }
+    if (newParams.upperPrice && newParams.upperPrice > this.currentLowerPrice) {
+      this.currentUpperPrice = Number(newParams.upperPrice.toFixed(6));
+    }
+    this.gridSpacing = Number(((this.currentUpperPrice - this.currentLowerPrice) / 3).toFixed(6));
+    if (newParams.priceTolerance && newParams.priceTolerance > 0) {
+      this.priceTolerance = Number(newParams.priceTolerance.toFixed(6));
+    }
+    if (newParams.marketRegime) {
+      this.marketRegime = newParams.marketRegime;
+    }
+    if (newParams.reasoning) {
+      this.lastCalibrationReason = newParams.reasoning;
+    }
+    this.lastCalibrationTime = Date.now();
+
+    if (this.params) {
+      if (newParams.lowerPrice) (this.params as JarvisParams).lowerPrice = this.currentLowerPrice;
+      if (newParams.upperPrice) (this.params as JarvisParams).upperPrice = this.currentUpperPrice;
+      if (newParams.stopLoss) (this.params as JarvisParams).stopLoss = Number(newParams.stopLoss.toFixed(6));
+      if (newParams.priceTolerance) (this.params as JarvisParams).priceTolerance = this.priceTolerance;
+      if (newParams.marketRegime) (this.params as JarvisParams).marketRegime = newParams.marketRegime;
+    }
+
+    // Recalculate 3-Grid rungs
+    this.rebuildGridLevels(this.lastPrice || this.currentLowerPrice);
+
+    // Record adaptation history
+    const historyEntry = {
+      timestamp: Date.now(),
+      lowerPrice: this.currentLowerPrice,
+      upperPrice: this.currentUpperPrice,
+      gridSpacing: this.gridSpacing,
+      stopLoss: (this.params as JarvisParams)?.stopLoss,
+      marketRegime: this.marketRegime,
+      confidenceScore: newParams.confidenceScore || 0.85,
+      reasoning: this.lastCalibrationReason || 'Autonomous AI calibration applied',
+    };
+    this.adaptationHistory.unshift(historyEntry);
+    if (this.adaptationHistory.length > 10) {
+      this.adaptationHistory = this.adaptationHistory.slice(0, 10);
+    }
+
+    this.log(`🧠 [JARVIS AI Brain] Dynamic Auto-Tuning Applied: Range [$${this.currentLowerPrice.toFixed(5)} - $${this.currentUpperPrice.toFixed(5)}] | Spacing: $${this.gridSpacing.toFixed(5)} | SL Midpoint: $${this.interGridStopLossPrice.toFixed(5)} | Regime: ${this.marketRegime}`);
   }
 
   handleError(error: string): void {
@@ -841,6 +912,13 @@ export class JarvisBot extends BaseBotStrategy {
     this.insufficientBalance = customState.insufficientBalance || false;
     this.isStopLossActive = customState.isStopLossActive || false;
 
+    this.marketRegime = customState.marketRegime || this.marketRegime;
+    this.lastCalibrationReason = customState.lastCalibrationReason || this.lastCalibrationReason;
+    this.lastCalibrationTime = toNum(customState.lastCalibrationTime) || this.lastCalibrationTime;
+    if (Array.isArray(customState.adaptationHistory)) {
+      this.adaptationHistory = customState.adaptationHistory;
+    }
+
     if (Array.isArray(customState.gridLevels)) {
       this.gridLevels = customState.gridLevels.map((g: any) => ({
         ...g,
@@ -869,6 +947,10 @@ export class JarvisBot extends BaseBotStrategy {
       lastError: this.lastError,
       insufficientBalance: this.insufficientBalance,
       isStopLossActive: this.isStopLossActive,
+      marketRegime: this.marketRegime,
+      lastCalibrationReason: this.lastCalibrationReason,
+      lastCalibrationTime: this.lastCalibrationTime,
+      adaptationHistory: this.adaptationHistory,
     };
   }
 }

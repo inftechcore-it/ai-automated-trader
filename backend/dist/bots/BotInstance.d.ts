@@ -101,5 +101,24 @@ export declare class BotInstance extends EventEmitter {
      * Checks breaking market news, macro calendar, and RMS rules before executing order cycles.
      */
     private evaluateRAGGuardrails;
+    /**
+     * Apply dynamic AI auto-calibrated parameters to the strategy
+     */
+    applyAdaptiveParameters(params: any): void;
+    /**
+     * Asynchronously log trade memory into RAG Knowledge Base
+     */
+    logTradeMemoryToRag(tradeData: {
+        symbol: string;
+        strategyType: string;
+        side: string;
+        entryPrice: number;
+        exitPrice: number;
+        pnl: number;
+        pnlPercent: number;
+        stageStatus?: string;
+        marketRegime?: string;
+        notes?: string;
+    }): Promise<void>;
 }
 export {};

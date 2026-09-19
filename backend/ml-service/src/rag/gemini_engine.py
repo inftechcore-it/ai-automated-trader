@@ -247,4 +247,157 @@ class GeminiDecisionEngine:
             "ai_powered": False
         }
 
+    def calibrate_jarvis(
+        self,
+        symbol: str,
+        current_price: float,
+        indicators: Dict[str, Any],
+        current_params: Dict[str, Any],
+        stage_status: str,
+        context_passages: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Calibrates live 3-Grid progressive JARVIS Bot parameters based on RAG Trade Memory,
+        live ATR/RSI/Support/Resistance indicators, and Gemini AI synthesis.
+        """
+        citations = [
+            {
+                "id": p.get("id"),
+                "collection": p.get("collection"),
+                "title": p.get("title"),
+                "relevance_score": p.get("relevance_score")
+            }
+            for p in context_passages
+        ]
+
+        if self._is_configured:
+            try:
+                context_str = "\n".join([
+                    f"- [{c.get('collection')}] {c.get('title')}: {c.get('content')[:200]}"
+                    for c in context_passages[:5]
+                ])
+
+                prompt = f"""You are the JARVIS Autonomous Trading Agent AI Brain.
+Target Symbol: {symbol}
+Current Price: ${current_price:.6f}
+Stage Status: {stage_status}
+
+Live Technical Indicators:
+- ATR (14): {indicators.get('atr', 0):.6f}
+- RSI (14): {indicators.get('rsi', 50):.2f}
+- Bollinger Upper: ${indicators.get('bb_upper', current_price * 1.05):.6f}
+- Bollinger Lower: ${indicators.get('bb_lower', current_price * 0.95):.6f}
+- Swing Support: ${indicators.get('support', current_price * 0.97):.6f}
+- Swing Resistance: ${indicators.get('resistance', current_price * 1.03):.6f}
+- Volatility: {indicators.get('volatility', 2.5):.2f}%
+
+Current Bot Parameters:
+- Lower Price: ${float(current_params.get('lowerPrice', current_price * 0.95)):.6f}
+- Upper Price: ${float(current_params.get('upperPrice', current_price * 1.05)):.6f}
+- Grid Count: 3 (Fixed 3 grid spaces / 4 rungs: #0, #1, #2, #3)
+- Stop Loss: ${float(current_params.get('stopLoss', current_price * 0.90)):.6f}
+
+Retrieved Past Trade Memory & Strategy Playbooks:
+{context_str}
+
+Analyze the market regime and calculate optimal dynamic bounds for the 3-Grid Progressive JARVIS Bot.
+The 3 grid spaces span from dynamicLowerPrice (Grid #0) to dynamicUpperPrice (Grid #3) with step = (upper - lower) / 3.
+Ensure dynamicLowerPrice <= current_price <= dynamicUpperPrice.
+Ensure dynamicStopLoss < dynamicLowerPrice.
+
+Output valid JSON strictly in the following format:
+{{
+  "command": "AUTO_CALIBRATE_JARVIS",
+  "symbol": "{symbol}",
+  "recommendations": {{
+    "dynamicLowerPrice": float,
+    "dynamicUpperPrice": float,
+    "dynamicGridSpacing": float,
+    "dynamicStopLoss": float,
+    "priceTolerance": float,
+    "opportunisticDipBuy": boolean
+  }},
+  "marketRegime": "BULLISH_EXPANSION" | "RANGING_CONSOLIDATION" | "HIGH_VOLATILITY_CHOP" | "BEARISH_CONTRACTION",
+  "confidenceScore": float between 0.0 and 1.0,
+  "reasoning": "Concise 1-2 sentence explanation of the technical adjustments."
+}}
+"""
+                response = self._model.generate_content(
+                    prompt,
+                    generation_config={"response_mime_type": "application/json", "temperature": 0.2}
+                )
+                text = response.text.strip()
+                if text.startswith("```json"):
+                    text = text[7:]
+                if text.startswith("```"):
+                    text = text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+
+                parsed = json.loads(text.strip())
+                parsed["citations"] = citations
+                parsed["ai_powered"] = True
+                return parsed
+            except Exception as e:
+                logger.error(f"Gemini JARVIS calibration failed: {e}. Using quant auto-tuner fallback.")
+
+        # Deterministic Quant Fallback Calibration
+        return self._generate_fallback_jarvis_calibration(symbol, current_price, indicators, current_params, citations)
+
+    def _generate_fallback_jarvis_calibration(
+        self,
+        symbol: str,
+        current_price: float,
+        indicators: Dict[str, Any],
+        current_params: Dict[str, Any],
+        citations: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Generates dynamic mathematical calibration based on ATR & Support/Resistance levels"""
+        atr = float(indicators.get("atr") or (current_price * 0.02))
+        rsi = float(indicators.get("rsi") or 50.0)
+        support = float(indicators.get("support") or (current_price - 2.5 * atr))
+        resistance = float(indicators.get("resistance") or (current_price + 2.5 * atr))
+        volatility = float(indicators.get("volatility") or 2.5)
+
+        # Snap bounds to support/resistance with ATR padding
+        dynamic_lower = round(min(current_price * 0.985, support if support < current_price else current_price - 2 * atr), 6)
+        dynamic_upper = round(max(current_price * 1.015, resistance if resistance > current_price else current_price + 2 * atr), 6)
+        dynamic_spacing = round((dynamic_upper - dynamic_lower) / 3.0, 6)
+        dynamic_sl = round(dynamic_lower - (atr * 1.5), 6)
+
+        # Precision corridor: 4th decimal place for sub-$1.0 coins (±0.0009), proportional for higher assets
+        p_tolerance = 0.0009 if current_price < 1.0 else round(min(dynamic_spacing * 0.15, 0.05), 6)
+
+        # Market regime classification
+        if rsi > 62 and volatility > 3.0:
+            regime = "BULLISH_EXPANSION"
+            reasoning = f"Bullish momentum detected (RSI: {rsi:.1f}). Expanding upper bound to ${dynamic_upper:.4f} with ATR-calibrated step (${dynamic_spacing:.4f})."
+        elif rsi < 38:
+            regime = "BEARISH_CONTRACTION"
+            reasoning = f"Oversold condition (RSI: {rsi:.1f}). Snapping lower bound to swing support ${dynamic_lower:.4f} and widening stop-loss floor to ${dynamic_sl:.4f}."
+        elif volatility > 4.5:
+            regime = "HIGH_VOLATILITY_CHOP"
+            reasoning = f"Elevated volatility ({volatility:.1f}%). Widening grid spacing to ${dynamic_spacing:.4f} based on ATR to capture wider market swings."
+        else:
+            regime = "RANGING_CONSOLIDATION"
+            reasoning = f"Price consolidating in range [${dynamic_lower:.4f} - ${dynamic_upper:.4f}]. Maintaining 3-grid progressive rungs with ±${p_tolerance:.5f} corridor."
+
+        return {
+            "command": "AUTO_CALIBRATE_JARVIS",
+            "symbol": symbol,
+            "recommendations": {
+                "dynamicLowerPrice": dynamic_lower,
+                "dynamicUpperPrice": dynamic_upper,
+                "dynamicGridSpacing": dynamic_spacing,
+                "dynamicStopLoss": dynamic_sl,
+                "priceTolerance": p_tolerance,
+                "opportunisticDipBuy": rsi < 35
+            },
+            "marketRegime": regime,
+            "confidenceScore": 0.88,
+            "reasoning": reasoning,
+            "citations": citations,
+            "ai_powered": False
+        }
+
 gemini_engine = GeminiDecisionEngine()

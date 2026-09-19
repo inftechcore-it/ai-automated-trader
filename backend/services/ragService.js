@@ -110,6 +110,62 @@ class RagService {
   }
 
   /**
+   * Log trade outcome into kb_trade_history vector memory
+   */
+  async logTradeMemory(tradeData) {
+    try {
+      const response = await this.client.post('/api/v1/rag/trade-memory/log', tradeData);
+      return { success: true, ...response.data };
+    } catch (error) {
+      logger.debug(`[RAG Service] Trade memory log offline fallback: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Autonomous AI calibration for 3-Grid JARVIS Bot
+   */
+  async calibrateJarvis({ symbol, currentPrice, indicators = {}, currentParams = {}, stageStatus = 'INITIAL' }) {
+    try {
+      const response = await this.client.post('/api/v1/rag/calibrate-jarvis', {
+        symbol,
+        current_price: Number(currentPrice),
+        indicators,
+        current_params: currentParams,
+        stage_status: stageStatus,
+      });
+      return { success: true, ...response.data };
+    } catch (error) {
+      logger.warn(`[RAG Service] JARVIS calibration fallback: ${error.message}`);
+      // Fallback deterministic calibration in Node.js
+      const atr = Number(indicators.atr) || (currentPrice * 0.02);
+      const dynamicLower = Number((Math.min(currentPrice * 0.985, (indicators.support || currentPrice - 2 * atr))).toFixed(6));
+      const dynamicUpper = Number((Math.max(currentPrice * 1.015, (indicators.resistance || currentPrice + 2 * atr))).toFixed(6));
+      const dynamicSpacing = Number(((dynamicUpper - dynamicLower) / 3.0).toFixed(6));
+      const dynamicSL = Number((dynamicLower - 1.5 * atr).toFixed(6));
+      const pTolerance = currentPrice < 1.0 ? 0.0009 : Number(Math.min(dynamicSpacing * 0.15, 0.05).toFixed(6));
+
+      return {
+        success: false,
+        command: 'AUTO_CALIBRATE_JARVIS',
+        symbol,
+        recommendations: {
+          dynamicLowerPrice: dynamicLower,
+          dynamicUpperPrice: dynamicUpper,
+          dynamicGridSpacing: dynamicSpacing,
+          dynamicStopLoss: dynamicSL,
+          priceTolerance: pTolerance,
+          opportunisticDipBuy: (indicators.rsi || 50) < 35,
+        },
+        marketRegime: (indicators.rsi || 50) > 60 ? 'BULLISH_EXPANSION' : (indicators.rsi || 50) < 40 ? 'BEARISH_CONTRACTION' : 'RANGING_CONSOLIDATION',
+        confidenceScore: 0.85,
+        reasoning: `Rule-based calibration: bounds [${dynamicLower} - ${dynamicUpper}] step ${dynamicSpacing} with ±${pTolerance} corridor based on ATR (${atr.toFixed(4)}).`,
+        citations: [],
+      };
+    }
+  }
+
+  /**
    * Fetch status of all 8 internal KB collections + external market news
    */
   async getCollections() {

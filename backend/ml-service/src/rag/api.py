@@ -39,6 +39,26 @@ class DiagnoseErrorRequest(BaseModel):
     error_code: str = Field(..., description="Error code e.g. AB1004, 0x1771, -1013, 40310000")
     raw_message: Optional[str] = Field(None, description="Raw error text or exception message")
 
+class TradeMemoryLogRequest(BaseModel):
+    symbol: str = Field(..., description="Asset pair symbol e.g. BTC/USDT, SOL/USDT")
+    strategy_type: str = Field(default="JARVIS", description="Bot strategy type")
+    side: str = Field(..., description="BUY | SELL")
+    entry_price: Optional[float] = Field(0.0, description="Entry price")
+    exit_price: Optional[float] = Field(0.0, description="Exit price")
+    pnl: Optional[float] = Field(0.0, description="Realized PnL amount in USDT")
+    pnl_percent: Optional[float] = Field(0.0, description="Realized PnL percentage")
+    stage_status: Optional[str] = Field(None, description="Current stage e.g. GRID_1_COMPLETED, GRID_2_HARVESTED")
+    market_regime: Optional[str] = Field(None, description="Market regime at execution")
+    indicators: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Snapshot of ATR, RSI, BB, Support/Resistance")
+    notes: Optional[str] = Field(None, description="Optional trade reasoning notes")
+
+class CalibrateJarvisRequest(BaseModel):
+    symbol: str = Field(..., description="Target symbol e.g. SOL/USDT, FIL/USDT")
+    current_price: float = Field(..., description="Current live market price")
+    indicators: Dict[str, Any] = Field(default_factory=dict, description="Live indicators: atr, rsi, bb_upper, bb_lower, support, resistance, volatility")
+    current_params: Dict[str, Any] = Field(default_factory=dict, description="Current bot parameters: lowerPrice, upperPrice, gridCount, stopLoss")
+    stage_status: Optional[str] = Field(default="INITIAL", description="Current bot stage status")
+
 # ═══════════════════════════════════════════════════════════════════
 # API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════
@@ -99,6 +119,34 @@ async def rag_diagnose_error(request: DiagnoseErrorRequest):
     except Exception as e:
         logger.error(f"Error diagnosis endpoint error: {e}")
         raise HTTPException(status_code=500, detail=f"Broker diagnostic lookup failed: {str(e)}")
+
+@router.post("/trade-memory/log")
+async def log_trade_memory(request: TradeMemoryLogRequest):
+    """
+    POST /api/v1/rag/trade-memory/log
+    Ingests trade outcome diary into kb_trade_history vector storage.
+    Enables continuous learning and historical pattern lookup for autonomous bots.
+    """
+    try:
+        result = await rag_service.log_trade_memory(request.dict())
+        return result
+    except Exception as e:
+        logger.error(f"Trade memory log error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to log trade memory: {str(e)}")
+
+@router.post("/calibrate-jarvis")
+async def calibrate_jarvis_bot(request: CalibrateJarvisRequest):
+    """
+    POST /api/v1/rag/calibrate-jarvis
+    Evaluates live indicators + RAG past trade memory to output calibrated dynamic bounds
+    (dynamicLowerPrice, dynamicUpperPrice, dynamicGridSpacing, dynamicStopLoss, marketRegime).
+    """
+    try:
+        result = await rag_service.calibrate_jarvis(request.dict())
+        return result
+    except Exception as e:
+        logger.error(f"JARVIS calibration error: {e}")
+        raise HTTPException(status_code=500, detail=f"JARVIS calibration failed: {str(e)}")
 
 @router.get("/collections")
 async def list_collections():

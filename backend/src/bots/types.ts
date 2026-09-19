@@ -145,6 +145,20 @@ export interface JarvisParams {
   interGridSLActive?: boolean;     // Whether the inter-grid stop loss is currently active
   lastInterGridSLTime?: number;    // Timestamp of last inter-grid stop loss trigger
   stageStatus?: string;            // Current progressive execution stage
+  autoTuneEnabled?: boolean;       // Enable continuous RAG + Gemini AI Auto-Tuning
+  marketRegime?: string;           // Active market regime detected by AI Brain
+  lastCalibrationTime?: number;    // Timestamp of last AI calibration
+  lastCalibrationReason?: string;  // Reasoning for latest AI parameter adjustment
+  adaptationHistory?: Array<{
+    timestamp: number;
+    lowerPrice: number;
+    upperPrice: number;
+    gridSpacing: number;
+    stopLoss?: number;
+    marketRegime: string;
+    confidenceScore: number;
+    reasoning: string;
+  }>;
 }
 
 export interface InfinityGridParams {

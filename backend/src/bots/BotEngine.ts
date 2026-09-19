@@ -353,6 +353,14 @@ export class BotEngine extends EventEmitter {
     return this.bots.get(botId);
   }
 
+  async applyAdaptiveParameters(botId: string, params: any): Promise<void> {
+    const instance = this.bots.get(botId);
+    if (!instance) {
+      throw new Error('Bot not found');
+    }
+    instance.applyAdaptiveParameters(params);
+  }
+
   getBotStats(botId: string): any {
     const instance = this.bots.get(botId);
     if (!instance) {

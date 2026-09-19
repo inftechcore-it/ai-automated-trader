@@ -3,12 +3,14 @@ import {
   Grid3X3, Layers, DollarSign, TrendingUp, Shield, Target,
   Info, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertCircle,
   HelpCircle, ChevronDown, ChevronUp, Zap, Coins, Calculator,
-  Sparkles, Crosshair, Infinity as InfinityIcon
+  Sparkles, Crosshair, Infinity as InfinityIcon, Brain, RefreshCw
 } from 'lucide-react';
 
-export default function GridInsightsSection({ bot }) {
+export default function GridInsightsSection({ bot, onRefresh }) {
   const [showFormulas, setShowFormulas] = useState(false);
   const [expandedView, setExpandedView] = useState(true);
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [calibrateFeedback, setCalibrateFeedback] = useState(null);
 
   if (!bot) return null;
 
@@ -23,6 +25,35 @@ export default function GridInsightsSection({ bot }) {
   const strategyType = bot.strategyType || 'GRID';
   const symbol = bot.symbol || 'ASSET/USDT';
   const [baseAsset = 'COINS', quoteAsset = 'USDT'] = symbol.split('/');
+
+  // AI Auto-Tune trigger handler
+  const handleCalibrate = async () => {
+    if (isCalibrating || !bot.id) return;
+    setIsCalibrating(true);
+    setCalibrateFeedback(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${import.meta.env.VITE_API || 'http://localhost:5000'}/api/bots/${bot.id}/calibrate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCalibrateFeedback({ type: 'success', message: data.message || 'AI Auto-Tuning applied!' });
+        if (typeof onRefresh === 'function') onRefresh();
+      } else {
+        setCalibrateFeedback({ type: 'error', message: data.error || 'Calibration skipped' });
+      }
+    } catch (err) {
+      setCalibrateFeedback({ type: 'error', message: err.message });
+    } finally {
+      setIsCalibrating(false);
+      setTimeout(() => setCalibrateFeedback(null), 6000);
+    }
+  };
 
   // ─────────────────────────────────────────────────────────────
   // 1. GRID BOT / JARVIS / PRECISION GRID / INFINITY GRID INSIGHTS
@@ -220,41 +251,115 @@ export default function GridInsightsSection({ bot }) {
 
         {/* Strategy Specific Interactive Highlight Banners */}
         {strategyType === 'JARVIS' && (
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
-            border: '1px solid rgba(6, 182, 212, 0.35)',
-            borderRadius: '10px',
-            padding: '12px 16px',
-            marginBottom: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px' }}>
-              <ArrowUpRight size={22} style={{ color: '#06b6d4', flexShrink: 0 }} />
-              <div>
-                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px' }}>
-                  🚀 JARVIS 3-Grid Progressive Execution Active
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', lineHeight: '1.4' }}>
-                  <strong>Stage 0:</strong> 75% Entry ($0) + 25% Reserve &bull; <strong>Stage 1:</strong> 50% Profit Sell + 25% Buy ($1) &bull; <strong>Stage 2:</strong> 70% Harvest + Inter-Grid SL Midpoint (${interGridStopLossPrice.toFixed(4)}) &bull; <strong>Stage 3:</strong> 50% Runner Exit ($3).
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
+              border: '1px solid rgba(6, 182, 212, 0.35)',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px' }}>
+                <ArrowUpRight size={22} style={{ color: '#06b6d4', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🚀 JARVIS 3-Grid Progressive Execution Active</span>
+                    <span style={{
+                      fontSize: '10px',
+                      padding: '2px 7px',
+                      borderRadius: '10px',
+                      background: 'rgba(6, 182, 212, 0.25)',
+                      color: '#38bdf8',
+                      border: '1px solid rgba(6, 182, 212, 0.4)',
+                      fontWeight: 600
+                    }}>
+                      {bot.customState?.marketRegime || 'RANGING_CONSOLIDATION'}
+                    </span>
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', lineHeight: '1.4' }}>
+                    <strong>Stage 0:</strong> 75% Entry ($0) + 25% Reserve &bull; <strong>Stage 1:</strong> 50% Profit Sell + 25% Buy ($1) &bull; <strong>Stage 2:</strong> 70% Harvest + Inter-Grid SL Midpoint (${interGridStopLossPrice.toFixed(4)}) &bull; <strong>Stage 3:</strong> 50% Runner Exit ($3).
+                  </div>
                 </div>
               </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span className="footer-pill" style={{
+                  background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.18)' : 'rgba(245, 158, 11, 0.15)',
+                  borderColor: isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.3)',
+                  color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+                }}>
+                  <strong>Inter-Grid SL:</strong> ${interGridStopLossPrice.toFixed(4)} ({isInterGridSLActive ? 'ARMED' : 'Standby'})
+                </span>
+                <span className="footer-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
+                  <strong>Surge Shifts:</strong> {upperPriceIncrementsCount}
+                </span>
+                <button
+                  onClick={handleCalibrate}
+                  disabled={isCalibrating}
+                  style={{
+                    background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '6px 12px',
+                    color: '#fff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: isCalibrating ? 'not-allowed' : 'pointer',
+                    opacity: isCalibrating ? 0.7 : 1,
+                    boxShadow: '0 2px 8px rgba(6, 182, 212, 0.3)'
+                  }}
+                  title="Trigger RAG + Gemini Continuous Learning Calibration"
+                >
+                  <RefreshCw size={13} className={isCalibrating ? 'animate-spin' : ''} />
+                  {isCalibrating ? 'Calibrating...' : 'AI Auto-Tune'}
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span className="footer-pill" style={{
-                background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.18)' : 'rgba(245, 158, 11, 0.15)',
-                borderColor: isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.3)',
-                color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+
+            {/* AI Continuous Learning Reasoning Card */}
+            {bot.customState?.lastCalibrationReason && (
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.65)',
+                border: '1px solid rgba(148, 163, 184, 0.18)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '11px',
+                color: '#cbd5e1',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
               }}>
-                <strong>Inter-Grid SL:</strong> ${interGridStopLossPrice.toFixed(4)} ({isInterGridSLActive ? 'ARMED' : 'Standby'})
-              </span>
-              <span className="footer-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
-                <strong>Surge Shifts:</strong> {upperPriceIncrementsCount}
-              </span>
-            </div>
+                <Brain size={15} style={{ color: '#a855f7', flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>
+                  <strong>AI Brain Adaptation:</strong> {bot.customState.lastCalibrationReason}
+                </span>
+                {bot.customState.lastCalibrationTime && (
+                  <span style={{ color: '#64748b', fontSize: '10px' }}>
+                    {new Date(bot.customState.lastCalibrationTime).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {calibrateFeedback && (
+              <div style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 500,
+                background: calibrateFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: calibrateFeedback.type === 'success' ? '#34d399' : '#f87171',
+                border: `1px solid ${calibrateFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+              }}>
+                {calibrateFeedback.message}
+              </div>
+            )}
           </div>
         )}
 
