@@ -1,30 +1,38 @@
 /**
- * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot with Precision 4th-Decimal Corridor
+ * JarvisBot Strategy - 3-Grid Progressive Execution Engine
  *
- * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid") or misses fills due to sub-cent fluctuations.
+ * 1. Fixed 3-Grid Architecture (4 Levels: Grid #0, #1, #2, #3):
+ *    - Grid #0: Base Buy Level (Initial 75% Investment Entry, 25% Cash Reserve)
+ *    - Grid #1: 50% Take Profit Sell + 25% Cash Reserve Buy
+ *    - Grid #2: 70% Profit Harvest, 30% Runner Bag Retention, Dynamic Midpoint Inter-Grid SL Activation
+ *    - Grid #3: 50% Runner Exit & Autonomous Auto-Surge Upgrade
  *
- * 1. Precision 4th-Decimal Point Matching (Corridor ±0.0009):
- *    Enables instant market-on-touch execution when price reaches 1-9 of the 4th decimal point
- *    (e.g., target 1.48200 triggers between 1.48110 and 1.48290), eliminating stranded/missed fills.
+ * 2. Midpoint Inter-Grid Stop-Loss:
+ *    - Formula: Inter-Grid SL = (Grid #2 Price + Grid #1 Price) / 2
+ *    - Trigger: Liquidates 100% of remaining holdings to cash when price drops <= Inter-Grid SL.
  *
- * 2. Autonomous Upper Breakout (Auto-Upgrade):
- *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
- *    entire trading window upwards by exact integer multiples of gridSpacing:
- *      currentUpperPrice += stepsUp * gridSpacing
- *      currentLowerPrice += stepsUp * gridSpacing
- *    Immediately generates fresh dip-buy levels right beneath the new market peak!
+ * 3. Post-SL Re-entry Controller:
+ *    - If price drops to Grid #1: Re-buys with 25% of fixed investment budget.
+ *    - If price rebounds to Grid #2: Re-buys with 25% of fixed investment budget after a 30s stabilization cooldown.
  *
- * 3. Autonomous Pullback Recalibration (Auto-Downgrade):
- *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
- *    JARVIS smoothly steps down its active range back towards the initial baseline:
- *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)
- *      currentLowerPrice = Math.max(initialLowerPrice, currentLowerPrice - stepsDown * gridSpacing)
- *    Ensuring the active grid envelope stays perfectly centered around live market price
- *    with 100% uniform step spacing at all times!
+ * 4. Binance Notional Guard ($5.20 USDT):
+ *    - If any fractional sell order value < $5.20, sells 100% of the remaining bag to prevent -1013 NOTIONAL errors.
+ *
+ * 5. Primary Hard Stop Loss:
+ *    - Immediate 100% full liquidation if price <= stopLoss (below Grid #0).
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
 import type { BotParams, BotState, BotAction, PriceTick, ValidationResult } from '../types.js';
+export interface JarvisLevel {
+    price: number;
+    index: number;
+    role: string;
+    type: 'buy' | 'sell';
+    orderId?: string;
+    filled: boolean;
+    buyCount: number;
+    lastActionTimestamp?: number;
+}
 export declare class JarvisBot extends BaseBotStrategy {
     readonly name = "JARVIS Bot";
     readonly type: "JARVIS";
@@ -41,17 +49,21 @@ export declare class JarvisBot extends BaseBotStrategy {
     private lastPrice;
     private asset;
     private quote;
+    private stageStatus;
+    private interGridStopLossPrice;
+    private interGridSLActive;
+    private lastInterGridSLTime;
+    private lastStageActionTime;
     private lastError;
     private insufficientBalance;
-    private lastBalanceCheck;
     private lastStatusLog;
     private isStopLossActive;
     private lastStopLossLog;
-    private lastIncrementLog;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
+    private getGridRole;
     /**
-     * Rebuilds exact, uniform grid levels across the active [currentLowerPrice, currentUpperPrice] window
+     * Rebuilds exact 3-grid spaces (4 levels: #0, #1, #2, #3) across active window
      */
     private rebuildGridLevels;
     handleError(error: string): void;

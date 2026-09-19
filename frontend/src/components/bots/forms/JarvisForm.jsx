@@ -5,7 +5,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
   const [localParams, setLocalParams] = useState({
     lowerPrice: params.lowerPrice || '',
     upperPrice: params.upperPrice || '',
-    gridCount: params.gridCount || 10,
+    gridCount: params.gridCount || 3,
     totalInvestment: params.totalInvestment || 100,
     maxBuysPerLevel: params.maxBuysPerLevel || 1,
     autoIncrementEnabled: params.autoIncrementEnabled !== false,
@@ -27,6 +27,7 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
       delete cleanParams.priceTolerance;
       delete cleanParams.toleranceDigits;
     }
+    cleanParams.gridCount = 3; // Fixed 3-grid spaces
     onChange(cleanParams);
   }, [localParams]);
 
@@ -35,13 +36,14 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
       const price = symbolInfo.last;
       const lower = price * 0.9;
       const upper = price * 1.1;
-      const count = localParams.gridCount || 10;
+      const count = 3;
       const step = (upper - lower) / count;
 
       setLocalParams(p => ({
         ...p,
         lowerPrice: lower < 1 ? lower.toFixed(6) : lower.toFixed(2),
         upperPrice: upper < 1 ? upper.toFixed(6) : upper.toFixed(2),
+        gridCount: 3,
         incrementStepSpace: step < 1 ? step.toFixed(6) : step.toFixed(4),
       }));
     }
@@ -51,8 +53,8 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
     setLocalParams(p => ({ ...p, [key]: value }));
   };
 
-  const calculatedStepSpace = localParams.lowerPrice && localParams.upperPrice && localParams.gridCount
-    ? ((Number(localParams.upperPrice) - Number(localParams.lowerPrice)) / localParams.gridCount).toFixed(6)
+  const calculatedStepSpace = localParams.lowerPrice && localParams.upperPrice
+    ? ((Number(localParams.upperPrice) - Number(localParams.lowerPrice)) / 3).toFixed(6)
     : 0;
 
   const effectiveStepSpace = localParams.customStepSpace && localParams.incrementStepSpace
@@ -63,12 +65,16 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
     ? Number(localParams.priceTolerance)
     : (localParams.toleranceDigits ? Math.pow(10, -Number(localParams.toleranceDigits)) * 9 : 0.0009);
 
+  const midpointSL = localParams.lowerPrice && effectiveStepSpace
+    ? (Number(localParams.lowerPrice) + 1.5 * effectiveStepSpace).toFixed(5)
+    : 0;
+
   const profitPerGrid = effectiveStepSpace && localParams.totalInvestment && Number(localParams.lowerPrice) > 0
-    ? ((effectiveStepSpace / Number(localParams.lowerPrice)) * (localParams.totalInvestment / localParams.gridCount)).toFixed(4)
+    ? ((effectiveStepSpace / Number(localParams.lowerPrice)) * (localParams.totalInvestment * 0.25)).toFixed(4)
     : 0;
 
   // Example simulation of upper price breakout and pullback
-  const refUpper = Number(localParams.upperPrice || 1.4820);
+  const refUpper = Number(localParams.upperPrice || 1.5820);
   const refLower = Number(localParams.lowerPrice || 1.3820);
   const sampleNewUpper = Number((refUpper + effectiveStepSpace).toFixed(4));
   const sampleNewLower = Number((refLower + effectiveStepSpace).toFixed(4));
@@ -76,10 +82,10 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
 
   return (
     <div className="strategy-form jarvis-form">
-      {/* Dynamic Trailing Window & Precision Banner */}
+      {/* 3-Grid Progressive Strategy Architecture Banner */}
       <div style={{
-        background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
-        border: '1px solid rgba(14, 165, 233, 0.35)',
+        background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(16, 185, 129, 0.14) 100%)',
+        border: '1px solid rgba(14, 165, 233, 0.4)',
         borderRadius: '10px',
         padding: '14px 16px',
         marginBottom: '20px',
@@ -90,12 +96,14 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
         <Zap size={24} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
         <div>
           <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '14px' }}>
-            🚀 JARVIS Dynamic Trailing Window + 4th-Decimal Precision Active
+            🚀 3-Grid Progressive Execution Engine
           </div>
-          <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px', lineHeight: '1.4' }}>
-            <strong>Auto-Surge:</strong> Breaks out above upper bound ➔ shifts window up + creates immediate dip-buy levels below peak.<br />
-            <strong>Auto-Downgrade:</strong> Pulls back ➔ smoothly steps active range down towards baseline.<br />
-            <strong>4th-Decimal Precision:</strong> Buys & sells instantly when price touches anywhere between <strong>1–9 in the 4th decimal place</strong> (±${effectiveTolerance.toFixed(5)} corridor), preventing missed fills.
+          <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px', lineHeight: '1.5' }}>
+            <strong>Grid #0 ($P_0$):</strong> 75% Initial Entry &bull; 25% Reserve kept in cash.<br />
+            <strong>Grid #1 ($P_1$):</strong> 50% Profit Sell + 25% Cash Reserve Buy.<br />
+            <strong>Grid #2 ($P_2$):</strong> 70% Profit Harvest (30% Runner Bag retained) + Midpoint Inter-Grid SL Armed.<br />
+            <strong>Grid #3 ($P_3$):</strong> 50% Runner Exit on Surge Top & Dynamic window expansion.<br />
+            <strong>Midpoint Inter-Grid SL:</strong> Liquidates 100% of runner holding to cash if price dips to midpoint ($<span style={{ color: '#fbbf24', fontWeight: 600 }}>{midpointSL}</span>).
           </div>
         </div>
       </div>
@@ -103,10 +111,10 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
       <div className="form-row">
         <div className="form-group">
           <label>
-            Lower Price ($)
+            Lower Price ($) [Grid #0 Base]
             <span className="tooltip">
               <Info size={14} />
-              <span className="tooltip-text">Bottom of initial trading range.</span>
+              <span className="tooltip-text">Bottom of initial trading range where 75% initial entry is deployed.</span>
             </span>
           </label>
           <input
@@ -116,15 +124,15 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             onChange={e => updateParam('lowerPrice', e.target.value)}
             placeholder="e.g. 1.3820"
           />
-          <small>Bottom boundary of grid range</small>
+          <small>Grid #0 Base Price (75% Entry)</small>
         </div>
 
         <div className="form-group">
           <label>
-            Initial Upper Price ($)
+            Upper Price ($) [Grid #3 Surge Top]
             <span className="tooltip">
               <Info size={14} />
-              <span className="tooltip-text">Top of initial trading range. Trails automatically upward and downward.</span>
+              <span className="tooltip-text">Top boundary of 3-grid window where 50% runner exit & auto-surge upgrades trigger.</span>
             </span>
           </label>
           <input
@@ -134,23 +142,25 @@ export default function JarvisForm({ params, onChange, symbolInfo }) {
             onChange={e => updateParam('upperPrice', e.target.value)}
             placeholder="e.g. 1.5820"
           />
-          <small>Initial top bound (auto-trails dynamically)</small>
+          <small>Grid #3 Surge Top (auto-trails dynamically)</small>
         </div>
       </div>
 
       <div className="form-group">
         <label>
-          Number of Initial Grids
-          <span className="grid-count-value">{localParams.gridCount}</span>
+          Grid Architecture
+          <span className="grid-count-value">Fixed 3 Grids (4 Levels: #0, #1, #2, #3)</span>
         </label>
-        <input
-          type="range"
-          min="2"
-          max="50"
-          value={localParams.gridCount}
-          onChange={e => updateParam('gridCount', Number(e.target.value))}
-        />
-        <small>Step Space: ${(effectiveStepSpace || 0).toFixed(6)} per grid (always 100% uniform)</small>
+        <div style={{
+          padding: '8px 12px',
+          background: 'rgba(15, 23, 42, 0.6)',
+          borderRadius: '6px',
+          border: '1px solid #1e293b',
+          fontSize: '12px',
+          color: '#94a3b8'
+        }}>
+          Step Spacing: <strong style={{ color: '#38bdf8' }}>${(effectiveStepSpace || 0).toFixed(6)}</strong> | Midpoint Inter-Grid SL: <strong style={{ color: '#fbbf24' }}>${midpointSL}</strong>
+        </div>
       </div>
 
       {/* 4th-Decimal Precision Corridor Settings Card */}

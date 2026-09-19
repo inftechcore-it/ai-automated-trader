@@ -80,6 +80,15 @@ export default function GridInsightsSection({ bot }) {
     const spacingPercent = lowerPrice > 0 ? (gridSpacing / lowerPrice) * 100 : 0;
     const investmentPerGrid = gridCount > 0 ? totalInvestment / gridCount : 0;
 
+    // Inter-Grid Stop-Loss metrics for JARVIS
+    const interGridStopLossPrice = Number(
+      bot.strategyStatus?.metrics?.interGridStopLossPrice ||
+      bot.customState?.interGridStopLossPrice ||
+      ((lowerPrice + 2 * gridSpacing + lowerPrice + gridSpacing) / 2)
+    );
+    const isInterGridSLActive = !!(bot.strategyStatus?.metrics?.interGridSLActive || bot.customState?.interGridSLActive);
+    const stageStatus = bot.customState?.stageStatus || 'ACTIVE';
+
     // Generate grid levels matrix
     const levels = [];
     if (gridCount > 0 && (upperPrice > lowerPrice || gridSpacing > 0)) {
@@ -88,9 +97,50 @@ export default function GridInsightsSection({ bot }) {
           ? lowerPrice * Math.pow(1 + gridSpacingPercent / 100, i)
           : lowerPrice + i * gridSpacing;
 
-        const coinsQty = levelPrice > 0 ? investmentPerGrid / levelPrice : 0;
-        const profitPerCycle = coinsQty * gridSpacing;
-        const profitPercent = levelPrice > 0 ? (gridSpacing / levelPrice) * 100 : 0;
+        let coinsQty = levelPrice > 0 ? investmentPerGrid / levelPrice : 0;
+        let orderValue = investmentPerGrid;
+        let profitPerCycle = coinsQty * gridSpacing;
+        let profitPercent = levelPrice > 0 ? (gridSpacing / levelPrice) * 100 : 0;
+
+        // Custom 3-Grid Level Roles & Capital Allocations for JARVIS
+        let role = 'BUY';
+        let badgeType = 'buy';
+
+        if (strategyType === 'JARVIS') {
+          if (i === 3) {
+            role = 'Grid #3 (Surge Top) — 50% Runner Exit / Auto-Surge';
+            badgeType = 'exit';
+            orderValue = totalInvestment * 0.15; // approximate runner value
+          } else if (i === 2) {
+            role = 'Grid #2 — 70% Profit Harvest + Inter-Grid SL';
+            badgeType = 'sell';
+            orderValue = totalInvestment * 0.35;
+          } else if (i === 1) {
+            role = 'Grid #1 — 50% Take Profit + 25% Reserve Buy';
+            badgeType = 'buy';
+            orderValue = totalInvestment * 0.25;
+            coinsQty = levelPrice > 0 ? (totalInvestment * 0.25) / levelPrice : 0;
+          } else if (i === 0) {
+            role = 'Grid #0 (Base) — Initial 75% Investment Entry';
+            badgeType = 'base';
+            orderValue = totalInvestment * 0.75;
+            coinsQty = levelPrice > 0 ? (totalInvestment * 0.75) / levelPrice : 0;
+          }
+        } else {
+          if (i === gridCount) {
+            role = 'Upper Exit / Take Profit';
+            badgeType = 'exit';
+          } else if (i === 0) {
+            role = 'Base Buy Level';
+            badgeType = 'base';
+          } else if (currentPrice > 0 && levelPrice > currentPrice) {
+            role = 'Sell Target';
+            badgeType = 'sell';
+          } else {
+            role = 'Dip Buy Level';
+            badgeType = 'buy';
+          }
+        }
 
         // Check if there is an active matching open order at this price level
         const toleranceWindow = priceTolerance > 0 ? priceTolerance * 1.5 : (gridSpacing * 0.45 || 0.01);
@@ -98,29 +148,13 @@ export default function GridInsightsSection({ bot }) {
           Math.abs(Number(o.price || 0) - levelPrice) <= toleranceWindow
         );
 
-        let role = 'BUY';
-        let badgeType = 'buy';
-        if (i === gridCount) {
-          role = strategyType === 'JARVIS' ? 'Upper Bound (Auto-Surge)' : 'Upper Exit / Take Profit';
-          badgeType = 'exit';
-        } else if (i === 0) {
-          role = 'Base Buy Level';
-          badgeType = 'base';
-        } else if (currentPrice > 0 && levelPrice > currentPrice) {
-          role = 'Sell Target';
-          badgeType = 'sell';
-        } else {
-          role = 'Dip Buy Level';
-          badgeType = 'buy';
-        }
-
         levels.push({
           index: i,
           price: levelPrice,
           role,
           badgeType,
           coinsQty,
-          orderValue: investmentPerGrid,
+          orderValue,
           profitPerCycle,
           profitPercent,
           matchingOrder,
@@ -139,8 +173,8 @@ export default function GridInsightsSection({ bot }) {
     let HeaderIcon = Grid3X3;
 
     if (strategyType === 'JARVIS') {
-      title = 'JARVIS Autonomous Grid & Allocation Matrix';
-      subtitle = 'Autonomous upper boundary expansion, coin quantities, and profit per grid step';
+      title = 'JARVIS 3-Grid Progressive Allocation & Risk Matrix';
+      subtitle = '75%/25% staged entry, 70% harvest, midpoint Inter-Grid Stop-Loss & runner surges';
       HeaderIcon = Sparkles;
     } else if (strategyType === 'PRECISION_GRID') {
       title = 'Precision Grid & Corridor Allocation Matrix';
@@ -202,19 +236,23 @@ export default function GridInsightsSection({ bot }) {
               <ArrowUpRight size={22} style={{ color: '#06b6d4', flexShrink: 0 }} />
               <div>
                 <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px' }}>
-                  🚀 JARVIS Autonomous Upper Boundary Expansion Active
+                  🚀 JARVIS 3-Grid Progressive Execution Active
                 </div>
                 <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', lineHeight: '1.4' }}>
-                  When market price breaks out above <strong style={{ color: '#e2e8f0' }}>${upperPrice.toFixed(5)}</strong>, JARVIS autonomously recalculates: <code style={{ color: '#38bdf8', background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: '4px' }}>newUpper = currentPrice + ${gridSpacing.toFixed(5)}</code> without stalling trading.
+                  <strong>Stage 0:</strong> 75% Entry ($0) + 25% Reserve &bull; <strong>Stage 1:</strong> 50% Profit Sell + 25% Buy ($1) &bull; <strong>Stage 2:</strong> 70% Harvest + Inter-Grid SL Midpoint (${interGridStopLossPrice.toFixed(4)}) &bull; <strong>Stage 3:</strong> 50% Runner Exit ($3).
                 </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span className="footer-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
-                <strong>Expansions:</strong> {upperPriceIncrementsCount} times
+              <span className="footer-pill" style={{
+                background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.18)' : 'rgba(245, 158, 11, 0.15)',
+                borderColor: isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.3)',
+                color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+              }}>
+                <strong>Inter-Grid SL:</strong> ${interGridStopLossPrice.toFixed(4)} ({isInterGridSLActive ? 'ARMED' : 'Standby'})
               </span>
-              <span className="footer-pill">
-                <strong>Step Space:</strong> ${gridSpacing.toFixed(5)}
+              <span className="footer-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
+                <strong>Surge Shifts:</strong> {upperPriceIncrementsCount}
               </span>
             </div>
           </div>
@@ -429,6 +467,54 @@ export default function GridInsightsSection({ bot }) {
                     </td>
                   </tr>
                 ))}
+
+                {/* Inter-Grid Stop-Loss Row for JARVIS Strategy */}
+                {strategyType === 'JARVIS' && (
+                  <tr className="grid-level-row intergrid-sl-row" style={{
+                    background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+                    borderLeft: isInterGridSLActive ? '3px solid #ef4444' : '3px solid #f59e0b'
+                  }}>
+                    <td className="level-index">
+                      <span className="index-pill" style={{
+                        background: isInterGridSLActive ? '#ef4444' : '#f59e0b',
+                        color: '#fff',
+                        fontWeight: 600
+                      }}>
+                        Inter-Grid SL
+                      </span>
+                    </td>
+                    <td className="font-mono price-cell" style={{ color: isInterGridSLActive ? '#f87171' : '#fbbf24', fontWeight: 600 }}>
+                      ${interGridStopLossPrice.toFixed(5)}
+                      <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                        Midpoint: (Grid #2 + Grid #1) / 2
+                      </div>
+                    </td>
+                    <td>
+                      <span className="role-tag" style={{
+                        background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.15)',
+                        color: isInterGridSLActive ? '#f87171' : '#fbbf24'
+                      }}>
+                        <Shield size={13} /> {isInterGridSLActive ? 'Active Runner Exit Guard' : 'Standby (Arms at Grid #2)'}
+                      </span>
+                    </td>
+                    <td colSpan={2} style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      Liquidates 100% of runner holding to cash if price drops from Grid #2 to Midpoint
+                    </td>
+                    <td colSpan={2}>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: isInterGridSLActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                        color: isInterGridSLActive ? '#f87171' : '#94a3b8',
+                        border: `1px solid ${isInterGridSLActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`
+                      }}>
+                        {isInterGridSLActive ? '🛡️ Armed & Active' : 'Standby'}
+                      </span>
+                    </td>
+                  </tr>
+                )}
 
                 {/* Stop Loss Guard row if configured */}
                 {stopLoss > 0 && (

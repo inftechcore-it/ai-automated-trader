@@ -1,27 +1,25 @@
 /**
- * JarvisBot Strategy - Autonomous Dynamic Trailing Window Grid Bot with Precision 4th-Decimal Corridor
+ * JarvisBot Strategy - 3-Grid Progressive Execution Engine
  *
- * Solves the traditional grid limitation where a bot halts/stalls when market price
- * breaks out above the upper bound ("out of grid") or misses fills due to sub-cent fluctuations.
+ * 1. Fixed 3-Grid Architecture (4 Levels: Grid #0, #1, #2, #3):
+ *    - Grid #0: Base Buy Level (Initial 75% Investment Entry, 25% Cash Reserve)
+ *    - Grid #1: 50% Take Profit Sell + 25% Cash Reserve Buy
+ *    - Grid #2: 70% Profit Harvest, 30% Runner Bag Retention, Dynamic Midpoint Inter-Grid SL Activation
+ *    - Grid #3: 50% Runner Exit & Autonomous Auto-Surge Upgrade
  *
- * 1. Precision 4th-Decimal Point Matching (Corridor ±0.0009):
- *    Enables instant market-on-touch execution when price reaches 1-9 of the 4th decimal point
- *    (e.g., target 1.48200 triggers between 1.48110 and 1.48290), eliminating stranded/missed fills.
+ * 2. Midpoint Inter-Grid Stop-Loss:
+ *    - Formula: Inter-Grid SL = (Grid #2 Price + Grid #1 Price) / 2
+ *    - Trigger: Liquidates 100% of remaining holdings to cash when price drops <= Inter-Grid SL.
  *
- * 2. Autonomous Upper Breakout (Auto-Upgrade):
- *    When price surges and reaches or exceeds the upper bound, JARVIS dynamically shifts its
- *    entire trading window upwards by exact integer multiples of gridSpacing:
- *      currentUpperPrice += stepsUp * gridSpacing
- *      currentLowerPrice += stepsUp * gridSpacing
- *    Immediately generates fresh dip-buy levels right beneath the new market peak!
+ * 3. Post-SL Re-entry Controller:
+ *    - If price drops to Grid #1: Re-buys with 25% of fixed investment budget.
+ *    - If price rebounds to Grid #2: Re-buys with 25% of fixed investment budget after a 30s stabilization cooldown.
  *
- * 3. Autonomous Pullback Recalibration (Auto-Downgrade):
- *    When price pulls back below the elevated upper zone (>= 2 step spaces below upper),
- *    JARVIS smoothly steps down its active range back towards the initial baseline:
- *      currentUpperPrice = Math.max(initialUpperPrice, currentUpperPrice - stepsDown * gridSpacing)
- *      currentLowerPrice = Math.max(initialLowerPrice, currentLowerPrice - stepsDown * gridSpacing)
- *    Ensuring the active grid envelope stays perfectly centered around live market price
- *    with 100% uniform step spacing at all times!
+ * 4. Binance Notional Guard ($5.20 USDT):
+ *    - If any fractional sell order value < $5.20, sells 100% of the remaining bag to prevent -1013 NOTIONAL errors.
+ *
+ * 5. Primary Hard Stop Loss:
+ *    - Immediate 100% full liquidation if price <= stopLoss (below Grid #0).
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
 import { toNum, parseSymbol } from '../utils.js';
@@ -34,9 +32,10 @@ import type {
   ValidationResult,
 } from '../types.js';
 
-interface JarvisLevel {
+export interface JarvisLevel {
   price: number;
   index: number;
+  role: string;
   type: 'buy' | 'sell';
   orderId?: string;
   filled: boolean;
@@ -55,21 +54,26 @@ export class JarvisBot extends BaseBotStrategy {
   private initialLowerPrice = 0;
   private initialUpperPrice = 0;
   private upperPriceIncrementsCount = 0;
-  private priceTolerance = 0;
+  private priceTolerance = 0.0009;
   private gridProfit = 0;
   private gridProfitCount = 0;
   private lastPrice = 0;
   private asset = '';
   private quote = '';
 
+  // 3-Grid Progressive Execution State
+  private stageStatus = 'INITIAL';
+  private interGridStopLossPrice = 0;
+  private interGridSLActive = false;
+  private lastInterGridSLTime = 0;
+  private lastStageActionTime = 0;
+
   // Error & Status handling
   private lastError = '';
   private insufficientBalance = false;
-  private lastBalanceCheck = 0;
   private lastStatusLog = 0;
   private isStopLossActive = false;
   private lastStopLossLog = 0;
-  private lastIncrementLog = 0;
 
   validate(params: BotParams): ValidationResult {
     const p = params as JarvisParams;
@@ -77,7 +81,6 @@ export class JarvisBot extends BaseBotStrategy {
 
     const lowerPrice = toNum(p.lowerPrice);
     const upperPrice = toNum(p.upperPrice);
-    const gridCount = toNum(p.gridCount);
     const totalInvestment = toNum(p.totalInvestment);
     const stopLoss = toNum(p.stopLoss);
     const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
@@ -86,7 +89,6 @@ export class JarvisBot extends BaseBotStrategy {
     if (!lowerPrice || lowerPrice <= 0) errors.push('Lower price must be positive');
     if (!upperPrice || upperPrice <= 0) errors.push('Upper price must be positive');
     if (lowerPrice >= upperPrice) errors.push('Lower price must be less than upper price');
-    if (!gridCount || gridCount < 2 || gridCount > 200) errors.push('Grid count must be between 2 and 200');
     if (!totalInvestment || totalInvestment <= 0) errors.push('Total investment must be positive');
     if (stopLoss && stopLoss >= lowerPrice) errors.push('Stop loss must be below lower price');
     if (maxBuysPerLevel < 1 || maxBuysPerLevel > 10) errors.push('Max buys per level must be between 1 and 10');
@@ -100,7 +102,6 @@ export class JarvisBot extends BaseBotStrategy {
 
     const lowerPrice = toNum(p.lowerPrice);
     const upperPrice = toNum(p.upperPrice);
-    const gridCount = toNum(p.gridCount);
 
     this.initialLowerPrice = lowerPrice;
     this.initialUpperPrice = upperPrice;
@@ -108,30 +109,34 @@ export class JarvisBot extends BaseBotStrategy {
     this.currentUpperPrice = upperPrice;
     this.upperPriceIncrementsCount = 0;
 
-    // Grid spacing (Step Space)
+    // Grid spacing (Fixed 3 grid spaces = 4 levels: #0, #1, #2, #3)
     if (p.incrementStepSpace && toNum(p.incrementStepSpace) > 0) {
       this.gridSpacing = toNum(p.incrementStepSpace);
     } else {
-      this.gridSpacing = (upperPrice - lowerPrice) / gridCount;
+      this.gridSpacing = Number(((upperPrice - lowerPrice) / 3).toFixed(6));
     }
 
-    // 4th Decimal Point Precision Tolerance Corridor (allows buying between 1-9 in 4th point after decimal, e.g. ±0.0009)
+    // 4th-Decimal Precision Corridor (Default: ±0.0009 matching 1-9 in 4th decimal point)
     if (p.priceTolerance && toNum(p.priceTolerance) > 0) {
       this.priceTolerance = toNum(p.priceTolerance);
     } else if (p.toleranceDigits && toNum(p.toleranceDigits) > 0) {
       const digits = toNum(p.toleranceDigits);
       this.priceTolerance = Number((Math.pow(10, -digits) * 9).toFixed(digits + 2));
     } else {
-      // Default: 4th decimal point precision (0.00090 matching 1-9 in the 4th decimal place)
       this.priceTolerance = 0.0009;
     }
 
-    // Build initial uniform grid levels
+    // Midpoint Inter-Grid Stop-Loss between Grid #2 and Grid #1
+    this.interGridStopLossPrice = Number(((lowerPrice + 2 * this.gridSpacing + lowerPrice + this.gridSpacing) / 2).toFixed(6));
+    this.interGridSLActive = false;
+    this.stageStatus = 'INITIAL';
+
+    // Build initial uniform 3-grid levels (4 rungs)
     this.rebuildGridLevels((lowerPrice + upperPrice) / 2);
 
-    this.log(`📈 JARVIS Bot initialized with ${gridCount} grids | Step Space: $${this.gridSpacing.toFixed(6)} | Range: [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}]`);
-    this.log(`🎯 Precision 4th-Decimal Corridor: ENABLED (Corridor: ±$${this.priceTolerance.toFixed(6)} matching 1-9 in 4th decimal place)`);
-    this.log(`⚡ Autonomous Trailing Window: ENABLED (Auto-Surge Upgrade + Auto-Pullback Downgrade)`);
+    this.log(`📈 JARVIS 3-Grid Progressive Engine Initialized | Range: [$${lowerPrice.toFixed(6)} - $${upperPrice.toFixed(6)}] | Step: $${this.gridSpacing.toFixed(6)}`);
+    this.log(`💰 Capital Allocation: 75% Entry at Grid #0 ($${lowerPrice.toFixed(5)}) | 25% Reserve at Grid #1 ($${(lowerPrice + this.gridSpacing).toFixed(5)})`);
+    this.log(`🛡️ Inter-Grid Stop-Loss Midpoint: $${this.interGridStopLossPrice.toFixed(6)} | Precision Corridor: ±$${this.priceTolerance.toFixed(6)}`);
 
     if (initialState?.customState) {
       this.gridProfit = toNum(initialState.customState.gridProfit);
@@ -141,6 +146,11 @@ export class JarvisBot extends BaseBotStrategy {
       this.currentLowerPrice = toNum(initialState.customState.currentLowerPrice) || this.currentLowerPrice;
       this.currentUpperPrice = toNum(initialState.customState.currentUpperPrice) || this.currentUpperPrice;
       this.upperPriceIncrementsCount = toNum(initialState.customState.upperPriceIncrementsCount) || 0;
+      this.stageStatus = initialState.customState.stageStatus || this.stageStatus;
+      this.interGridStopLossPrice = toNum(initialState.customState.interGridStopLossPrice) || this.interGridStopLossPrice;
+      this.interGridSLActive = initialState.customState.interGridSLActive ?? this.interGridSLActive;
+      this.lastInterGridSLTime = toNum(initialState.customState.lastInterGridSLTime) || 0;
+      this.lastStageActionTime = toNum(initialState.customState.lastStageActionTime) || 0;
       this.lastError = initialState.customState.lastError || '';
       this.insufficientBalance = initialState.customState.insufficientBalance || false;
       this.isStopLossActive = initialState.customState.isStopLossActive || false;
@@ -149,6 +159,7 @@ export class JarvisBot extends BaseBotStrategy {
         this.gridLevels = initialState.customState.gridLevels.map((savedGrid: any) => ({
           price: toNum(savedGrid.price),
           index: savedGrid.index,
+          role: savedGrid.role || this.getGridRole(savedGrid.index),
           type: savedGrid.type || 'buy',
           orderId: savedGrid.orderId,
           filled: savedGrid.filled || false,
@@ -159,22 +170,35 @@ export class JarvisBot extends BaseBotStrategy {
     }
   }
 
+  private getGridRole(index: number): string {
+    switch (index) {
+      case 0:
+        return 'Base Buy Level (75% Entry)';
+      case 1:
+        return '50% Profit Sell + 25% Reserve Buy';
+      case 2:
+        return '70% Harvest + Inter-Grid SL Midpoint';
+      case 3:
+        return '50% Runner Exit (Auto-Surge Top)';
+      default:
+        return `Grid #${index} Level`;
+    }
+  }
+
   /**
-   * Rebuilds exact, uniform grid levels across the active [currentLowerPrice, currentUpperPrice] window
+   * Rebuilds exact 3-grid spaces (4 levels: #0, #1, #2, #3) across active window
    */
   private rebuildGridLevels(currentPrice: number): void {
-    const p = this.params as JarvisParams;
-    const gridCount = toNum(p?.gridCount) || (this.gridLevels.length > 1 ? this.gridLevels.length - 1 : 10);
     const newLevels: JarvisLevel[] = [];
 
-    for (let i = 0; i <= gridCount; i++) {
+    for (let i = 0; i <= 3; i++) {
       const levelPrice = Number((this.currentLowerPrice + i * this.gridSpacing).toFixed(6));
-      // Find existing level close to this price to preserve fill & order state
       const existing = this.gridLevels.find(g => Math.abs(g.price - levelPrice) <= this.gridSpacing * 0.35);
 
       newLevels.push({
         price: levelPrice,
         index: i,
+        role: this.getGridRole(i),
         type: existing ? existing.type : (levelPrice <= currentPrice ? 'buy' : 'sell'),
         orderId: existing?.orderId,
         filled: existing ? existing.filled : false,
@@ -185,6 +209,9 @@ export class JarvisBot extends BaseBotStrategy {
 
     this.gridLevels = newLevels;
 
+    // Recalculate dynamic Midpoint Inter-Grid SL: (Grid #2 + Grid #1) / 2
+    this.interGridStopLossPrice = Number(((this.gridLevels[2].price + this.gridLevels[1].price) / 2).toFixed(6));
+
     // Persist live state
     if (this.customState) {
       this.customState.currentUpperPrice = this.currentUpperPrice;
@@ -194,6 +221,9 @@ export class JarvisBot extends BaseBotStrategy {
       this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
       this.customState.gridLevels = this.gridLevels;
       this.customState.priceTolerance = this.priceTolerance;
+      this.customState.interGridStopLossPrice = this.interGridStopLossPrice;
+      this.customState.interGridSLActive = this.interGridSLActive;
+      this.customState.stageStatus = this.stageStatus;
     }
   }
 
@@ -218,10 +248,8 @@ export class JarvisBot extends BaseBotStrategy {
     const actions: BotAction[] = [];
 
     const stopLoss = toNum(p.stopLoss);
-    const maxBuysPerLevel = toNum(p.maxBuysPerLevel) || 1;
     const autoIncrementEnabled = p.autoIncrementEnabled !== false; // Default true
-    const baseGridCount = toNum(p.gridCount) || 10;
-    const investmentPerGrid = toNum(p.totalInvestment) / baseGridCount;
+    const totalInvestment = toNum(p.totalInvestment);
 
     const now = Date.now();
     const currentPrice = tick.price;
@@ -233,46 +261,156 @@ export class JarvisBot extends BaseBotStrategy {
       this.quote = quote;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 0. HOLDINGS & BALANCE TRACKING
+    // ═══════════════════════════════════════════════════════════════
+    const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
+    const totalHoldingQty = holding?.quantity || 0;
+    const lockedHoldingQty = state.openOrders
+      .filter(o => o.side === 'SELL')
+      .reduce((sum, o) => sum + (o.quantity - (o.filledQuantity || 0)), 0);
+    let availableHoldingQty = Math.max(0, totalHoldingQty - lockedHoldingQty);
+
     // Periodic status heartbeat
     if (now - this.lastStatusLog > 30000) {
       this.lastStatusLog = now;
       const balanceStatus = this.insufficientBalance ? ' [INSUFFICIENT BALANCE]' : '';
       const stopStatus = this.isStopLossActive ? ' [STOP LOSS ACTIVE]' : '';
-      this.log(`Tick: $${currentPrice.toFixed(6)} | Active Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Shifts: ${this.upperPriceIncrementsCount} | 4th-Dec Corridor: ±$${this.priceTolerance.toFixed(5)} | Profit Cycles: ${this.gridProfitCount}${balanceStatus}${stopStatus}`);
+      const slActiveStatus = this.interGridSLActive ? ` [INTER-GRID SL: $${this.interGridStopLossPrice.toFixed(5)}]` : '';
+      this.log(`Tick: $${currentPrice.toFixed(5)} | Stage: ${this.stageStatus} | Holding: ${availableHoldingQty.toFixed(4)} ${this.asset} | Active Range: [$${this.currentLowerPrice.toFixed(4)} - $${this.currentUpperPrice.toFixed(4)}] | Shifts: ${this.upperPriceIncrementsCount}${slActiveStatus}${balanceStatus}${stopStatus}`);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 1. STOP LOSS PROTECTION (LOWER SIDE)
+    // 1. PRIMARY HARD STOP LOSS (LOWER SIDE BELOW GRID #0)
     // ═══════════════════════════════════════════════════════════════
     if (stopLoss && currentPrice <= stopLoss) {
       if (!this.isStopLossActive) {
         this.isStopLossActive = true;
-        this.log(`⚠️ STOP LOSS triggered at $${currentPrice.toFixed(6)} (Stop level: $${stopLoss.toFixed(6)}). Liquidating all positions to cash...`, 'warn');
+        this.interGridSLActive = false;
+        this.stageStatus = 'STOP_LOSS';
+        this.log(`⚠️ HARD STOP LOSS triggered at $${currentPrice.toFixed(6)} (Stop level: $${stopLoss.toFixed(6)}). Liquidating 100% of all holdings to cash...`, 'warn');
         for (const grid of this.gridLevels) {
           grid.filled = false;
           grid.orderId = undefined;
           grid.buyCount = 0;
           grid.type = 'buy';
         }
-        return this.createExitActions(state, 'STOP_LOSS');
+        return this.createExitActions(state, 'HARD_STOP_LOSS');
       } else {
         if (now - this.lastStopLossLog > 30000) {
           this.lastStopLossLog = now;
-          this.log(`[STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Waiting for recovery...`);
+          this.log(`[HARD STOP LOSS ACTIVE] Price $${currentPrice.toFixed(6)} <= Stop $${stopLoss.toFixed(6)}. Waiting for recovery...`);
         }
         return [{ action: 'hold' }];
       }
     }
 
-    // Recover from stop loss if price rebounds
+    // Recover from stop loss if price rebounds above stop level
     if (this.isStopLossActive && currentPrice > stopLoss) {
       this.isStopLossActive = false;
-      this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming JARVIS trading!`);
+      this.stageStatus = 'INITIAL';
+      this.log(`🚀 Price recovered to $${currentPrice.toFixed(6)} (above stop loss $${stopLoss.toFixed(6)}). Resuming JARVIS 3-Grid trading!`);
       this.rebuildGridLevels(currentPrice);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 2. AUTONOMOUS UPPER BREAKOUT UPGRADE (BULLISH SURGE)
+    // 2. MIDPOINT INTER-GRID STOP-LOSS TRIGGER
+    // ═══════════════════════════════════════════════════════════════
+    if (this.interGridSLActive && availableHoldingQty > 0) {
+      const isInterGridSLTouched = currentPrice <= (this.interGridStopLossPrice + this.priceTolerance * 0.5);
+
+      if (isInterGridSLTouched) {
+        this.log(`⚠️ [JARVIS Inter-Grid SL] Midpoint Stop Loss Triggered at $${currentPrice.toFixed(5)} <= Midpoint $${this.interGridStopLossPrice.toFixed(5)}! Liquidating 100% of remaining runner holdings (${availableHoldingQty.toFixed(4)} ${this.asset}) to cash...`, 'warn');
+
+        actions.push({
+          action: 'sell',
+          quantity: availableHoldingQty,
+          price: currentPrice,
+          orderType: 'MARKET',
+          metadata: { isInterGridSL: true, triggerPrice: currentPrice, stopLossPrice: this.interGridStopLossPrice }
+        });
+
+        availableHoldingQty = 0;
+        this.interGridSLActive = false;
+        this.lastInterGridSLTime = now;
+        this.stageStatus = 'SL_LIQUIDATED';
+        if (this.gridLevels[1]) this.gridLevels[1].lastActionTimestamp = 0;
+        if (this.gridLevels[2]) this.gridLevels[2].lastActionTimestamp = 0;
+
+        return actions;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. POST-INTER-GRID SL RE-ENTRY CONTROLLER
+    // ═══════════════════════════════════════════════════════════════
+    if (this.stageStatus === 'SL_LIQUIDATED' || (this.lastInterGridSLTime > 0 && availableHoldingQty === 0 && !this.interGridSLActive)) {
+      const grid1Price = this.gridLevels[1]?.price || (this.currentLowerPrice + this.gridSpacing);
+      const grid2Price = this.gridLevels[2]?.price || (this.currentLowerPrice + 2 * this.gridSpacing);
+
+      // Condition A: If price drops back to Grid #1 -> Re-buy with 25% of fixed investment budget
+      const isGrid1Dip = currentPrice <= (grid1Price + this.priceTolerance) && currentPrice >= (this.gridLevels[0].price - this.priceTolerance);
+      if (isGrid1Dip && now - (this.gridLevels[1]?.lastActionTimestamp || 0) > 1000) {
+        const reEntryBudget = totalInvestment * 0.25;
+        if (!this.insufficientBalance && (state.availableBalance >= reEntryBudget || state.availableBalance >= 5.0)) {
+          const buyBudget = Math.min(state.availableBalance, reEntryBudget);
+          const buyQty = buyBudget / currentPrice;
+
+          if (buyBudget >= 5.0) {
+            actions.push({
+              action: 'buy',
+              quantity: buyQty,
+              price: currentPrice,
+              orderType: 'MARKET',
+              gridLevel: 1,
+              metadata: { jarvisStage: 'POST_SL_GRID_1_REENTRY', targetPrice: grid1Price }
+            });
+
+            this.stageStatus = 'GRID_1_REENTRY';
+            if (this.gridLevels[1]) this.gridLevels[1].lastActionTimestamp = now;
+            this.log(`⚡ [JARVIS Re-Entry] Dip Buy Triggered at Grid #1 ($${grid1Price.toFixed(5)}) after SL! Deploying 25% budget ($${buyBudget.toFixed(2)} USDT = ${buyQty.toFixed(4)} ${this.asset})...`);
+            return actions;
+          }
+        }
+      }
+
+      // Condition B: If price rebounds back to Grid #2 -> Re-buy with 25% budget after a 30s stabilization cooldown
+      const isGrid2Rebound = currentPrice >= (grid2Price - this.priceTolerance);
+      if (isGrid2Rebound) {
+        const cooldownPassed = (now - this.lastInterGridSLTime) >= 30000;
+        if (cooldownPassed && now - (this.gridLevels[2]?.lastActionTimestamp || 0) > 1000) {
+          const reEntryBudget = totalInvestment * 0.25;
+          if (!this.insufficientBalance && (state.availableBalance >= reEntryBudget || state.availableBalance >= 5.0)) {
+            const buyBudget = Math.min(state.availableBalance, reEntryBudget);
+            const buyQty = buyBudget / currentPrice;
+
+            if (buyBudget >= 5.0) {
+              actions.push({
+                action: 'buy',
+                quantity: buyQty,
+                price: currentPrice,
+                orderType: 'MARKET',
+                gridLevel: 2,
+                metadata: { jarvisStage: 'POST_SL_GRID_2_REENTRY', targetPrice: grid2Price }
+              });
+
+              this.stageStatus = 'GRID_2_REENTRY';
+              this.interGridSLActive = true;
+              this.interGridStopLossPrice = Number(((this.gridLevels[2].price + this.gridLevels[1].price) / 2).toFixed(6));
+              if (this.gridLevels[2]) this.gridLevels[2].lastActionTimestamp = now;
+              this.log(`⚡ [JARVIS Re-Entry] Rebound Buy Triggered at Grid #2 ($${grid2Price.toFixed(5)}) after 30s cooldown! Deploying 25% budget ($${buyBudget.toFixed(2)} USDT). Inter-Grid SL Reactivated at Midpoint: $${this.interGridStopLossPrice.toFixed(5)}.`);
+              return actions;
+            }
+          }
+        } else if (!cooldownPassed && now - this.lastStatusLog > 10000) {
+          const remainingSec = Math.ceil((30000 - (now - this.lastInterGridSLTime)) / 1000);
+          this.log(`⏳ [JARVIS Cooldown] Price at Grid #2 ($${currentPrice.toFixed(5)}). Waiting ${remainingSec}s for stabilization cooldown before re-entry...`);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 4. AUTONOMOUS UPPER BREAKOUT UPGRADE (BULLISH SURGE AT GRID #3)
     // ═══════════════════════════════════════════════════════════════
     if (autoIncrementEnabled && currentPrice >= (this.currentUpperPrice - this.priceTolerance * 0.25)) {
       const excess = Math.max(0, currentPrice - this.currentUpperPrice);
@@ -285,17 +423,16 @@ export class JarvisBot extends BaseBotStrategy {
       this.currentLowerPrice = Number((this.currentLowerPrice + stepsUp * this.gridSpacing).toFixed(6));
       this.upperPriceIncrementsCount += stepsUp;
 
-      // Re-align grid envelope with exact uniform step spacing
+      // Re-align 3-grid window with exact uniform step spacing
       this.rebuildGridLevels(currentPrice);
 
-      this.log(`🚀 [JARVIS Auto-Upgrade] Upper boundary surged! Price $${currentPrice.toFixed(6)} >= Upper $${oldUpper.toFixed(6)}. Shifted range up by +${stepsUp} step(s) (+$${(stepsUp * this.gridSpacing).toFixed(6)}). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Total Shifts: ${this.upperPriceIncrementsCount}). Active dip buy levels generated beneath peak!`);
+      this.log(`🚀 [JARVIS Auto-Upgrade] Upper boundary surged! Price $${currentPrice.toFixed(6)} >= Upper $${oldUpper.toFixed(6)}. Shifted range up by +${stepsUp} step(s) (+$${(stepsUp * this.gridSpacing).toFixed(6)}). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Total Shifts: ${this.upperPriceIncrementsCount}). Fresh dip buy levels generated beneath peak!`);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 3. AUTONOMOUS PULLBACK DOWNGRADE (BEARISH MEAN-REVERSION)
+    // 5. AUTONOMOUS PULLBACK DOWNGRADE (BEARISH MEAN-REVERSION)
     // ═══════════════════════════════════════════════════════════════
     if (autoIncrementEnabled && this.upperPriceIncrementsCount > 0) {
-      // If current price drops >= 2 steps below elevated upper price, step down
       const dropBelowUpper = this.currentUpperPrice - this.gridSpacing - currentPrice;
       if (dropBelowUpper >= this.gridSpacing) {
         const stepsDown = Math.min(Math.floor(dropBelowUpper / this.gridSpacing), this.upperPriceIncrementsCount);
@@ -308,102 +445,170 @@ export class JarvisBot extends BaseBotStrategy {
           this.currentLowerPrice = Number(Math.max(this.initialLowerPrice, this.currentLowerPrice - stepsDown * this.gridSpacing).toFixed(6));
           this.upperPriceIncrementsCount = Math.max(0, this.upperPriceIncrementsCount - stepsDown);
 
-          // Re-align grid envelope
           this.rebuildGridLevels(currentPrice);
 
-          this.log(`⚡ [JARVIS Auto-Downgrade] Price pulled back to $${currentPrice.toFixed(6)} (below $${(oldUpper - 2 * this.gridSpacing).toFixed(6)}). Shifted range down by -${stepsDown} step(s) (-$${(stepsDown * this.gridSpacing).toFixed(6)}). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Remaining Shifts: ${this.upperPriceIncrementsCount}). Recalibrated grid levels to active market zone!`);
+          this.log(`⚡ [JARVIS Auto-Downgrade] Price pulled back to $${currentPrice.toFixed(6)} (below $${(oldUpper - 2 * this.gridSpacing).toFixed(6)}). Shifted range down by -${stepsDown} step(s). New Range: [$${this.currentLowerPrice.toFixed(6)} - $${this.currentUpperPrice.toFixed(6)}] (Remaining Shifts: ${this.upperPriceIncrementsCount}).`);
         }
       }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 4. PROCESS ACTIVE GRID TRADING (BUYS & SELLS WITH 4TH-DECIMAL PRECISION)
+    // 6. MAIN 3-GRID PROGRESSIVE EXECUTION PHASES
     // ═══════════════════════════════════════════════════════════════
-    const holding = state.holdings.find(h => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase());
-    const totalHoldingQty = holding?.quantity || 0;
-    const lockedHoldingQty = state.openOrders
-      .filter(o => o.side === 'SELL')
-      .reduce((sum, o) => sum + (o.quantity - (o.filledQuantity || 0)), 0);
-    let availableHoldingQty = Math.max(0, totalHoldingQty - lockedHoldingQty);
 
-    // Sync live order IDs with current state
-    for (const grid of this.gridLevels) {
-      const openOrder = state.openOrders.find(o =>
-        Math.abs(Number(o.price || 0) - grid.price) < this.gridSpacing * 0.45
-      );
-      grid.orderId = openOrder ? openOrder.id : undefined;
-      if (openOrder) {
-        grid.type = openOrder.side.toLowerCase() === 'sell' ? 'sell' : 'buy';
-        grid.filled = false;
-      }
-    }
+    // ─── PHASE 0: Initial Entry at Grid #0 (Deploy 75% Budget) ───
+    const grid0 = this.gridLevels[0];
+    const isGrid0Touch = grid0 && (
+      this.stageStatus === 'INITIAL' ||
+      (totalHoldingQty === 0 && this.stageStatus !== 'SL_LIQUIDATED' && now - (grid0.lastActionTimestamp || 0) > 2000)
+    );
 
-    // A. SELL EXECUTION (Grid 1 to top level with Precision Corridor)
-    for (let i = 1; i < this.gridLevels.length; i++) {
-      const grid = this.gridLevels[i];
-      if (!grid) continue;
+    if (isGrid0Touch && currentPrice <= (grid0.price + this.gridSpacing * 0.8)) {
+      const entryBudget = totalInvestment * 0.75;
+      if (!this.insufficientBalance && (state.availableBalance >= entryBudget || state.availableBalance >= 5.0)) {
+        const actualBudget = Math.min(state.availableBalance, entryBudget);
+        const buyQty = actualBudget / currentPrice;
 
-      const isTargetTouched = currentPrice >= (grid.price - this.priceTolerance);
-
-      if (isTargetTouched && availableHoldingQty > 0 && !grid.orderId) {
-        if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 4000) {
-          continue;
-        }
-
-        const sellQty = Math.min(availableHoldingQty, (investmentPerGrid * 1.05) / currentPrice);
-        if (sellQty > 0) {
+        if (actualBudget >= 5.0) {
           actions.push({
-            action: 'sell',
-            quantity: sellQty,
+            action: 'buy',
+            quantity: buyQty,
             price: currentPrice,
             orderType: 'MARKET',
-            gridLevel: grid.index,
-            metadata: { jarvisGridLevel: grid.index, targetPrice: grid.price }
+            gridLevel: 0,
+            metadata: { jarvisStage: 'PHASE_0_ENTRY', targetPrice: grid0.price }
           });
-          availableHoldingQty -= sellQty;
-          grid.lastActionTimestamp = now;
-          this.log(`⚡ [JARVIS Precision] Profit Sell Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(5)} reached (Current: $${currentPrice.toFixed(5)}, Corridor: ±$${this.priceTolerance.toFixed(5)}). Selling ${sellQty.toFixed(4)} ${this.asset}...`);
 
-          // Reset lower buy grid level for dip re-entry
-          const lowerBuyGrid = this.gridLevels[grid.index - 1];
-          if (lowerBuyGrid) {
-            lowerBuyGrid.buyCount = 0;
-            lowerBuyGrid.filled = false;
-          }
+          this.stageStatus = 'GRID_0_BOUGHT';
+          grid0.lastActionTimestamp = now;
+          this.log(`⚡ [JARVIS Phase 0] Initial Entry Triggered at Grid #0 ($${grid0.price.toFixed(5)})! Deployed 75% Total Investment ($${actualBudget.toFixed(2)} USDT = ${buyQty.toFixed(4)} ${this.asset}). Holding 25% cash reserve ($${(totalInvestment * 0.25).toFixed(2)} USDT).`);
+          return actions;
         }
       }
     }
 
-    // B. BUY DIP EXECUTION (Grid 0 to top level - 1 with 4th Decimal Precision Corridor)
-    for (let i = 0; i < this.gridLevels.length - 1; i++) {
-      const grid = this.gridLevels[i];
-      if (!grid) continue;
+    // ─── PHASE 1: Grid #1 Action (50% Profit Sell + 25% Reserve Buy) ───
+    const grid1 = this.gridLevels[1];
+    if (grid1 && currentPrice >= (grid1.price - this.priceTolerance)) {
+      const isEligibleForPhase1 = this.stageStatus === 'GRID_0_BOUGHT' || (this.stageStatus === 'INITIAL' && availableHoldingQty > 0);
 
-      // 4th Decimal Corridor Match: Triggers if price is within ±0.0009 (1-9 in 4th point after decimal)
-      const isInBuyZone = Math.abs(currentPrice - grid.price) <= this.priceTolerance ||
-                          (currentPrice <= (grid.price + this.priceTolerance) && currentPrice >= (grid.price - this.gridSpacing * 0.5));
+      if (isEligibleForPhase1 && now - (grid1.lastActionTimestamp || 0) > 2000) {
+        // A. Sell 50% of existing coins
+        if (availableHoldingQty > 0) {
+          let sellQty = availableHoldingQty * 0.50;
 
-      if (isInBuyZone && !grid.orderId && grid.buyCount < maxBuysPerLevel) {
-        if (grid.lastActionTimestamp && now - grid.lastActionTimestamp < 5000) {
-          continue;
+          // Binance Notional Guard ($5.20 USDT): Convert sub-$5.20 fractional sells to 100% position exit
+          if (sellQty * currentPrice < 5.20 && availableHoldingQty * currentPrice >= 5.00) {
+            this.log(`🛡️ [JARVIS Notional Guard] 50% sell order ($${(sellQty * currentPrice).toFixed(2)}) is below $5.20. Converting to 100% position exit (${availableHoldingQty.toFixed(4)} ${this.asset}) to prevent NOTIONAL error.`);
+            sellQty = availableHoldingQty;
+          }
+
+          if (sellQty * currentPrice >= 5.00) {
+            actions.push({
+              action: 'sell',
+              quantity: sellQty,
+              price: currentPrice,
+              orderType: 'MARKET',
+              gridLevel: 1,
+              metadata: { jarvisStage: 'PHASE_1_PROFIT_SELL', targetPrice: grid1.price }
+            });
+            availableHoldingQty -= sellQty;
+          }
         }
 
-        if (!this.insufficientBalance && state.availableBalance >= investmentPerGrid) {
-          const buyQty = (investmentPerGrid * 1.02) / currentPrice;
-          if (buyQty * currentPrice >= 0.50) {
+        // B. Deploy remaining 25% cash reserve
+        const reserveBudget = totalInvestment * 0.25;
+        if (!this.insufficientBalance && (state.availableBalance >= reserveBudget || state.availableBalance >= 5.0)) {
+          const actualBudget = Math.min(state.availableBalance, reserveBudget);
+          const buyQty = actualBudget / currentPrice;
+
+          if (actualBudget >= 5.0) {
             actions.push({
               action: 'buy',
               quantity: buyQty,
               price: currentPrice,
               orderType: 'MARKET',
-              gridLevel: grid.index,
-              metadata: { jarvisGridLevel: grid.index, targetPrice: grid.price }
+              gridLevel: 1,
+              metadata: { jarvisStage: 'PHASE_1_RESERVE_BUY', targetPrice: grid1.price }
             });
-            grid.type = 'buy';
-            grid.lastActionTimestamp = now;
-            this.log(`⚡ [JARVIS Precision] Dip Buy Triggered at Grid #${grid.index}! Target $${grid.price.toFixed(5)} touched (Current: $${currentPrice.toFixed(5)}, Corridor: ±$${this.priceTolerance.toFixed(5)} [1-9 4th decimal]). Buying ${buyQty.toFixed(4)} ${this.asset}...`);
           }
         }
+
+        this.stageStatus = 'GRID_1_COMPLETED';
+        grid1.lastActionTimestamp = now;
+        this.log(`⚡ [JARVIS Phase 1] Grid #1 ($${grid1.price.toFixed(5)}) Reached! Executed 50% profit sell and deployed 25% cash reserve ($${(totalInvestment * 0.25).toFixed(2)} USDT). Moving to Phase 2 harvest!`);
+        if (actions.length > 0) return actions;
+      }
+    }
+
+    // ─── PHASE 2: Grid #2 Action (70% Harvest + 30% Runner Retention + Midpoint Inter-Grid SL) ───
+    const grid2 = this.gridLevels[2];
+    if (grid2 && currentPrice >= (grid2.price - this.priceTolerance)) {
+      const isEligibleForPhase2 = this.stageStatus === 'GRID_1_COMPLETED' || this.stageStatus === 'GRID_1_REENTRY';
+
+      if (isEligibleForPhase2 && availableHoldingQty > 0 && now - (grid2.lastActionTimestamp || 0) > 2000) {
+        let sellQty = availableHoldingQty * 0.70;
+
+        // Binance Notional Guard ($5.20 USDT)
+        if (sellQty * currentPrice < 5.20 && availableHoldingQty * currentPrice >= 5.00) {
+          this.log(`🛡️ [JARVIS Notional Guard] 70% sell order ($${(sellQty * currentPrice).toFixed(2)}) is below $5.20. Converting to 100% position exit to satisfy Binance NOTIONAL filter.`);
+          sellQty = availableHoldingQty;
+        }
+
+        if (sellQty * currentPrice >= 5.00) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: currentPrice,
+            orderType: 'MARKET',
+            gridLevel: 2,
+            metadata: { jarvisStage: 'PHASE_2_HARVEST', targetPrice: grid2.price }
+          });
+          availableHoldingQty -= sellQty;
+        }
+
+        // Activate Midpoint Inter-Grid Stop-Loss: (Grid #2 + Grid #1) / 2
+        this.interGridStopLossPrice = Number(((this.gridLevels[2].price + this.gridLevels[1].price) / 2).toFixed(6));
+        this.interGridSLActive = true;
+        this.stageStatus = 'GRID_2_HARVESTED';
+        grid2.lastActionTimestamp = now;
+
+        this.log(`⚡ [JARVIS Phase 2] Grid #2 ($${grid2.price.toFixed(5)}) Reached! Harvested 70% holding (Runner Bag Retained: ${availableHoldingQty.toFixed(4)} ${this.asset}). Inter-Grid SL ACTIVATED at Midpoint: $${this.interGridStopLossPrice.toFixed(5)}.`);
+        if (actions.length > 0) return actions;
+      }
+    }
+
+    // ─── PHASE 3: Grid #3 / Runner Action (50% Profit Exit on Surge Top) ───
+    const grid3 = this.gridLevels[3];
+    if (grid3 && currentPrice >= (grid3.price - this.priceTolerance)) {
+      const isEligibleForPhase3 = this.stageStatus === 'GRID_2_HARVESTED' || this.stageStatus === 'GRID_2_REENTRY' || this.stageStatus === 'GRID_3_SURGE';
+
+      if (isEligibleForPhase3 && availableHoldingQty > 0 && now - (grid3.lastActionTimestamp || 0) > 2000) {
+        let sellQty = availableHoldingQty * 0.50;
+
+        // Binance Notional Guard ($5.20 USDT)
+        if (sellQty * currentPrice < 5.20 && availableHoldingQty * currentPrice >= 5.00) {
+          this.log(`🛡️ [JARVIS Notional Guard] 50% runner sell ($${(sellQty * currentPrice).toFixed(2)}) is below $5.20. Converting to 100% position exit.`);
+          sellQty = availableHoldingQty;
+        }
+
+        if (sellQty * currentPrice >= 5.00) {
+          actions.push({
+            action: 'sell',
+            quantity: sellQty,
+            price: currentPrice,
+            orderType: 'MARKET',
+            gridLevel: 3,
+            metadata: { jarvisStage: 'PHASE_3_SURGE', targetPrice: grid3.price }
+          });
+          availableHoldingQty -= sellQty;
+        }
+
+        this.stageStatus = 'GRID_3_SURGE';
+        grid3.lastActionTimestamp = now;
+
+        this.log(`⚡ [JARVIS Phase 3] Grid #3 ($${grid3.price.toFixed(5)}) Reached! Taking 50% profit on runner bag (Remaining Runner: ${availableHoldingQty.toFixed(4)} ${this.asset}). Ready for dynamic window expansions!`);
+        if (actions.length > 0) return actions;
       }
     }
 
@@ -443,17 +648,12 @@ export class JarvisBot extends BaseBotStrategy {
       grid.filled = true;
       if (grid.type === 'buy') {
         grid.buyCount++;
-        this.log(`BUY filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)} (buy #${grid.buyCount}). Next sell target: Grid #${Math.min(grid.index + 1, this.gridLevels.length - 1)}`);
+        this.log(`BUY filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)} (buy #${grid.buyCount}). Next level: Grid #${Math.min(grid.index + 1, 3)}`);
       } else if (grid.type === 'sell') {
         const profit = filledQuantity * this.gridSpacing;
         this.gridProfit += profit;
         this.gridProfitCount++;
         this.log(`SELL filled at Grid #${grid.index}: $${filledPrice.toFixed(6)} | Profit: +$${profit.toFixed(4)} | Total cycles: ${this.gridProfitCount}`);
-        const lowerGrid = this.gridLevels[grid.index - 1];
-        if (lowerGrid) {
-          lowerGrid.buyCount = 0;
-          lowerGrid.filled = false;
-        }
       }
     } else {
       this.log(`Order filled: $${filledPrice.toFixed(6)} x ${filledQuantity.toFixed(4)}`);
@@ -468,6 +668,10 @@ export class JarvisBot extends BaseBotStrategy {
     this.customState.initialUpperPrice = this.initialUpperPrice;
     this.customState.upperPriceIncrementsCount = this.upperPriceIncrementsCount;
     this.customState.priceTolerance = this.priceTolerance;
+    this.customState.interGridStopLossPrice = this.interGridStopLossPrice;
+    this.customState.interGridSLActive = this.interGridSLActive;
+    this.customState.stageStatus = this.stageStatus;
+    this.customState.lastInterGridSLTime = this.lastInterGridSLTime;
     this.customState.lastError = this.lastError;
     this.customState.isStopLossActive = this.isStopLossActive;
   }
@@ -496,7 +700,7 @@ export class JarvisBot extends BaseBotStrategy {
     const p = this.params as JarvisParams | null;
     if (!p) {
       return {
-        gridCount: 0,
+        gridCount: 3,
         gridSpacing: 0,
         lowerPrice: 0,
         upperPrice: 0,
@@ -504,6 +708,8 @@ export class JarvisBot extends BaseBotStrategy {
         initialLowerPrice: 0,
         upperPriceIncrementsCount: 0,
         priceTolerance: 0,
+        interGridStopLossPrice: 0,
+        interGridSLActive: 0,
         gridProfit: 0,
         gridProfitCount: 0,
         currentPrice: 0,
@@ -511,7 +717,7 @@ export class JarvisBot extends BaseBotStrategy {
       };
     }
     return {
-      gridCount: this.gridLevels.length > 0 ? this.gridLevels.length - 1 : toNum(p.gridCount),
+      gridCount: 3,
       gridSpacing: this.gridSpacing,
       lowerPrice: this.currentLowerPrice || toNum(p.lowerPrice),
       upperPrice: this.currentUpperPrice || toNum(p.upperPrice),
@@ -519,6 +725,8 @@ export class JarvisBot extends BaseBotStrategy {
       initialLowerPrice: this.initialLowerPrice || toNum(p.lowerPrice),
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
       priceTolerance: this.priceTolerance,
+      interGridStopLossPrice: this.interGridStopLossPrice,
+      interGridSLActive: this.interGridSLActive ? 1 : 0,
       gridProfit: this.gridProfit,
       gridProfitCount: this.gridProfitCount,
       currentPrice: this.lastPrice,
@@ -537,6 +745,11 @@ export class JarvisBot extends BaseBotStrategy {
     this.currentUpperPrice = toNum(customState.currentUpperPrice) || this.currentUpperPrice;
     this.upperPriceIncrementsCount = toNum(customState.upperPriceIncrementsCount) || this.upperPriceIncrementsCount;
     this.priceTolerance = toNum(customState.priceTolerance) || this.priceTolerance;
+    this.interGridStopLossPrice = toNum(customState.interGridStopLossPrice) || this.interGridStopLossPrice;
+    this.interGridSLActive = customState.interGridSLActive ?? this.interGridSLActive;
+    this.stageStatus = customState.stageStatus || this.stageStatus;
+    this.lastInterGridSLTime = toNum(customState.lastInterGridSLTime) || 0;
+    this.lastStageActionTime = toNum(customState.lastStageActionTime) || 0;
     this.lastError = customState.lastError || '';
     this.insufficientBalance = customState.insufficientBalance || false;
     this.isStopLossActive = customState.isStopLossActive || false;
@@ -544,6 +757,7 @@ export class JarvisBot extends BaseBotStrategy {
     if (Array.isArray(customState.gridLevels)) {
       this.gridLevels = customState.gridLevels.map((g: any) => ({
         ...g,
+        role: g.role || this.getGridRole(g.index),
         buyCount: g.buyCount || 0,
       }));
     }
@@ -560,9 +774,15 @@ export class JarvisBot extends BaseBotStrategy {
       initialUpperPrice: this.initialUpperPrice,
       upperPriceIncrementsCount: this.upperPriceIncrementsCount,
       priceTolerance: this.priceTolerance,
+      interGridStopLossPrice: this.interGridStopLossPrice,
+      interGridSLActive: this.interGridSLActive,
+      stageStatus: this.stageStatus,
+      lastInterGridSLTime: this.lastInterGridSLTime,
+      lastStageActionTime: this.lastStageActionTime,
       lastError: this.lastError,
       insufficientBalance: this.insufficientBalance,
       isStopLossActive: this.isStopLossActive,
     };
   }
 }
+

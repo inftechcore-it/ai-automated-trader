@@ -103,7 +103,7 @@ export interface PrecisionGridParams {
 export interface JarvisParams {
     lowerPrice: number;
     upperPrice: number;
-    gridCount: number;
+    gridCount?: number;
     totalInvestment: number;
     stopLoss?: number;
     maxBuysPerLevel?: number;
@@ -112,6 +112,10 @@ export interface JarvisParams {
     priceTolerance?: number;
     toleranceDigits?: number;
     executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT';
+    interGridStopLossPrice?: number;
+    interGridSLActive?: boolean;
+    lastInterGridSLTime?: number;
+    stageStatus?: string;
 }
 export interface InfinityGridParams {
     lowerPrice: number;

@@ -26,7 +26,7 @@ const STRATEGIES = [
     type: 'JARVIS',
     name: 'JARVIS Bot',
     icon: TrendingUp,
-    description: 'Auto-expanding AI grid bot. Autonomously shifts upper boundary on surges and resumes active trading without stalling.',
+    description: '3-Grid progressive capital engine. 75%/25% staged entry, 70% harvest, midpoint Inter-Grid SL & runner surges.',
     difficulty: 'Intermediate',
     color: '#06b6d4',
     featured: true,

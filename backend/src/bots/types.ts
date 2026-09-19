@@ -132,7 +132,7 @@ export interface PrecisionGridParams {
 export interface JarvisParams {
   lowerPrice: number;
   upperPrice: number;
-  gridCount: number;
+  gridCount?: number;              // Fixed 3 grids (4 levels: #0, #1, #2, #3), defaults to 3
   totalInvestment: number;
   stopLoss?: number;
   maxBuysPerLevel?: number;        // Max buys allowed per grid level (default: 1)
@@ -141,6 +141,10 @@ export interface JarvisParams {
   priceTolerance?: number;         // Decimal tolerance corridor (e.g. 0.0009 for 1-9 in 4th decimal place)
   toleranceDigits?: number;        // Number of decimal digits for precision matching (e.g. 4 for 4th point after decimal)
   executionMode?: 'MARKET_ON_TOUCH' | 'TOLERANCE_LIMIT'; // Precision instant fill on corridor touch
+  interGridStopLossPrice?: number; // Dynamic midpoint stop loss between Grid #2 and Grid #1
+  interGridSLActive?: boolean;     // Whether the inter-grid stop loss is currently active
+  lastInterGridSLTime?: number;    // Timestamp of last inter-grid stop loss trigger
+  stageStatus?: string;            // Current progressive execution stage
 }
 
 export interface InfinityGridParams {
