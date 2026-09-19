@@ -155,7 +155,7 @@ async function getCachedBinanceSymbols() {
   }
 
   try {
-    const symbols = await binanceAdapter.searchSymbols('');
+    const symbols = await binanceAdapter.ensureSymbolsCache();
     if (symbols && symbols.length > 0) {
       binanceSymbolsCache = symbols;
       binanceSymbolsCacheTime = Date.now();
@@ -165,41 +165,29 @@ async function getCachedBinanceSymbols() {
     console.warn('[Binance] Symbol fetch failed, fallback to defaults');
   }
 
-  return [
-    { symbol: 'BTC/USDT', exchange: 'Binance', name: 'Bitcoin', baseAsset: 'BTC', quoteAsset: 'USDT' },
-    { symbol: 'ETH/USDT', exchange: 'Binance', name: 'Ethereum', baseAsset: 'ETH', quoteAsset: 'USDT' },
-    { symbol: 'SOL/USDT', exchange: 'Binance', name: 'Solana', baseAsset: 'SOL', quoteAsset: 'USDT' },
-    { symbol: 'BNB/USDT', exchange: 'Binance', name: 'BNB', baseAsset: 'BNB', quoteAsset: 'USDT' },
-    { symbol: 'XRP/USDT', exchange: 'Binance', name: 'Ripple', baseAsset: 'XRP', quoteAsset: 'USDT' },
-    { symbol: 'ADA/USDT', exchange: 'Binance', name: 'Cardano', baseAsset: 'ADA', quoteAsset: 'USDT' },
-    { symbol: 'DOGE/USDT', exchange: 'Binance', name: 'Dogecoin', baseAsset: 'DOGE', quoteAsset: 'USDT' },
-    { symbol: 'AVAX/USDT', exchange: 'Binance', name: 'Avalanche', baseAsset: 'AVAX', quoteAsset: 'USDT' },
-    { symbol: 'DOT/USDT', exchange: 'Binance', name: 'Polkadot', baseAsset: 'DOT', quoteAsset: 'USDT' },
-    { symbol: 'LINK/USDT', exchange: 'Binance', name: 'Chainlink', baseAsset: 'LINK', quoteAsset: 'USDT' }
-  ];
+  return binanceAdapter.POPULAR_BINANCE_SYMBOLS;
 }
 
-export async function searchSymbols(query, exchange = null) {
+export async function searchSymbols(query = '', exchange = null) {
   const cacheKey = `search:${exchange || 'all'}:${query}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const results = [];
-  const q = query.toLowerCase();
+  const q = (query || '').toLowerCase();
 
   // If specific exchange requested
   if (exchange) {
     const exLower = exchange.toLowerCase();
 
     if (exLower === 'binance') {
-      const symbols = await getCachedBinanceSymbols();
-      const filtered = symbols.filter(s =>
-        s.symbol.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        s.baseAsset.toLowerCase().includes(q)
-      );
-      cache.set(cacheKey, filtered.slice(0, 30), 5 * 60 * 1000);
-      return filtered.slice(0, 30);
+      try {
+        const symbols = await binanceAdapter.searchSymbols(query);
+        cache.set(cacheKey, symbols.slice(0, 30), 5 * 60 * 1000);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        console.warn('[exchangeService] Binance symbol search error:', e.message);
+      }
     }
 
     if (exLower === 'pionex') {
@@ -249,18 +237,14 @@ export async function searchSymbols(query, exchange = null) {
   }
 
   // Cross-exchange search
-  const [binanceSyms, jupiterSyms] = await Promise.all([
-    getCachedBinanceSymbols().catch(() => []),
+  const [binanceSyms, pionexSyms, jupiterSyms] = await Promise.all([
+    binanceAdapter.searchSymbols(query).catch(() => []),
+    pionexAdapter.searchSymbols(query).catch(() => []),
     jupiterAdapter.searchSymbols(query).catch(() => [])
   ]);
 
-  const filteredBinance = binanceSyms.filter(s =>
-    s.symbol.toLowerCase().includes(q) ||
-    s.name.toLowerCase().includes(q) ||
-    s.baseAsset.toLowerCase().includes(q)
-  );
-
-  results.push(...filteredBinance.slice(0, 15));
+  results.push(...binanceSyms.slice(0, 15));
+  results.push(...pionexSyms.slice(0, 10));
   results.push(...jupiterSyms.slice(0, 10));
 
   const unique = [];
