@@ -7,7 +7,16 @@ import os
 import json
 import logging
 import re
+import math
+import random
 from typing import List, Dict, Any, Optional
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    np = None
+    HAS_NUMPY = False
 
 try:
     import google.generativeai as genai
@@ -427,8 +436,7 @@ Output valid JSON strictly in the following format:
         p_lower = prompt.lower()
 
         # Extract capital ($XX)
-        cap_match = re.search(r'(?:with|\$|capital\s*(?:of)?\s*\$?)\s*(\d+(?:\.\d+)?)\s*(?:usd|usdt|capital|\$)?', p_lower)
-        all_dollar_amounts = [float(x) for x in re.findall(r'\$?(\d+(?:\.\d+)?)', prompt) if float(x) > 0]
+        all_dollar_amounts = [float(x) for x in re.findall(r'\$\s*(\d+(?:\.\d+)?)', prompt) if float(x) > 0]
         capital = 30.0
         if len(all_dollar_amounts) > 0:
             # Capital is usually the largest dollar amount in the prompt
@@ -499,22 +507,43 @@ Output valid JSON strictly in the following format:
         price_tolerance = 0.0009 if current_price < 1.0 else round(min(grid_spacing * 0.15, 0.05), 6)
 
         # 3. Fast Historical Backtest Simulation on recent Klines
-        sim_candles = klines if klines and len(klines) >= 10 else []
+        sim_candles = []
+        if klines and len(klines) >= 5:
+            for k in klines:
+                if isinstance(k, (list, tuple)) and len(k) >= 5:
+                    sim_candles.append({
+                        "open": float(k[1]),
+                        "high": float(k[2]),
+                        "low": float(k[3]),
+                        "close": float(k[4]),
+                        "volume": float(k[5]) if len(k) > 5 else 1000.0,
+                        "timestamp": str(k[0])
+                    })
+                elif isinstance(k, dict):
+                    sim_candles.append({
+                        "open": float(k.get("open", current_price)),
+                        "high": float(k.get("high", k.get("close", current_price))),
+                        "low": float(k.get("low", k.get("close", current_price))),
+                        "close": float(k.get("close", current_price)),
+                        "volume": float(k.get("volume", 1000.0)),
+                        "timestamp": str(k.get("timestamp", ""))
+                    })
+
         if not sim_candles:
             # Generate synthetic realistic klines around current price
             base_p = current_price
-            sim_candles = []
             for k in range(50):
-                drift = np.sin(k / 5.0) * (grid_spacing * 1.2) + np.random.normal(0, grid_spacing * 0.3)
-                c_close = base_p + drift
-                c_high = c_close + abs(np.random.normal(0, grid_spacing * 0.4))
-                c_low = c_close - abs(np.random.normal(0, grid_spacing * 0.4))
+                sin_factor = math.sin(k / 5.0) * (grid_spacing * 1.2)
+                rand_noise = (random.random() - 0.5) * (grid_spacing * 0.6)
+                c_close = base_p + sin_factor + rand_noise
+                c_high = c_close + abs((random.random() - 0.5) * grid_spacing * 0.8)
+                c_low = c_close - abs((random.random() - 0.5) * grid_spacing * 0.8)
                 sim_candles.append({
                     "open": base_p,
                     "high": c_high,
                     "low": c_low,
                     "close": c_close,
-                    "volume": 1000 + np.random.uniform(100, 500),
+                    "volume": 1000 + random.uniform(100, 500),
                     "timestamp": f"T-{50 - k}m"
                 })
 
