@@ -3,6 +3,7 @@ import { BinanceAdapter } from './BinanceAdapter.js';
 import { BybitAdapter } from './BybitAdapter.js';
 import { KrakenAdapter } from './KrakenAdapter.js';
 import { PionexAdapter } from './PionexAdapter.js';
+import { CoinDCXAdapter } from './CoinDCXAdapter.js';
 import { AngelOneAdapter } from './AngelOneAdapter.js';
 import { JupiterAdapter } from './JupiterAdapter.js';
 import { ConfigurationError } from '../utils/errors.js';
@@ -10,6 +11,7 @@ const ADAPTER_REGISTRY = {
     binance: BinanceAdapter,
     bybit: BybitAdapter,
     kraken: KrakenAdapter,
+    coindcx: CoinDCXAdapter,
     pionex: PionexAdapter,
     angelone: AngelOneAdapter,
     jupiter: JupiterAdapter,

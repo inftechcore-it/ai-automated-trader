@@ -109,6 +109,7 @@ export default function Account() {
   const paperTrading = summary?.paperTrading || {};
 
   const binance = cryptoFunds.binance || {};
+  const coindcx = cryptoFunds.coindcx || {};
   const pionex = cryptoFunds.pionex || {};
   const jupiter = cryptoFunds.jupiter || {};
   const kraken = cryptoFunds.kraken || {};
@@ -303,6 +304,95 @@ export default function Account() {
                   <small>Connect your API Key & Secret in Exchanges to auto-fetch your balance.</small>
                   <Link to="/exchanges" className="connect-btn">
                     Connect Binance
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* COINDCX */}
+          <div className={`broker-card ${coindcx.connected ? 'connected' : 'disconnected'}`}>
+            <div className="broker-card-header">
+              <div className="broker-identity">
+                <div className="broker-logo coindcx">
+                  <span>DCX</span>
+                </div>
+                <div>
+                  <h3>CoinDCX</h3>
+                  <span className="broker-type">Crypto Spot & INR Markets</span>
+                </div>
+              </div>
+              <span className={`status-pill ${coindcx.connected ? 'active' : 'inactive'}`}>
+                {coindcx.connected ? '● Live Connected' : '○ Not Connected'}
+              </span>
+            </div>
+
+            <div className="broker-card-body">
+              {coindcx.connected ? (
+                <>
+                  <div className="broker-balance-row main">
+                    <span className="label">Total Portfolio Value</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="val font-mono font-bold">{formatUSD(coindcx.totalUSD)}</span>
+                      {coindcx.totalINR > 0 && (
+                        <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                          ≈ ₹{Number(coindcx.totalINR).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="broker-balance-row">
+                    <span className="label">Available Cash</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="val font-mono text-accent">{formatUSD(coindcx.cash)} USDT</span>
+                      {coindcx.cashINR > 0 && (
+                        <span className="val font-mono text-accent" style={{ marginLeft: 8 }}>
+                          | ₹{Number(coindcx.cashINR).toLocaleString('en-IN', { maximumFractionDigits: 2 })} INR
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="assets-breakdown">
+                    <div className="assets-header">
+                      <span>Coin Holdings ({coindcx.assets?.length || 0})</span>
+                      <span>USD / INR Value</span>
+                    </div>
+                    {coindcx.assets?.length > 0 ? (
+                      <div className="assets-scroll-list">
+                        {coindcx.assets.map((ast) => (
+                          <div key={ast.asset} className="asset-item">
+                            <div className="asset-name-col">
+                              <span className="asset-sym">{ast.asset}</span>
+                              <span className="asset-qty font-mono">
+                                Free: {ast.free > 1 ? ast.free.toFixed(2) : ast.free.toFixed(5)}
+                                {ast.locked > 0 && ` | In Orders: ${ast.locked.toFixed(2)}`}
+                              </span>
+                            </div>
+                            <div className="asset-val-col font-mono" style={{ textAlign: 'right' }}>
+                              <div>{formatUSD(ast.usdValue)}</div>
+                              {ast.inrValue > 0 && (
+                                <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+                                  ₹{Number(ast.inrValue).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </small>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-assets">
+                        <span>No crypto balances deposited on CoinDCX.</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="broker-empty-state">
+                  <p>CoinDCX API keys not configured.</p>
+                  <small>Add your CoinDCX API Key & Secret in Exchanges to auto-fetch your wallet.</small>
+                  <Link to="/exchanges" className="connect-btn">
+                    Connect CoinDCX
                   </Link>
                 </div>
               )}

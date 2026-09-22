@@ -3,6 +3,7 @@ import { decrypt } from '../utils/encryption.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as coindcxAdapter from './adapters/coindcxAdapter.js';
 import * as alpacaAdapter from './adapters/alpacaAdapter.js';
 import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as jupiterAdapter from './adapters/jupiterAdapter.js';
@@ -13,6 +14,7 @@ function getAdapter(exchangeName) {
   const name = exchangeName.toLowerCase();
   if (name === 'binance') return binanceAdapter;
   if (name === 'kraken') return krakenAdapter;
+  if (name === 'coindcx') return coindcxAdapter;
   if (name === 'pionex') return pionexAdapter;
   if (name === 'alpaca' || name === 'nasdaq' || name === 'nyse') return alpacaAdapter;
   if (name === 'angelone') return angeloneAdapter;
@@ -38,6 +40,9 @@ export async function validateCredentials(exchangeName, apiKey, apiSecret, extra
     }
     if (name === 'kraken') {
       return await krakenAdapter.validateCredentials(apiKey, apiSecret);
+    }
+    if (name === 'coindcx') {
+      return await coindcxAdapter.validateCredentials(apiKey, apiSecret);
     }
     if (name === 'pionex') {
       return await pionexAdapter.validateCredentials(apiKey, apiSecret);
@@ -138,6 +143,8 @@ export async function getBalances(connectionId, userId) {
       balances = await binanceAdapter.getBalances(record.apiKey, record.apiSecret);
     } else if (exLower === 'kraken') {
       balances = await krakenAdapter.getBalances(record.apiKey, record.apiSecret);
+    } else if (exLower === 'coindcx') {
+      balances = await coindcxAdapter.getBalances(record.apiKey, record.apiSecret);
     } else if (exLower === 'pionex') {
       balances = await pionexAdapter.getBalances(record.apiKey, record.apiSecret);
     } else if (['alpaca', 'nasdaq', 'nyse'].includes(exLower)) {

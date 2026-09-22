@@ -1043,6 +1043,12 @@ export default function Exchanges() {
                     <span><strong>Pionex Live Trading:</strong> Generate your API Key & Secret from your Pionex Account (Settings &rarr; API Management) with <em>Read</em> and <em>Trade</em> permissions enabled for live orders & automated grid bots.</span>
                   </div>
                 )}
+                {connectExchange.name === 'CoinDCX' && (
+                  <div className="form-note info">
+                    <AlertTriangle size={14} />
+                    <span><strong>CoinDCX Live Trading:</strong> Generate your API Key & Secret from your CoinDCX Account (Profile &rarr; API Dashboard) with <em>Read</em> and <em>Trade</em> permissions enabled for spot trading and balance sync.</span>
+                  </div>
+                )}
                 <div className="form-actions">
                   <button
                     type="submit"

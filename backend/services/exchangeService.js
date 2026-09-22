@@ -1,6 +1,7 @@
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as coindcxAdapter from './adapters/coindcxAdapter.js';
 import * as jupiterAdapter from './adapters/jupiterAdapter.js';
 import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as alphaVantageAdapter from './adapters/alphaVantageAdapter.js';
@@ -21,6 +22,7 @@ export function getSupportedExchanges(userConnectedExchanges = []) {
 
   return [
     { name: 'Binance', type: 'crypto', description: 'Crypto spot trading', live: true, tradingEnabled: connectedSet.has('binance') },
+    { name: 'CoinDCX', type: 'crypto', description: 'Indian & Global crypto spot trading exchange', live: true, tradingEnabled: connectedSet.has('coindcx') },
     { name: 'Pionex', type: 'crypto', description: 'Crypto trading with built-in bots', live: true, tradingEnabled: connectedSet.has('pionex') },
     { name: 'Jupiter', type: 'dex', description: 'Solana DEX Aggregator (Swaps, Limit, DCA)', live: true, tradingEnabled: connectedSet.has('jupiter') },
     { name: 'AngelOne', type: 'stock', description: 'Indian stocks via Angel One SmartAPI', live: true, tradingEnabled: connectedSet.has('angelone') },
@@ -91,6 +93,9 @@ function getAdapter(exchange, symbol) {
   }
   if (exLower === 'binance' && binanceAdapter.supportsSymbol(symbol)) {
     return binanceAdapter;
+  }
+  if (exLower === 'coindcx' && coindcxAdapter.supportsSymbol(symbol)) {
+    return coindcxAdapter;
   }
   if (exLower === 'pionex' && pionexAdapter.supportsSymbol(symbol)) {
     return pionexAdapter;
@@ -199,6 +204,15 @@ export async function searchSymbols(query = '', exchange = null) {
       }
     }
 
+    if (exLower === 'coindcx') {
+      try {
+        const symbols = await coindcxAdapter.searchSymbols(query);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        // fallback
+      }
+    }
+
     if (exLower === 'kraken') {
       try {
         const symbols = await krakenAdapter.searchSymbols(query);
@@ -237,13 +251,15 @@ export async function searchSymbols(query = '', exchange = null) {
   }
 
   // Cross-exchange search
-  const [binanceSyms, pionexSyms, jupiterSyms] = await Promise.all([
+  const [binanceSyms, coindcxSyms, pionexSyms, jupiterSyms] = await Promise.all([
     binanceAdapter.searchSymbols(query).catch(() => []),
+    coindcxAdapter.searchSymbols(query).catch(() => []),
     pionexAdapter.searchSymbols(query).catch(() => []),
     jupiterAdapter.searchSymbols(query).catch(() => [])
   ]);
 
   results.push(...binanceSyms.slice(0, 15));
+  results.push(...coindcxSyms.slice(0, 10));
   results.push(...pionexSyms.slice(0, 10));
   results.push(...jupiterSyms.slice(0, 10));
 
@@ -296,6 +312,15 @@ export async function placeLiveOrder(orderParams) {
 
     return pionexAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
       symbol, side, orderType: mapOrderType(orderType, 'pionex'), quantity, price
+    });
+  }
+
+  if (exLower === 'coindcx') {
+    const creds = await getUserBrokerCredentials(userId, 'CoinDCX');
+    if (!creds) throw createError('CoinDCX not connected for your account. Please add your API keys in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
+
+    return coindcxAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
+      symbol, side, orderType: mapOrderType(orderType, 'coindcx'), quantity, price, stopPrice
     });
   }
 
@@ -404,6 +429,12 @@ export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
     return pionexAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
+  if (exLower === 'coindcx') {
+    const creds = await getUserBrokerCredentials(userId, 'CoinDCX');
+    if (!creds) throw createError('CoinDCX not connected for your account', 401, 'BROKER_NOT_CONNECTED');
+    return coindcxAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
+  }
+
   if (exLower === 'angelone') {
     const creds = await getUserBrokerCredentials(userId, 'AngelOne');
     if (!creds) throw createError('Angel One not connected for your account', 401, 'BROKER_NOT_CONNECTED');
@@ -450,6 +481,13 @@ export async function getLivePositions(userId, exchange) {
     return balances.filter(b => b.total > 0 && b.asset !== 'USDT');
   }
 
+  if (exLower === 'coindcx') {
+    const creds = await getUserBrokerCredentials(userId, 'CoinDCX');
+    if (!creds) return [];
+    const balances = await coindcxAdapter.getBalances(creds.apiKey, creds.apiSecret);
+    return balances.filter(b => b.total > 0 && !['USDT', 'INR'].includes(b.asset));
+  }
+
   if (exLower === 'angelone') {
     const creds = await getUserBrokerCredentials(userId, 'AngelOne');
     if (!creds) return [];
@@ -491,6 +529,12 @@ export async function getLiveOpenOrders(userId, exchange) {
     const creds = await getUserBrokerCredentials(userId, 'Pionex');
     if (!creds) return [];
     return pionexAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
+  }
+
+  if (exLower === 'coindcx') {
+    const creds = await getUserBrokerCredentials(userId, 'CoinDCX');
+    if (!creds) return [];
+    return coindcxAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
   }
 
   if (exLower === 'angelone') {
@@ -579,10 +623,12 @@ function mapOrderType(orderType, exchange) {
     };
     return map[orderType] || 'MARKET';
   }
-  if (exchange === 'pionex') {
+  if (exchange === 'pionex' || exchange === 'coindcx') {
     const map = {
       'market': 'MARKET',
-      'limit': 'LIMIT'
+      'limit': 'LIMIT',
+      'stop_loss': 'STOP_LOSS',
+      'stop_limit': 'STOP_LIMIT'
     };
     return map[orderType] || 'MARKET';
   }

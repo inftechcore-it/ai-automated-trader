@@ -60,6 +60,10 @@ export const env = {
     apiKey: process.env.PIONEX_API_KEY || '',
     apiSecret: process.env.PIONEX_API_SECRET || ''
   },
+  coindcx: {
+    apiKey: process.env.COINDCX_API_KEY || '',
+    apiSecret: process.env.COINDCX_API_SECRET || ''
+  },
   angelone: {
     apiKey: process.env.ANGELONE_API_KEY || 'AThErGZk',
     clientCode: process.env.ANGELONE_CLIENT_CODE || '',

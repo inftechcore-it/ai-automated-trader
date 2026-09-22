@@ -7,6 +7,7 @@ import { query } from '../config/db.js';
 import * as binanceAdapter from '../services/adapters/binanceAdapter.js';
 import * as krakenAdapter from '../services/adapters/krakenAdapter.js';
 import * as pionexAdapter from '../services/adapters/pionexAdapter.js';
+import * as coindcxAdapter from '../services/adapters/coindcxAdapter.js';
 import * as jupiterAdapter from '../services/adapters/jupiterAdapter.js';
 import * as angeloneAdapter from '../services/adapters/angeloneAdapter.js';
 import * as alpacaAdapter from '../services/adapters/alpacaAdapter.js';
@@ -43,6 +44,10 @@ router.get('/status', requireAuth, async (req, res) => {
         paperMode: b.paper_mode,
         lastSynced: b.last_synced_at
       })),
+      coindcxAuthenticated: allConnectedNames.has('coindcx'),
+      coindcxConfigured: allConnectedNames.has('coindcx'),
+      pionexAuthenticated: allConnectedNames.has('pionex'),
+      pionexConfigured: allConnectedNames.has('pionex'),
       upstoxAuthenticated: allConnectedNames.has('upstox'),
       angeloneAuthenticated: allConnectedNames.has('angelone'),
       angeloneConfigured: allConnectedNames.has('angelone'),
@@ -179,6 +184,10 @@ router.post(
       if (exLower === 'binance') {
         validation = await binanceAdapter.validateCredentials(apiKey, apiSecret, useTestnet);
         exchangeType = 'crypto';
+      } else if (exLower === 'coindcx') {
+        validation = await coindcxAdapter.validateCredentials(apiKey, apiSecret);
+        exchangeType = 'crypto';
+        exchangeName = 'CoinDCX';
       } else if (exLower === 'kraken') {
         validation = await krakenAdapter.validateCredentials(apiKey, apiSecret);
         exchangeType = 'crypto';
@@ -308,6 +317,8 @@ router.get('/balances/:exchange', requireAuth, async (req, res) => {
 
     if (exchange === 'binance') {
       balances = await binanceAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
+    } else if (exchange === 'coindcx') {
+      balances = await coindcxAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'kraken') {
       balances = await krakenAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'pionex') {
@@ -402,6 +413,8 @@ router.get('/orders/:exchange', requireAuth, async (req, res) => {
         orders = [];
       } else if (exchange === 'binance') {
         orders = await binanceAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
+      } else if (exchange === 'coindcx') {
+        orders = await coindcxAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
       } else if (exchange === 'pionex') {
         orders = await pionexAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
       } else if (exchange === 'angelone') {

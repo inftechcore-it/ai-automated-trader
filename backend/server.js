@@ -17,6 +17,7 @@ import upstoxRoutes from './routes/upstoxRoutes.js';
 import angeloneRoutes from './routes/angeloneRoutes.js';
 import jupiterRoutes from './routes/jupiterRoutes.js';
 import pionexRoutes from './routes/pionexRoutes.js';
+import coindcxRoutes from './routes/coindcxRoutes.js';
 import walletRoutes from './routes/walletRoutes.js';
 import tradingRoutes from './routes/tradingRoutes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
@@ -62,6 +63,7 @@ app.use('/api/upstox', upstoxRoutes);
 app.use('/api/angelone', angeloneRoutes);
 app.use('/api/jupiter', jupiterRoutes);
 app.use('/api/pionex', pionexRoutes);
+app.use('/api/coindcx', coindcxRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/trading', tradingRoutes);
 app.use('/api/broker', brokerRoutes);
@@ -81,6 +83,7 @@ server.listen(env.port, () => {
 
   // Preload instruments caches for fast search
   searchSymbols('BTC', 'Binance').catch(() => {});
+  searchSymbols('BTC', 'CoinDCX').catch(() => {});
 
   // Preload Upstox instruments (NSE/BSE) - runs in background
   preloadInstruments().catch(err => {

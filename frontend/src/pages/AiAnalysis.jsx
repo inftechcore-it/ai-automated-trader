@@ -21,6 +21,7 @@ const api = (path, opts = {}) =>
 
 const EXCHANGES = [
   { id: 'pionex', name: 'Pionex', type: 'crypto', icon: '⚡', currency: '$' },
+  { id: 'coindcx', name: 'CoinDCX', type: 'crypto', icon: '⚡', currency: '$' },
   { id: 'jupiter', name: 'Jupiter (Solana DEX)', type: 'dex', icon: '🪐', currency: '$' },
   { id: 'binance', name: 'Binance', type: 'crypto', icon: '₿', currency: '$' },
   { id: 'bybit', name: 'Bybit', type: 'crypto', icon: '🔶', currency: '$' },
@@ -33,6 +34,7 @@ const EXCHANGES = [
 
 const POPULAR_SYMBOLS = {
   pionex: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'DOGE/USDT'],
+  coindcx: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BTC/INR', 'USDT/INR', 'XRP/INR', 'DOGE/INR'],
   jupiter: ['SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC', 'WIF/USDC', 'PYTH/USDC', 'JTO/USDC'],
   binance: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'ADA/USDT'],
   bybit: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'MNT/USDT'],

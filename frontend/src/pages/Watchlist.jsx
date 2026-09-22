@@ -31,14 +31,15 @@ export default function Watchlist() {
 
   const exchanges = [
     { value: 'all', label: 'All Exchanges' },
+    { value: 'CoinDCX', label: 'CoinDCX' },
+    { value: 'Pionex', label: 'Pionex' },
+    { value: 'Binance', label: 'Binance' },
     { value: 'NSE', label: 'NSE' },
     { value: 'BSE', label: 'BSE' },
     { value: 'AngelOne', label: 'Angel One' },
-    { value: 'Pionex', label: 'Pionex' },
     { value: 'Jupiter', label: 'Jupiter (Solana DEX)' },
     { value: 'NASDAQ', label: 'NASDAQ' },
-    { value: 'NYSE', label: 'NYSE' },
-    { value: 'Binance', label: 'Binance' }
+    { value: 'NYSE', label: 'NYSE' }
   ];
 
   useEffect(() => {

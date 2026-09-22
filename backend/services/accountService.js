@@ -7,6 +7,7 @@ import { query } from '../config/db.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as coindcxAdapter from './adapters/coindcxAdapter.js';
 import * as jupiterAdapter from './adapters/jupiterAdapter.js';
 import * as angeloneAdapter from './adapters/angeloneAdapter.js';
 import * as alpacaAdapter from './adapters/alpacaAdapter.js';
@@ -266,6 +267,70 @@ async function fetchExchangeBalance(exchangeName, credentials, rawExchange = {})
     };
   }
 
+  // COINDCX
+  if (name === 'coindcx') {
+    const balances = await coindcxAdapter.getBalances(apiKey, apiSecret);
+    let totalUSD = 0;
+    let totalINR = 0;
+    let availableUSDT = 0;
+    let availableINR = 0;
+    const assets = [];
+
+    for (const bal of balances) {
+      if (bal.total > 0.00001) {
+        let usdValue = 0;
+        let inrValue = 0;
+
+        if (['USDT', 'USDC', 'USD', 'BUSD'].includes(bal.asset)) {
+          usdValue = bal.total;
+          inrValue = bal.total * 85.0;
+          availableUSDT += bal.free;
+        } else if (bal.asset === 'INR') {
+          inrValue = bal.total;
+          usdValue = bal.total / 85.0;
+          availableINR += bal.free;
+        } else {
+          try {
+            const quote = await coindcxAdapter.getQuote(`${bal.asset}/USDT`);
+            usdValue = bal.total * (quote?.price || 0);
+            inrValue = usdValue * 85.0;
+          } catch {
+            try {
+              const inrQuote = await coindcxAdapter.getQuote(`${bal.asset}/INR`);
+              inrValue = bal.total * (inrQuote?.price || 0);
+              usdValue = inrValue / 85.0;
+            } catch {
+              usdValue = 0;
+              inrValue = 0;
+            }
+          }
+        }
+
+        assets.push({
+          asset: bal.asset,
+          free: bal.free,
+          locked: bal.locked,
+          total: bal.total,
+          usdValue: Number(usdValue.toFixed(2)),
+          inrValue: Number(inrValue.toFixed(2))
+        });
+
+        totalUSD += usdValue;
+        totalINR += inrValue;
+      }
+    }
+
+    return {
+      currency: 'USD',
+      cash: Number(availableUSDT.toFixed(2)),
+      cashINR: Number(availableINR.toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
+      totalValue: Number(totalUSD.toFixed(2)),
+      totalINR: Number(totalINR.toFixed(2)),
+      assetCount: assets.length
+    };
+  }
+
   // 3. JUPITER (Solana DEX)
   if (name === 'jupiter') {
     const pk = credentials.privateKey || credentials.apiSecret;
@@ -488,6 +553,7 @@ function getCryptoFundsSummary(exchangeBalances) {
   const cryptoExchanges = exchangeBalances.filter(e => e.type === 'crypto' || e.type === 'dex');
 
   const binanceEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'binance');
+  const coindcxEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'coindcx');
   const pionexEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'pionex');
   const jupiterEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'jupiter');
   const krakenEx = cryptoExchanges.find(e => e.exchange?.toLowerCase() === 'kraken');
@@ -499,6 +565,11 @@ function getCryptoFundsSummary(exchangeBalances) {
   if (binanceEx?.connected) {
     totalUSD += binanceEx.totalValue || 0;
     allAssets.push(...(binanceEx.assets || []).map(a => ({ ...a, exchange: 'Binance' })));
+  }
+
+  if (coindcxEx?.connected) {
+    totalUSD += coindcxEx.totalValue || 0;
+    allAssets.push(...(coindcxEx.assets || []).map(a => ({ ...a, exchange: 'CoinDCX' })));
   }
 
   if (pionexEx?.connected) {
@@ -523,6 +594,15 @@ function getCryptoFundsSummary(exchangeBalances) {
       assets: binanceEx.assets || [],
       totalUSD: binanceEx.totalValue || 0,
       error: binanceEx.error
+    } : { connected: false, error: 'Not connected' },
+    coindcx: coindcxEx ? {
+      connected: coindcxEx.connected,
+      cash: coindcxEx.cash || 0,
+      cashINR: coindcxEx.cashINR || 0,
+      assets: coindcxEx.assets || [],
+      totalUSD: coindcxEx.totalValue || 0,
+      totalINR: coindcxEx.totalINR || 0,
+      error: coindcxEx.error
     } : { connected: false, error: 'Not connected' },
     pionex: pionexEx ? {
       connected: pionexEx.connected,

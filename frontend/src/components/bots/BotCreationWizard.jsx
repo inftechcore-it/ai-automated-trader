@@ -124,6 +124,7 @@ const DIFFICULTY_COLORS = {
 // Default supported exchanges (always available for Paper mode, connectable for Live mode)
 const DEFAULT_SUPPORTED_EXCHANGES = [
   { name: 'Demo', label: 'Demo Exchange', isDemo: true, isConnected: true },
+  { name: 'CoinDCX', label: 'CoinDCX', type: 'crypto', isDemo: false, isConnected: false },
   { name: 'Pionex', label: 'Pionex', type: 'crypto', isDemo: false, isConnected: false },
   { name: 'Jupiter', label: 'Jupiter (Solana DEX)', type: 'dex', isDemo: false, isConnected: false },
   { name: 'AngelOne', label: 'Angel One (SmartAPI)', type: 'stock', isDemo: false, isConnected: false },

@@ -83,6 +83,17 @@ export default function Trading() {
     paperMode: false
   });
 
+  // CoinDCX State
+  const [coindcxStatus, setCoindcxStatus] = useState({ configured: false, authenticated: false });
+  const [coindcxFunds, setCoindcxFunds] = useState(null);
+  const [showCoindcxConnectModal, setShowCoindcxConnectModal] = useState(false);
+  const [connectingCoindcx, setConnectingCoindcx] = useState(false);
+  const [coindcxForm, setCoindcxForm] = useState({
+    apiKey: '',
+    apiSecret: '',
+    paperMode: false
+  });
+
   // Order confirmation modal
   const [showOrderConfirm, setShowOrderConfirm] = useState(false);
   const [pendingOrder, setPendingOrder] = useState(null);
@@ -95,6 +106,7 @@ export default function Trading() {
     { name: 'NASDAQ', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'NYSE', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'Binance', type: 'crypto', currency: 'USD', broker: 'Binance' },
+    { name: 'CoinDCX', type: 'crypto', currency: 'USD', broker: 'CoinDCX' },
     { name: 'Pionex', type: 'crypto', currency: 'USD', broker: 'Pionex' },
     { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' },
     { name: 'Jupiter', type: 'dex', currency: 'USD', broker: 'Jupiter' }
@@ -103,11 +115,13 @@ export default function Trading() {
   const currentExchange = exchanges.find(e => e.name === exchangeName) || exchanges[0];
   const isIndianExchange = ['NSE', 'BSE'].includes(exchangeName);
   const isPionexExchange = exchangeName.toLowerCase() === 'pionex';
+  const isCoindcxExchange = exchangeName.toLowerCase() === 'coindcx';
   const currencySymbol = isIndianExchange ? '₹' : '$';
 
   const isAngelConnected = !!(angeloneStatus.authenticated || angeloneStatus.configured);
   const isUpstoxConnected = !!upstoxStatus.authenticated;
   const isPionexConnected = !!(pionexStatus.authenticated || pionexStatus.configured || brokerStatus.pionex?.connected);
+  const isCoindcxConnected = !!(coindcxStatus.authenticated || coindcxStatus.configured || brokerStatus.coindcx?.connected);
   const isSelectedIndianBrokerConnected = isIndianExchange && (
     (selectedIndianBroker === 'AngelOne' && isAngelConnected) ||
     (selectedIndianBroker === 'Upstox' && isUpstoxConnected)
@@ -121,6 +135,9 @@ export default function Trading() {
     }
     if (exchange.toLowerCase() === 'pionex') {
       return isPionexConnected;
+    }
+    if (exchange.toLowerCase() === 'coindcx') {
+      return isCoindcxConnected;
     }
     const broker = (ex.broker || ex.name).toLowerCase();
     if (broker === 'alpaca') {
@@ -141,6 +158,7 @@ export default function Trading() {
     loadAngelOneStatus();
     loadUpstoxStatus();
     loadPionexStatus();
+    loadCoindcxStatus();
     loadWallet();
     loadPositions();
     loadOpenOrders();
@@ -191,6 +209,13 @@ export default function Trading() {
       loadPionexFunds();
     }
   }, [pionexStatus.authenticated, pionexStatus.configured]);
+
+  // Load CoinDCX data when authenticated or configured
+  useEffect(() => {
+    if (coindcxStatus.authenticated || coindcxStatus.configured) {
+      loadCoindcxFunds();
+    }
+  }, [coindcxStatus.authenticated, coindcxStatus.configured]);
 
   // Load quote when symbol changes
   useEffect(() => {
@@ -533,6 +558,108 @@ export default function Trading() {
     poll();
   }
 
+  // ============ COINDCX METHODS ============
+  async function loadCoindcxStatus() {
+    try {
+      const response = await api.get('/api/coindcx/status');
+      setCoindcxStatus({
+        configured: !!response.data.configured,
+        authenticated: !!response.data.authenticated,
+        source: response.data.source
+      });
+      if (response.data.configured || response.data.authenticated) {
+        loadCoindcxFunds();
+      }
+    } catch {
+      setCoindcxStatus({ configured: false, authenticated: false });
+    }
+  }
+
+  async function loadCoindcxFunds() {
+    try {
+      const response = await api.get('/api/coindcx/funds');
+      setCoindcxFunds(response.data);
+    } catch (err) {
+      console.error('Failed to load CoinDCX funds:', err);
+    }
+  }
+
+  async function handleConnectCoindcx(e) {
+    if (e) e.preventDefault();
+    if (!coindcxForm.apiKey || !coindcxForm.apiSecret) {
+      setMessage({ text: 'Please enter both CoinDCX API Key and API Secret', type: 'error' });
+      return;
+    }
+    setConnectingCoindcx(true);
+    setMessage({ text: '', type: '' });
+    try {
+      await api.post('/api/coindcx/connect', {
+        apiKey: coindcxForm.apiKey,
+        apiSecret: coindcxForm.apiSecret,
+        paperMode: coindcxForm.paperMode
+      });
+      setMessage({ text: 'CoinDCX API connected successfully!', type: 'success' });
+      setShowCoindcxConnectModal(false);
+      loadCoindcxStatus();
+      loadCoindcxFunds();
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    } finally {
+      setConnectingCoindcx(false);
+    }
+  }
+
+  async function disconnectCoindcx() {
+    try {
+      await api.post('/api/coindcx/disconnect');
+      setCoindcxStatus({ configured: false, authenticated: false });
+      setCoindcxFunds(null);
+      setMessage({ text: 'Disconnected from CoinDCX', type: 'success' });
+      loadBrokerStatus();
+    } catch (error) {
+      setMessage({ text: errorMessage(error), type: 'error' });
+    }
+  }
+
+  async function pollCoindcxOrderStatus(orderId, orderSymbol) {
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setOrderStatus(prev => ({ ...prev, status: 'unknown', message: 'CoinDCX order submitted (status check complete)' }));
+        return;
+      }
+      attempts++;
+
+      try {
+        const response = await api.get(`/api/coindcx/orders/${orderId}/status`, {
+          params: { symbol: orderSymbol || symbol }
+        });
+        const order = response.data.order;
+        const status = order?.status?.toLowerCase();
+
+        if (['filled', 'complete', 'executed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'filled', message: 'CoinDCX order executed successfully!' });
+          setMessage({ text: 'CoinDCX order executed successfully!', type: 'success' });
+          loadCoindcxFunds();
+          loadPositions();
+        } else if (['rejected', 'cancelled', 'failed'].includes(status)) {
+          setOrderStatus({ orderId, status: 'failed', message: 'CoinDCX order cancelled/rejected' });
+          setMessage({ text: 'CoinDCX order was cancelled or rejected', type: 'error' });
+        } else {
+          setOrderStatus({ orderId, status: 'pending', message: `Order status: ${status || 'open'}...` });
+          setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        console.error('CoinDCX status poll error:', error);
+      }
+    };
+
+    poll();
+  }
+
   // ============ GENERAL TRADING METHODS ============
   async function loadWallet() {
     try {
@@ -778,6 +905,20 @@ export default function Trading() {
           setOrderStatus({ orderId, status: 'submitted', message: 'Order placed on Pionex! Checking execution...' });
           pollPionexOrderStatus(orderId, orderData.symbol);
         }
+      } else if (orderData.mode === 'live' && orderData.exchangeName?.toLowerCase() === 'coindcx') {
+        response = await api.post('/api/coindcx/orders/place', {
+          symbol: orderData.symbol,
+          side: orderData.side,
+          orderType: orderData.orderType,
+          quantity: orderData.quantity,
+          price: orderData.price,
+          stopPrice: orderData.stopPrice
+        });
+        const orderId = response.data.order?.orderId;
+        if (orderId) {
+          setOrderStatus({ orderId, status: 'submitted', message: 'Order placed on CoinDCX! Checking execution...' });
+          pollCoindcxOrderStatus(orderId, orderData.symbol);
+        }
       } else {
         response = await api.post('/api/orders/place', payload);
       }
@@ -802,6 +943,8 @@ export default function Trading() {
         }
       } else if (isPionexExchange) {
         loadPionexFunds();
+      } else if (isCoindcxExchange) {
+        loadCoindcxFunds();
       }
     } catch (error) {
       if (!handleUpstoxTokenExpiry(error)) {
@@ -943,6 +1086,7 @@ export default function Trading() {
   // Live funds based on active broker
   const isLiveIndian = mode === 'live' && isIndianExchange && isSelectedIndianBrokerConnected;
   const isLivePionex = mode === 'live' && isPionexExchange && isPionexConnected;
+  const isLiveCoindcx = mode === 'live' && isCoindcxExchange && isCoindcxConnected;
   let buyingPower = wallet?.balance || 0;
 
   if (isLiveIndian) {
@@ -953,6 +1097,8 @@ export default function Trading() {
     }
   } else if (isLivePionex) {
     buyingPower = pionexFunds?.buyingPower ?? (pionexFunds?.balances?.find(b => b.asset === 'USDT')?.free || 0);
+  } else if (isLiveCoindcx) {
+    buyingPower = coindcxFunds?.buyingPowerUSD ?? (coindcxFunds?.balances?.find(b => b.asset === 'USDT')?.free || 0);
   }
 
   const canAfford = side === 'buy' ? buyingPower >= total : true;
@@ -986,12 +1132,71 @@ export default function Trading() {
             <Zap size={14} /> Live
           </button>
           {mode === 'live' && !currentBrokerConnected && !isIndianExchange && (
-            <button className="connect-broker-btn" onClick={() => isPionexExchange ? setShowPionexConnectModal(true) : null}>
+            <button className="connect-broker-btn" onClick={() => isPionexExchange ? setShowPionexConnectModal(true) : isCoindcxExchange ? setShowCoindcxConnectModal(true) : null}>
               <Link2 size={12} /> Connect
             </button>
           )}
         </div>
       </div>
+
+      {/* CoinDCX Crypto Toolbar (Shown when CoinDCX exchange is selected) */}
+      {isCoindcxExchange && (
+        <div className="indian-broker-toolbar pionex-toolbar">
+          <div className="broker-toolbar-label">
+            <span>CoinDCX Spot Trading:</span>
+          </div>
+
+          <div className="broker-pills-list">
+            <div
+              className={`broker-pill-item ${isCoindcxConnected ? 'connected' : ''} active`}
+              onClick={() => !isCoindcxConnected && setShowCoindcxConnectModal(true)}
+            >
+              <div className="broker-pill-header">
+                <strong>CoinDCX API</strong>
+                {coindcxStatus.authenticated ? (
+                  <Badge tone="green" small><CheckCircle size={10} /> Active</Badge>
+                ) : coindcxStatus.configured ? (
+                  <Badge tone="blue" small><CheckCircle size={10} /> Configured</Badge>
+                ) : (
+                  <Badge tone="yellow" small><KeyRound size={10} /> Connect API</Badge>
+                )}
+              </div>
+              <span className="broker-pill-desc">Indian & Global Spot Crypto Markets</span>
+              <div className="broker-pill-actions" onClick={e => e.stopPropagation()}>
+                {isCoindcxConnected ? (
+                  <button className="btn-disconnect-small" onClick={disconnectCoindcx}>Disconnect</button>
+                ) : (
+                  <button className="btn-connect-pill pionex" onClick={() => setShowCoindcxConnectModal(true)}>
+                    <KeyRound size={11} /> Connect
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isCoindcxConnected && (
+              <div className="broker-balance-chip">
+                <span className="chip-label">USDT Available:</span>
+                <span className="chip-val">${Number(coindcxFunds?.buyingPowerUSD || coindcxFunds?.balances?.find(b => b.asset === 'USDT')?.free || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Live warning banner if active broker is not connected */}
+          {mode === 'live' && !isCoindcxConnected && (
+            <div className="indian-broker-warning">
+              <AlertTriangle size={15} />
+              <span>
+                Connect your <strong>CoinDCX API credentials</strong> for live crypto execution on CoinDCX.
+              </span>
+              <div className="warning-buttons">
+                <button className="btn-action-warning pionex" onClick={() => setShowCoindcxConnectModal(true)}>
+                  <KeyRound size={12} /> Connect CoinDCX API
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pionex Crypto Toolbar (Shown when Pionex exchange is selected) */}
       {isPionexExchange && (
@@ -1829,6 +2034,59 @@ export default function Trading() {
                   {connectingPionex ? <><RefreshCw size={14} className="spin" /> Verifying...</> : <><KeyRound size={14} /> Connect Pionex</>}
                 </button>
                 <button type="button" className="btn-secondary" onClick={() => setShowPionexConnectModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Inline CoinDCX Connect Modal */}
+      {showCoindcxConnectModal && (
+        <div className="modal-overlay" onClick={() => setShowCoindcxConnectModal(false)}>
+          <div className="modal-content-box angel-connect-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-row">
+                <KeyRound size={20} className="text-primary" />
+                <h3>Connect CoinDCX API</h3>
+              </div>
+              <button className="btn-close" onClick={() => setShowCoindcxConnectModal(false)}>
+                <XCircle size={20} />
+              </button>
+            </div>
+            <p className="modal-hint">
+              Enter your CoinDCX API Key and API Secret to enable live spot trading and automatic balance synchronization.
+            </p>
+            <form onSubmit={handleConnectCoindcx} className="form">
+              <div className="form-group">
+                <label>CoinDCX API Key</label>
+                <input
+                  type="password"
+                  placeholder="Enter CoinDCX API Key"
+                  value={coindcxForm.apiKey}
+                  onChange={e => setCoindcxForm({ ...coindcxForm, apiKey: e.target.value })}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+              <div className="form-group">
+                <label>CoinDCX API Secret</label>
+                <input
+                  type="password"
+                  placeholder="Enter CoinDCX API Secret"
+                  value={coindcxForm.apiSecret}
+                  onChange={e => setCoindcxForm({ ...coindcxForm, apiSecret: e.target.value })}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="form-actions">
+                <button type="submit" className="btn-primary" disabled={connectingCoindcx}>
+                  {connectingCoindcx ? <><RefreshCw size={14} className="spin" /> Verifying...</> : <><KeyRound size={14} /> Connect CoinDCX</>}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setShowCoindcxConnectModal(false)}>
                   Cancel
                 </button>
               </div>
