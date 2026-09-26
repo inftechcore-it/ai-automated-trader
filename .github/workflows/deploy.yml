@@ -40,19 +40,28 @@ jobs:
 
       - name: Execute Deployment on Server via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || 22 }}
+          request_pty: true
+          envs: SERVER_PASSWORD
           script: |
             set -e
+
+            # Helper function to run commands with sudo using non-interactive password
+            SUDO() {
+              echo "$SERVER_PASSWORD" | sudo -S "$@"
+            }
 
             echo "=========================================================="
             echo "🚀 [1/4] Synchronizing Repository to /apps/docker/ai-trade"
             echo "=========================================================="
-            sudo mkdir -p /apps/docker/ai-trade
-            sudo chown -R $USER:$USER /apps/docker/ai-trade
+            SUDO mkdir -p /apps/docker/ai-trade
+            SUDO chown -R $USER:$USER /apps/docker/ai-trade
 
             cd /apps/docker/ai-trade
             if [ -d ".git" ]; then
@@ -70,8 +79,8 @@ jobs:
             npm run build
 
             echo "📁 Copying dist to /usr/share/nginx/html/ai-trade/..."
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S mkdir -p /usr/share/nginx/html/ai-trade/
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S cp -r /apps/docker/ai-trade/frontend/dist/* /usr/share/nginx/html/ai-trade/
+            SUDO mkdir -p /usr/share/nginx/html/ai-trade/
+            SUDO cp -r /apps/docker/ai-trade/frontend/dist/* /usr/share/nginx/html/ai-trade/
 
             echo "=========================================================="
             echo "📦 [3/4] Building Backend in /apps/docker/ai-trade/backend"
@@ -85,8 +94,8 @@ jobs:
             echo "=========================================================="
             echo "🔄 [4/4] Restarting ai-backend.service"
             echo "=========================================================="
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl restart ai-backend.service
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl status ai-backend.service --no-pager -n 10 || true
+            SUDO systemctl restart ai-backend.service
+            SUDO systemctl status ai-backend.service --no-pager -n 10 || true
 
             echo "=========================================================="
             echo "✅ Deployment Successfully Completed!"
