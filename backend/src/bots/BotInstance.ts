@@ -1120,6 +1120,12 @@ export class BotInstance extends EventEmitter {
       if (exLower === 'binance') {
         const binance = await import('../../services/adapters/binanceAdapter.js');
         return await binance.getBalances(creds.apiKey, creds.apiSecret);
+      } else if (exLower === 'bybit') {
+        const bybit = await import('../../services/adapters/bybitAdapter.js');
+        return await bybit.getBalances(creds.apiKey, creds.apiSecret, !!creds.paperMode);
+      } else if (exLower === 'coindcx') {
+        const coindcx = await import('../../services/adapters/coindcxAdapter.js');
+        return await coindcx.getBalances(creds.apiKey, creds.apiSecret);
       } else if (exLower === 'pionex') {
         const pionex = await import('../../services/adapters/pionexAdapter.js');
         return await pionex.getBalances(creds.apiKey, creds.apiSecret);
@@ -1129,6 +1135,14 @@ export class BotInstance extends EventEmitter {
       } else if (exLower === 'jupiter') {
         const jupiter = await import('../../services/adapters/jupiterAdapter.js');
         return await jupiter.getBalances(creds.privateKey || creds.apiSecret, creds.rpcUrl);
+      } else if (exLower === 'angelone') {
+        const angelone = await import('../../services/adapters/angeloneAdapter.js');
+        const rms = await angelone.getRMS(creds);
+        return [{ asset: 'INR', free: rms.availableCash || rms.net || 0, total: rms.net || 0 }];
+      } else if (exLower === 'upstox') {
+        const upstox = await import('../../services/adapters/upstoxAdapter.js');
+        const funds = await upstox.getFunds(creds.apiSecret || creds.apiKey);
+        return [{ asset: 'INR', free: funds.available_margin || 0, total: (funds.available_margin || 0) + (funds.used_margin || 0) }];
       } else if (['alpaca', 'nasdaq', 'nyse'].includes(exLower)) {
         const alpaca = await import('../../services/adapters/alpacaAdapter.js');
         return await alpaca.getBalances(creds);
