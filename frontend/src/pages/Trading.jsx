@@ -4,12 +4,13 @@ import {
   AlertTriangle, FlaskConical, TrendingUp, TrendingDown, RefreshCw,
   Search, Wallet, X, Clock, Activity, BarChart2,
   Target, XCircle, CheckCircle, Link2, Star, ArrowUpRight, ArrowDownRight,
-  Plus, Minus, Eye, ExternalLink, Zap, KeyRound
+  Plus, Minus, Eye, ExternalLink, Zap, KeyRound, BookOpen, Sparkles
 } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { api, errorMessage } from '../api.js';
 import Badge from '../components/Badge.jsx';
 import InfoLabel from '../components/InfoLabel.jsx';
+import CandlestickChart from '../components/CandlestickChart.jsx';
+import PatternEncyclopediaModal from '../components/PatternEncyclopediaModal.jsx';
 
 export default function Trading() {
   // Trading state
@@ -29,6 +30,9 @@ export default function Trading() {
   const [quote, setQuote] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [chartInterval, setChartInterval] = useState('1h');
+  const [stockPatterns, setStockPatterns] = useState([]);
+  const [stockAnalysis, setStockAnalysis] = useState(null);
+  const [isEncyclopediaOpen, setIsEncyclopediaOpen] = useState(false);
   const [orderBook, setOrderBook] = useState({ bids: [], asks: [] });
   const [recentTrades, setRecentTrades] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -721,10 +725,21 @@ export default function Trading() {
     if (!symbol) return;
     setLoading(prev => ({ ...prev, chart: true }));
     try {
-      const response = await api.get('/api/market/history', {
-        params: { symbol, exchange: exchangeName, interval: chartInterval, limit: 60 }
-      });
-      setChartData(response.data.candles || []);
+      const [histRes, patRes] = await Promise.allSettled([
+        api.get('/api/market/history', {
+          params: { symbol, exchange: exchangeName, interval: chartInterval, limit: 70 }
+        }),
+        api.get('/api/market/patterns', {
+          params: { symbol, exchange: exchangeName, interval: chartInterval }
+        })
+      ]);
+      if (histRes.status === 'fulfilled') {
+        setChartData(histRes.value.data.candles || []);
+      }
+      if (patRes.status === 'fulfilled') {
+        setStockPatterns(patRes.value.data.detectedPatterns || []);
+        setStockAnalysis(patRes.value.data.analysis || null);
+      }
     } catch {
       setChartData([]);
     } finally {
@@ -1465,52 +1480,44 @@ export default function Trading() {
               </div>
             </div>
 
-            {/* Chart Area */}
-            <div className="chart-card">
-              <div className="chart-controls">
-                <div className="interval-buttons">
-                  {['1m', '5m', '15m', '1h', '1d', '1w'].map(int => (
-                    <button
-                      key={int}
-                      className={chartInterval === int ? 'active' : ''}
-                      onClick={() => setChartInterval(int)}
-                    >
-                      {int.toUpperCase()}
-                    </button>
-                  ))}
+            {/* Live Candlestick AI Prediction Banner */}
+            {stockAnalysis && (
+              <div className="trading-market-banner">
+                <div className="banner-top">
+                  <div className="banner-title">
+                    <Sparkles size={16} className="text-primary" />
+                    <span>Live Market Behavior & Pattern Prediction</span>
+                  </div>
+                  <button
+                    className="btn-encyclopedia-small"
+                    onClick={() => setIsEncyclopediaOpen(true)}
+                  >
+                    <BookOpen size={13} /> 38 Patterns Guide
+                  </button>
                 </div>
-                <button className="btn-refresh" onClick={loadChart} disabled={loading.chart}>
-                  <RefreshCw size={14} className={loading.chart ? 'spin' : ''} />
-                </button>
+                <p className="banner-desc">{stockAnalysis.summary}</p>
+                <div className="banner-targets">
+                  <span className="target-pill">🎯 Target: <strong>{currencySymbol}{formatPrice(stockAnalysis.targetPrice)}</strong></span>
+                  <span className="sl-pill">🛑 Stop Loss: <strong>{currencySymbol}{formatPrice(stockAnalysis.stopLoss)}</strong></span>
+                  <span className="rr-pill">⚖️ R:R: <strong>{stockAnalysis.riskReward}</strong></span>
+                  <span className="conf-pill">⚡ Confidence: <strong>{stockAnalysis.confidence}%</strong></span>
+                </div>
               </div>
+            )}
 
-              <div className="chart-wrapper">
-                {loading.chart ? (
-                  <div className="chart-loading"><RefreshCw size={24} className="spin" /> Loading chart...</div>
-                ) : chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={320}>
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0.4} />
-                          <stop offset="95%" stopColor={isPositive ? '#00ff88' : '#ff4757'} stopOpacity={0.0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1d2938" />
-                      <XAxis dataKey="time" tickFormatter={formatChartTime} stroke="#6b7a90" fontSize={11} />
-                      <YAxis domain={['auto', 'auto']} stroke="#6b7a90" fontSize={11} tickFormatter={val => `${currencySymbol}${formatPrice(val)}`} />
-                      <Tooltip
-                        contentStyle={{ background: '#0a0f15', border: '1px solid #223044', borderRadius: '8px' }}
-                        labelFormatter={formatChartTime}
-                        formatter={val => [`${currencySymbol}${formatPrice(val)}`, 'Price']}
-                      />
-                      <Area type="monotone" dataKey="close" stroke={isPositive ? '#00ff88' : '#ff4757'} fillOpacity={1} fill="url(#colorPrice)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty">No historical candle data available for {symbol}</div>
-                )}
-              </div>
+            {/* Interactive Candlestick Chart Area */}
+            <div className="chart-card">
+              <CandlestickChart
+                candles={chartData}
+                detectedPatterns={stockPatterns}
+                symbol={symbol}
+                exchange={exchangeName}
+                interval={chartInterval}
+                onIntervalChange={setChartInterval}
+                currencySymbol={currencySymbol}
+                height={400}
+                showControls={true}
+              />
             </div>
           </div>
 
@@ -2107,6 +2114,13 @@ export default function Trading() {
           <button onClick={() => setOrderStatus(null)}><X size={14} /></button>
         </div>
       )}
+
+      {/* Candlestick Patterns Encyclopedia Modal */}
+      <PatternEncyclopediaModal
+        isOpen={isEncyclopediaOpen}
+        onClose={() => setIsEncyclopediaOpen(false)}
+      />
     </div>
   );
 }
+

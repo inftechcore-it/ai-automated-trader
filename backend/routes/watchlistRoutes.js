@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { requireAuth } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
-import { addWatchlistItem, deleteWatchlistItem, listWatchlist } from '../controllers/watchlistController.js';
+import { addWatchlistItem, deleteWatchlistItem, listWatchlist, analyzeWatchlist } from '../controllers/watchlistController.js';
 
 const router = Router();
 
 router.get('/', requireAuth, listWatchlist);
+router.get('/analysis', requireAuth, analyzeWatchlist);
 router.post(
   '/',
   requireAuth,
@@ -18,3 +19,4 @@ router.post(
 router.delete('/:id', requireAuth, param('id').isInt(), validate, deleteWatchlistItem);
 
 export default router;
+
