@@ -8,38 +8,14 @@ on:
 
 jobs:
   deploy:
-    name: Build & Deploy to Server
+    name: Deploy to Server
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
-
-      - name: Build Frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: Transfer Frontend Dist to Server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
-          source: "frontend/dist/*"
-          target: "/tmp/ai-trade-frontend"
-          strip_components: 2
-
-      - name: Deploy Backend & Restart Services via SSH
+      - name: Execute Deployment on Server via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -48,26 +24,47 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             set -e
-            echo "🚀 [1/3] Deploying Frontend to Nginx Webroot..."
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S mkdir -p /usr/share/nginx/html/ai-trade/
-            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S cp -r /tmp/ai-trade-frontend/* /usr/share/nginx/html/ai-trade/
-            rm -rf /tmp/ai-trade-frontend
 
-            echo "📦 [2/3] Updating Backend Application (/apps/docker/ai-trade/backend)..."
+            echo "=========================================================="
+            echo "🚀 [1/4] Synchronizing Repository to /apps/docker/ai-trade"
+            echo "=========================================================="
+            sudo mkdir -p /apps/docker/ai-trade
+            sudo chown -R $USER:$USER /apps/docker/ai-trade
+
             cd /apps/docker/ai-trade
             if [ -d ".git" ]; then
-              git fetch origin main
-              git reset --hard origin/main
+              git fetch https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git main
+              git reset --hard FETCH_HEAD
+            else
+              git clone https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
             fi
 
+            echo "=========================================================="
+            echo "🎨 [2/4] Building Frontend in /apps/docker/ai-trade/frontend"
+            echo "=========================================================="
+            cd /apps/docker/ai-trade/frontend
+            npm ci
+            npm run build
+
+            echo "📁 Copying dist to /usr/share/nginx/html/ai-trade/..."
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S mkdir -p /usr/share/nginx/html/ai-trade/
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S cp -r /apps/docker/ai-trade/frontend/dist/* /usr/share/nginx/html/ai-trade/
+
+            echo "=========================================================="
+            echo "📦 [3/4] Building Backend in /apps/docker/ai-trade/backend"
+            echo "=========================================================="
             cd /apps/docker/ai-trade/backend
             npm ci --production=false
             npx prisma generate
             npm run build:bots || true
             npm run build:arbitrage || true
 
-            echo "🔄 [3/3] Restarting Backend Service..."
+            echo "=========================================================="
+            echo "🔄 [4/4] Restarting ai-backend.service"
+            echo "=========================================================="
             echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl restart ai-backend.service
             echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl status ai-backend.service --no-pager -n 10 || true
 
-            echo "✅ Deployment completed successfully!"
+            echo "=========================================================="
+            echo "✅ Deployment Successfully Completed!"
+            echo "=========================================================="
