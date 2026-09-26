@@ -1,9 +1,22 @@
 import { query } from '../config/db.js';
 import { getQuote } from './exchangeService.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as bybitAdapter from './adapters/bybitAdapter.js';
 
 export async function getOrderBook(symbol, exchange, depth = 10) {
   const exLower = exchange?.toLowerCase();
+
+  // Try real Bybit order book
+  if (exLower === 'bybit') {
+    try {
+      const realBook = await bybitAdapter.getOrderBook(symbol, depth);
+      if (realBook?.bids?.length > 0) {
+        return realBook;
+      }
+    } catch (e) {
+      console.warn('[TradingService] Bybit live orderbook fallback:', e.message);
+    }
+  }
 
   // Try real Pionex order book
   if (exLower === 'pionex') {
@@ -73,6 +86,18 @@ export async function getOrderBook(symbol, exchange, depth = 10) {
 
 export async function getRecentTrades(symbol, exchange, limit = 20) {
   const exLower = exchange?.toLowerCase();
+
+  // Try real Bybit recent trades
+  if (exLower === 'bybit') {
+    try {
+      const realTrades = await bybitAdapter.getRecentTrades(symbol, limit);
+      if (realTrades && realTrades.length > 0) {
+        return realTrades;
+      }
+    } catch (e) {
+      console.warn('[TradingService] Bybit live trades fallback:', e.message);
+    }
+  }
 
   // Try real Pionex recent trades
   if (exLower === 'pionex') {

@@ -31,9 +31,11 @@ export default function Watchlist() {
 
   const exchanges = [
     { value: 'all', label: 'All Exchanges' },
+    { value: 'Binance', label: 'Binance' },
+    { value: 'Bybit', label: 'Bybit' },
     { value: 'CoinDCX', label: 'CoinDCX' },
     { value: 'Pionex', label: 'Pionex' },
-    { value: 'Binance', label: 'Binance' },
+    { value: 'Kraken', label: 'Kraken' },
     { value: 'NSE', label: 'NSE' },
     { value: 'BSE', label: 'BSE' },
     { value: 'AngelOne', label: 'Angel One' },

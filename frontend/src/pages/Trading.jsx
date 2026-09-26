@@ -106,6 +106,7 @@ export default function Trading() {
     { name: 'NASDAQ', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'NYSE', type: 'stock', currency: 'USD', broker: 'Alpaca' },
     { name: 'Binance', type: 'crypto', currency: 'USD', broker: 'Binance' },
+    { name: 'Bybit', type: 'crypto', currency: 'USD', broker: 'Bybit' },
     { name: 'CoinDCX', type: 'crypto', currency: 'USD', broker: 'CoinDCX' },
     { name: 'Pionex', type: 'crypto', currency: 'USD', broker: 'Pionex' },
     { name: 'Kraken', type: 'crypto', currency: 'USD', broker: 'Kraken' },

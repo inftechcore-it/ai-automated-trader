@@ -14113,6 +14113,7 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
 }
 
 .broker-logo.binance { background: #f0b90b; color: #000; }
+.broker-logo.bybit { background: #f7a600; color: #000; font-weight: bold; }
 .broker-logo.coindcx { background: linear-gradient(135deg, #0c2044, #0052fe); color: #38bdf8; }
 .broker-logo.pionex { background: #2563eb; }
 .broker-logo.jupiter { background: linear-gradient(135deg, #f97316, #a855f7); }

@@ -1,4 +1,5 @@
 import * as binanceAdapter from './adapters/binanceAdapter.js';
+import * as bybitAdapter from './adapters/bybitAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
 import * as coindcxAdapter from './adapters/coindcxAdapter.js';
@@ -93,6 +94,9 @@ function getAdapter(exchange, symbol) {
   }
   if (exLower === 'binance' && binanceAdapter.supportsSymbol(symbol)) {
     return binanceAdapter;
+  }
+  if (exLower === 'bybit' && bybitAdapter.supportsSymbol(symbol)) {
+    return bybitAdapter;
   }
   if (exLower === 'coindcx' && coindcxAdapter.supportsSymbol(symbol)) {
     return coindcxAdapter;
@@ -195,6 +199,16 @@ export async function searchSymbols(query = '', exchange = null) {
       }
     }
 
+    if (exLower === 'bybit') {
+      try {
+        const symbols = await bybitAdapter.searchSymbols(query);
+        cache.set(cacheKey, symbols.slice(0, 30), 5 * 60 * 1000);
+        return symbols.slice(0, 30);
+      } catch (e) {
+        console.warn('[exchangeService] Bybit symbol search error:', e.message);
+      }
+    }
+
     if (exLower === 'pionex') {
       try {
         const symbols = await pionexAdapter.searchSymbols(query);
@@ -251,14 +265,16 @@ export async function searchSymbols(query = '', exchange = null) {
   }
 
   // Cross-exchange search
-  const [binanceSyms, coindcxSyms, pionexSyms, jupiterSyms] = await Promise.all([
+  const [binanceSyms, bybitSyms, coindcxSyms, pionexSyms, jupiterSyms] = await Promise.all([
     binanceAdapter.searchSymbols(query).catch(() => []),
+    bybitAdapter.searchSymbols(query).catch(() => []),
     coindcxAdapter.searchSymbols(query).catch(() => []),
     pionexAdapter.searchSymbols(query).catch(() => []),
     jupiterAdapter.searchSymbols(query).catch(() => [])
   ]);
 
   results.push(...binanceSyms.slice(0, 15));
+  results.push(...bybitSyms.slice(0, 10));
   results.push(...coindcxSyms.slice(0, 10));
   results.push(...pionexSyms.slice(0, 10));
   results.push(...jupiterSyms.slice(0, 10));
@@ -294,6 +310,15 @@ export async function placeLiveOrder(orderParams) {
 
     return binanceAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
       symbol, side, orderType: mapOrderType(orderType, 'binance'), quantity, price, stopPrice
+    });
+  }
+
+  if (exLower === 'bybit') {
+    const creds = await getUserBrokerCredentials(userId, 'Bybit');
+    if (!creds) throw createError('Bybit not connected for your account. Please add your API keys in Settings/Exchanges.', 401, 'BROKER_NOT_CONNECTED');
+
+    return bybitAdapter.placeOrder(creds.apiKey, creds.apiSecret, {
+      symbol, side, orderType, quantity, price, stopPrice, isTestnet: !!creds.paperMode
     });
   }
 
@@ -417,6 +442,12 @@ export async function cancelLiveOrder({ userId, symbol, exchange, orderId }) {
     return binanceAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId);
   }
 
+  if (exLower === 'bybit') {
+    const creds = await getUserBrokerCredentials(userId, 'Bybit');
+    if (!creds) throw createError('Bybit not connected for your account', 401, 'BROKER_NOT_CONNECTED');
+    return bybitAdapter.cancelOrder(creds.apiKey, creds.apiSecret, symbol, orderId, !!creds.paperMode);
+  }
+
   if (exLower === 'kraken') {
     const creds = await getUserBrokerCredentials(userId, 'Kraken');
     if (!creds) throw createError('Kraken not connected for your account', 401, 'BROKER_NOT_CONNECTED');
@@ -474,6 +505,13 @@ export async function getLivePositions(userId, exchange) {
     return balances.filter(b => b.total > 0 && b.asset !== 'USDT');
   }
 
+  if (exLower === 'bybit') {
+    const creds = await getUserBrokerCredentials(userId, 'Bybit');
+    if (!creds) return [];
+    const balances = await bybitAdapter.getBalances(creds.apiKey, creds.apiSecret, !!creds.paperMode);
+    return balances.filter(b => b.total > 0 && !['USDT', 'USDC', 'USD'].includes(b.asset));
+  }
+
   if (exLower === 'pionex') {
     const creds = await getUserBrokerCredentials(userId, 'Pionex');
     if (!creds) return [];
@@ -517,6 +555,12 @@ export async function getLiveOpenOrders(userId, exchange) {
     const creds = await getUserBrokerCredentials(userId, 'Binance');
     if (!creds) return [];
     return binanceAdapter.getOpenOrders(creds.apiKey, creds.apiSecret);
+  }
+
+  if (exLower === 'bybit') {
+    const creds = await getUserBrokerCredentials(userId, 'Bybit');
+    if (!creds) return [];
+    return bybitAdapter.getOpenOrders(creds.apiKey, creds.apiSecret, null, !!creds.paperMode);
   }
 
   if (exLower === 'kraken') {

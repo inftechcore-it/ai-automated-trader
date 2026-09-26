@@ -5,6 +5,7 @@
 
 import { query } from '../config/db.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
+import * as bybitAdapter from './adapters/bybitAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
 import * as coindcxAdapter from './adapters/coindcxAdapter.js';
@@ -487,12 +488,46 @@ async function fetchExchangeBalance(exchangeName, credentials, rawExchange = {})
 
   // 8. BYBIT
   if (name === 'bybit') {
+    const isTestnet = !!rawExchange.paper_mode || !!rawExchange.paperMode;
+    const balances = await bybitAdapter.getBalances(apiKey, apiSecret, isTestnet);
+    let totalUSD = 0;
+    let availableCash = 0;
+    const assets = [];
+
+    for (const bal of balances) {
+      if (bal.total > 0.000001) {
+        let usdValue = bal.usdValue || 0;
+
+        if (['USDT', 'USDC', 'USD', 'BUSD', 'FDUSD'].includes(bal.asset)) {
+          usdValue = bal.total;
+          availableCash += bal.free;
+        } else if (!usdValue || usdValue <= 0) {
+          try {
+            const quote = await bybitAdapter.getQuote(`${bal.asset}/USDT`);
+            usdValue = bal.total * (quote?.price || 0);
+          } catch {
+            usdValue = 0;
+          }
+        }
+
+        assets.push({
+          asset: bal.asset,
+          free: bal.free,
+          locked: bal.locked,
+          total: bal.total,
+          usdValue: Number(usdValue.toFixed(2))
+        });
+
+        totalUSD += usdValue;
+      }
+    }
+
     return {
       currency: 'USD',
-      cash: 0,
-      assets: [],
-      totalValue: 0,
-      assetCount: 0
+      cash: Number(availableCash.toFixed(2)),
+      assets: assets.sort((a, b) => b.usdValue - a.usdValue),
+      totalValue: Number(totalUSD.toFixed(2)),
+      assetCount: assets.length
     };
   }
 
@@ -587,6 +622,11 @@ function getCryptoFundsSummary(exchangeBalances) {
     allAssets.push(...(krakenEx.assets || []).map(a => ({ ...a, exchange: 'Kraken' })));
   }
 
+  if (bybitEx?.connected) {
+    totalUSD += bybitEx.totalValue || 0;
+    allAssets.push(...(bybitEx.assets || []).map(a => ({ ...a, exchange: 'Bybit' })));
+  }
+
   return {
     binance: binanceEx ? {
       connected: binanceEx.connected,
@@ -629,6 +669,8 @@ function getCryptoFundsSummary(exchangeBalances) {
     } : { connected: false, error: 'Not connected' },
     bybit: bybitEx ? {
       connected: bybitEx.connected,
+      cash: bybitEx.cash || 0,
+      assets: bybitEx.assets || [],
       totalUSD: bybitEx.totalValue || 0,
       error: bybitEx.error
     } : { connected: false, error: 'Not connected' },
@@ -636,3 +678,37 @@ function getCryptoFundsSummary(exchangeBalances) {
     allAssets
   };
 }
+
+export async function getBrokerStatus(userId) {
+  const summary = await getAccountSummary(userId);
+  return {
+    connectedCount: summary.connectedBrokersCount,
+    connectedExchanges: summary.connectedExchanges,
+    dollarFunds: summary.dollarFunds,
+    indianFunds: summary.indianFunds,
+    cryptoFunds: summary.cryptoFunds,
+    liveEquityUSD: summary.liveEquityUSD,
+    liveEquityINR: summary.liveEquityINR,
+    lastUpdated: summary.lastUpdated
+  };
+}
+
+export async function getLivePortfolio(userId) {
+  const summary = await getAccountSummary(userId);
+  const assets = summary.cryptoFunds?.allAssets || [];
+  const positions = [
+    ...(summary.dollarFunds?.alpaca?.positions || []).map(p => ({ ...p, exchange: 'Alpaca', assetType: 'stock' })),
+    ...(summary.indianFunds?.angelone?.positions || []).map(p => ({ ...p, exchange: 'AngelOne', assetType: 'stock' })),
+    ...(summary.indianFunds?.upstox?.positions || []).map(p => ({ ...p, exchange: 'Upstox', assetType: 'stock' }))
+  ];
+
+  return {
+    totalValueUSD: summary.liveEquityUSD,
+    totalValueINR: summary.liveEquityINR,
+    cryptoAssets: assets,
+    stockPositions: positions,
+    connectedBrokersCount: summary.connectedBrokersCount,
+    lastUpdated: summary.lastUpdated
+  };
+}
+

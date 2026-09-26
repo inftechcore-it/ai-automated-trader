@@ -82,7 +82,7 @@ export default function Account() {
         <div className="account-loading-container">
           <RefreshCw size={36} className="spin text-accent" />
           <h2>Syncing Connected Broker Balances...</h2>
-          <p className="text-muted">Fetching real-time balances from Binance, Pionex, Jupiter, Angel One, Upstox, and Alpaca</p>
+          <p className="text-muted">Fetching real-time balances from Binance, Bybit, Pionex, Jupiter, Kraken, CoinDCX, Angel One, Upstox, and Alpaca</p>
         </div>
       </div>
     );
@@ -109,6 +109,7 @@ export default function Account() {
   const paperTrading = summary?.paperTrading || {};
 
   const binance = cryptoFunds.binance || {};
+  const bybit = cryptoFunds.bybit || {};
   const coindcx = cryptoFunds.coindcx || {};
   const pionex = cryptoFunds.pionex || {};
   const jupiter = cryptoFunds.jupiter || {};
@@ -214,7 +215,7 @@ export default function Account() {
           </div>
           <div className="metric-body">
             <div className="metric-value font-mono text-accent">
-              {totalConnected} <span className="text-sub">/ 7 Supported</span>
+              {totalConnected} <span className="text-sub">/ 8 Supported</span>
             </div>
             <div className="metric-caption">
               <Link to="/exchanges" className="link-hover">
@@ -304,6 +305,76 @@ export default function Account() {
                   <small>Connect your API Key & Secret in Exchanges to auto-fetch your balance.</small>
                   <Link to="/exchanges" className="connect-btn">
                     Connect Binance
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* BYBIT */}
+          <div className={`broker-card ${bybit.connected ? 'connected' : 'disconnected'}`}>
+            <div className="broker-card-header">
+              <div className="broker-identity">
+                <div className="broker-logo bybit">
+                  <span>BY</span>
+                </div>
+                <div>
+                  <h3>Bybit</h3>
+                  <span className="broker-type">Spot & Derivatives (V5 API)</span>
+                </div>
+              </div>
+              <span className={`status-pill ${bybit.connected ? 'active' : 'inactive'}`}>
+                {bybit.connected ? '● Live Connected' : '○ Not Connected'}
+              </span>
+            </div>
+
+            <div className="broker-card-body">
+              {bybit.connected ? (
+                <>
+                  <div className="broker-balance-row main">
+                    <span className="label">Total USD Value</span>
+                    <span className="val font-mono font-bold">{formatUSD(bybit.totalUSD)}</span>
+                  </div>
+                  <div className="broker-balance-row">
+                    <span className="label">Available Cash (USDT/USD)</span>
+                    <span className="val font-mono text-accent">{formatUSD(bybit.cash)}</span>
+                  </div>
+
+                  <div className="assets-breakdown">
+                    <div className="assets-header">
+                      <span>Coin Holdings ({bybit.assets?.length || 0})</span>
+                      <span>USD Value</span>
+                    </div>
+                    {bybit.assets?.length > 0 ? (
+                      <div className="assets-scroll-list">
+                        {bybit.assets.map((ast) => (
+                          <div key={ast.asset} className="asset-item">
+                            <div className="asset-name-col">
+                              <span className="asset-sym">{ast.asset}</span>
+                              <span className="asset-qty font-mono">
+                                Free: {ast.free > 1 ? ast.free.toFixed(2) : ast.free.toFixed(5)}
+                                {ast.locked > 0 && ` | In Orders: ${ast.locked.toFixed(2)}`}
+                              </span>
+                            </div>
+                            <div className="asset-val-col font-mono">
+                              {formatUSD(ast.usdValue)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-assets">
+                        <span>No crypto balances deposited on Bybit.</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="broker-empty-state">
+                  <p>Bybit API keys not configured for this account.</p>
+                  <small>Connect your Bybit API Key & Secret in Exchanges to auto-fetch your balance.</small>
+                  <Link to="/exchanges" className="connect-btn">
+                    Connect Bybit
                   </Link>
                 </div>
               )}

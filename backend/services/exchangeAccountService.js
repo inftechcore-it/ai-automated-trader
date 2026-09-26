@@ -1,6 +1,7 @@
 import { query } from '../config/db.js';
 import { decrypt } from '../utils/encryption.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
+import * as bybitAdapter from './adapters/bybitAdapter.js';
 import * as krakenAdapter from './adapters/krakenAdapter.js';
 import * as pionexAdapter from './adapters/pionexAdapter.js';
 import * as coindcxAdapter from './adapters/coindcxAdapter.js';
@@ -13,6 +14,7 @@ import * as cache from './cache.js';
 function getAdapter(exchangeName) {
   const name = exchangeName.toLowerCase();
   if (name === 'binance') return binanceAdapter;
+  if (name === 'bybit') return bybitAdapter;
   if (name === 'kraken') return krakenAdapter;
   if (name === 'coindcx') return coindcxAdapter;
   if (name === 'pionex') return pionexAdapter;
@@ -37,6 +39,9 @@ export async function validateCredentials(exchangeName, apiKey, apiSecret, extra
   try {
     if (name === 'binance') {
       return await binanceAdapter.validateCredentials(apiKey, apiSecret, extraParams.useTestnet);
+    }
+    if (name === 'bybit') {
+      return await bybitAdapter.validateCredentials(apiKey, apiSecret, extraParams.useTestnet || extraParams.paperMode);
     }
     if (name === 'kraken') {
       return await krakenAdapter.validateCredentials(apiKey, apiSecret);
@@ -68,7 +73,7 @@ export async function validateCredentials(exchangeName, apiKey, apiSecret, extra
         walletAddress: kp.publicKey.toBase58()
       };
     }
-    if (name === 'bybit' || name === 'coinbase') {
+    if (name === 'coinbase') {
       return { valid: true, permissions: ['spot'] };
     }
 
@@ -141,6 +146,8 @@ export async function getBalances(connectionId, userId) {
 
     if (exLower === 'binance') {
       balances = await binanceAdapter.getBalances(record.apiKey, record.apiSecret);
+    } else if (exLower === 'bybit') {
+      balances = await bybitAdapter.getBalances(record.apiKey, record.apiSecret, record.paperMode);
     } else if (exLower === 'kraken') {
       balances = await krakenAdapter.getBalances(record.apiKey, record.apiSecret);
     } else if (exLower === 'coindcx') {

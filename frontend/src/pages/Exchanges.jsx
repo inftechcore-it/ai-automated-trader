@@ -1037,6 +1037,12 @@ export default function Exchanges() {
                     <span>This connects your <strong>Live Trading</strong> account. Paper trading is always available without API connection.</span>
                   </div>
                 )}
+                {connectExchange.name === 'Bybit' && (
+                  <div className="form-note info">
+                    <AlertTriangle size={14} />
+                    <span><strong>Bybit V5 Trading:</strong> Generate your API Key & Secret from your Bybit Account (API Management) with <em>Read-Write</em> and <em>Spot Trading / Account Balance</em> permissions enabled.</span>
+                  </div>
+                )}
                 {connectExchange.name === 'Pionex' && (
                   <div className="form-note info">
                     <AlertTriangle size={14} />

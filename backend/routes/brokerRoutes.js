@@ -5,6 +5,7 @@ import { validate } from '../middlewares/validate.js';
 import { ok, fail } from '../utils/apiResponse.js';
 import { query } from '../config/db.js';
 import * as binanceAdapter from '../services/adapters/binanceAdapter.js';
+import * as bybitAdapter from '../services/adapters/bybitAdapter.js';
 import * as krakenAdapter from '../services/adapters/krakenAdapter.js';
 import * as pionexAdapter from '../services/adapters/pionexAdapter.js';
 import * as coindcxAdapter from '../services/adapters/coindcxAdapter.js';
@@ -46,6 +47,8 @@ router.get('/status', requireAuth, async (req, res) => {
       })),
       coindcxAuthenticated: allConnectedNames.has('coindcx'),
       coindcxConfigured: allConnectedNames.has('coindcx'),
+      bybitAuthenticated: allConnectedNames.has('bybit'),
+      bybitConfigured: allConnectedNames.has('bybit'),
       pionexAuthenticated: allConnectedNames.has('pionex'),
       pionexConfigured: allConnectedNames.has('pionex'),
       upstoxAuthenticated: allConnectedNames.has('upstox'),
@@ -213,7 +216,8 @@ router.post(
         exchangeName = 'AngelOne';
         exchangeType = 'stock';
       } else if (exLower === 'bybit') {
-        validation = { valid: true, permissions: ['spot'] };
+        validation = await bybitAdapter.validateCredentials(apiKey, apiSecret, useTestnet || paperMode);
+        exchangeName = 'Bybit';
         exchangeType = 'crypto';
       } else if (exLower === 'coinbase') {
         validation = { valid: true, permissions: ['wallet'] };
@@ -317,6 +321,8 @@ router.get('/balances/:exchange', requireAuth, async (req, res) => {
 
     if (exchange === 'binance') {
       balances = await binanceAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
+    } else if (exchange === 'bybit') {
+      balances = await bybitAdapter.getBalances(credentials.apiKey, credentials.apiSecret, !!credentials.paperMode);
     } else if (exchange === 'coindcx') {
       balances = await coindcxAdapter.getBalances(credentials.apiKey, credentials.apiSecret);
     } else if (exchange === 'kraken') {
@@ -376,6 +382,9 @@ router.get('/positions/:exchange', requireAuth, async (req, res) => {
       if (exchange === 'jupiter') {
         const pk = credentials.privateKey || credentials.apiSecret;
         positions = await jupiterAdapter.getBalances(pk, credentials.rpcUrl);
+      } else if (exchange === 'bybit') {
+        const raw = await bybitAdapter.getBalances(credentials.apiKey, credentials.apiSecret, !!credentials.paperMode);
+        positions = raw.filter(b => b.total > 0 && !['USDT', 'USDC', 'USD'].includes(b.asset));
       } else if (exchange === 'angelone') {
         positions = await angeloneAdapter.getHoldings(credentials);
       } else if (['alpaca', 'nasdaq', 'nyse'].includes(exchange)) {
@@ -413,6 +422,8 @@ router.get('/orders/:exchange', requireAuth, async (req, res) => {
         orders = [];
       } else if (exchange === 'binance') {
         orders = await binanceAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
+      } else if (exchange === 'bybit') {
+        orders = await bybitAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret, null, !!credentials.paperMode);
       } else if (exchange === 'coindcx') {
         orders = await coindcxAdapter.getOpenOrders(credentials.apiKey, credentials.apiSecret);
       } else if (exchange === 'pionex') {
