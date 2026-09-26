@@ -46,7 +46,7 @@ class GuardrailEngine:
             news_query = """
                 SELECT id, source, title, market_impact, published_at
                 FROM external_market_news
-                WHERE published_at >= $1
+                WHERE published_at >= %s
                 ORDER BY published_at DESC
                 LIMIT 15;
             """
@@ -76,7 +76,7 @@ class GuardrailEngine:
             diag_query = """
                 SELECT id, broker_or_adapter, error_code, error_name, recovery_action
                 FROM kb_broker_diagnostics
-                WHERE broker_or_adapter ILIKE $1
+                WHERE broker_or_adapter LIKE %s
                 LIMIT 10;
             """
             diagnostics = await db.fetch(diag_query, f"%{exchange_clean}%")

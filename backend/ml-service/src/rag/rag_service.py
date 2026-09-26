@@ -103,7 +103,7 @@ class RagService:
             # 1. Exact match
             query = """
                 SELECT * FROM kb_broker_diagnostics
-                WHERE broker_or_adapter ILIKE $1 AND error_code ILIKE $2
+                WHERE broker_or_adapter LIKE %s AND error_code LIKE %s
                 LIMIT 1;
             """
             record = await db.fetchrow(query, f"%{broker_or_adapter}%", f"%{error_code}%")

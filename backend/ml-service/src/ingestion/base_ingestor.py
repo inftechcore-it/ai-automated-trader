@@ -1,7 +1,7 @@
 """
 Base Ingestor Class
 Provides common ingestion logic: deduplication, text normalization, chunking,
-embedding generation, and batch upsert into PostgreSQL vector tables.
+embedding generation, and batch upsert into MySQL vector tables.
 """
 import abc
 import hashlib
@@ -95,7 +95,7 @@ class BaseIngestor(abc.ABC):
                     content_hash = self.compute_content_hash(title, content)
 
                     # Check if already indexed in database
-                    exists_query = "SELECT id FROM external_market_news WHERE content_hash = $1 LIMIT 1;"
+                    exists_query = "SELECT id FROM external_market_news WHERE content_hash = %s LIMIT 1;"
                     existing = await db.fetchrow(exists_query, content_hash)
                     if existing:
                         stats["skipped_duplicates"] += 1
@@ -105,18 +105,25 @@ class BaseIngestor(abc.ABC):
                     text_for_embedding = f"{title}\n\n{normalized.get('summary', '')}\n\n{content}"
                     vector = embedder.embed_text(text_for_embedding)
 
-                    # Insert record with pgvector
+                    # Insert record into MySQL
                     insert_query = """
                         INSERT INTO external_market_news (
                             id, source, source_url, content_hash, title, summary,
                             content, symbols, market_impact, published_at, embedding,
                             metadata, created_at
                         ) VALUES (
-                            $1, $2, $3, $4, $5, $6,
-                            $7, $8::jsonb, $9, $10, $11::vector,
-                            $12::jsonb, $13
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s
                         )
-                        ON CONFLICT (content_hash) DO NOTHING;
+                        ON DUPLICATE KEY UPDATE
+                            title = VALUES(title),
+                            summary = VALUES(summary),
+                            content = VALUES(content),
+                            symbols = VALUES(symbols),
+                            market_impact = VALUES(market_impact),
+                            embedding = VALUES(embedding),
+                            metadata = VALUES(metadata);
                     """
 
                     item_id = f"news_{uuid.uuid4().hex[:16]}"
@@ -136,7 +143,7 @@ class BaseIngestor(abc.ABC):
                         symbols_json,
                         normalized.get("market_impact", "NEUTRAL"),
                         published_at,
-                        vector,
+                        json.dumps(vector),
                         metadata_json,
                         datetime.now(timezone.utc)
                     )

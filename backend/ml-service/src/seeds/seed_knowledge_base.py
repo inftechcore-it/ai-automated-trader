@@ -499,15 +499,15 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_strategy_playbooks (
                     id, strategy_type, title, summary, content,
                     parameters, backtest_presets, tags, embedding, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::vector, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    summary = EXCLUDED.summary,
-                    content = EXCLUDED.content,
-                    parameters = EXCLUDED.parameters,
-                    backtest_presets = EXCLUDED.backtest_presets,
-                    tags = EXCLUDED.tags,
-                    embedding = EXCLUDED.embedding,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    title = VALUES(title),
+                    summary = VALUES(summary),
+                    content = VALUES(content),
+                    parameters = VALUES(parameters),
+                    backtest_presets = VALUES(backtest_presets),
+                    tags = VALUES(tags),
+                    embedding = VALUES(embedding),
                     updated_at = NOW();
             """
             await db.execute(
@@ -520,7 +520,7 @@ async def seed_all(dry_run: bool = False):
                 json.dumps(item["parameters"]),
                 json.dumps(item["backtest_presets"]),
                 json.dumps(item["tags"]),
-                vector
+                json.dumps(vector)
             )
 
     # 2. RMS Rules
@@ -535,16 +535,16 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_rms_rules (
                     id, rule_code, title, category, jurisdiction,
                     content, thresholds, action_on_breach, embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::vector, $10::jsonb, NOW())
-                ON CONFLICT (rule_code) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    category = EXCLUDED.category,
-                    jurisdiction = EXCLUDED.jurisdiction,
-                    content = EXCLUDED.content,
-                    thresholds = EXCLUDED.thresholds,
-                    action_on_breach = EXCLUDED.action_on_breach,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    title = VALUES(title),
+                    category = VALUES(category),
+                    jurisdiction = VALUES(jurisdiction),
+                    content = VALUES(content),
+                    thresholds = VALUES(thresholds),
+                    action_on_breach = VALUES(action_on_breach),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -557,7 +557,7 @@ async def seed_all(dry_run: bool = False):
                 item["content"],
                 json.dumps(item["thresholds"]),
                 item["action_on_breach"],
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -573,15 +573,15 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_broker_diagnostics (
                     id, broker_or_adapter, error_code, error_name, description,
                     root_cause, resolution_steps, recovery_action, embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb, NOW())
-                ON CONFLICT (broker_or_adapter, error_code) DO UPDATE SET
-                    error_name = EXCLUDED.error_name,
-                    description = EXCLUDED.description,
-                    root_cause = EXCLUDED.root_cause,
-                    resolution_steps = EXCLUDED.resolution_steps,
-                    recovery_action = EXCLUDED.recovery_action,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    error_name = VALUES(error_name),
+                    description = VALUES(description),
+                    root_cause = VALUES(root_cause),
+                    resolution_steps = VALUES(resolution_steps),
+                    recovery_action = VALUES(recovery_action),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -594,7 +594,7 @@ async def seed_all(dry_run: bool = False):
                 item["root_cause"],
                 item["resolution_steps"],
                 item["recovery_action"],
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -610,15 +610,15 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_indicators_ta (
                     id, indicator_name, category, formula_or_logic,
                     signal_rules, interpretation, optimal_timeframes, embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::vector, $9::jsonb, NOW())
-                ON CONFLICT (indicator_name) DO UPDATE SET
-                    category = EXCLUDED.category,
-                    formula_or_logic = EXCLUDED.formula_or_logic,
-                    signal_rules = EXCLUDED.signal_rules,
-                    interpretation = EXCLUDED.interpretation,
-                    optimal_timeframes = EXCLUDED.optimal_timeframes,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    category = VALUES(category),
+                    formula_or_logic = VALUES(formula_or_logic),
+                    signal_rules = VALUES(signal_rules),
+                    interpretation = VALUES(interpretation),
+                    optimal_timeframes = VALUES(optimal_timeframes),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -630,7 +630,7 @@ async def seed_all(dry_run: bool = False):
                 json.dumps(item["signal_rules"]),
                 item["interpretation"],
                 json.dumps(item["optimal_timeframes"]),
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -646,16 +646,16 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_dex_onchain (
                     id, protocol, chain, topic, title,
                     content, code_sample, embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    protocol = EXCLUDED.protocol,
-                    chain = EXCLUDED.chain,
-                    topic = EXCLUDED.topic,
-                    title = EXCLUDED.title,
-                    content = EXCLUDED.content,
-                    code_sample = EXCLUDED.code_sample,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    protocol = VALUES(protocol),
+                    chain = VALUES(chain),
+                    topic = VALUES(topic),
+                    title = VALUES(title),
+                    content = VALUES(content),
+                    code_sample = VALUES(code_sample),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -667,7 +667,7 @@ async def seed_all(dry_run: bool = False):
                 item["title"],
                 item["content"],
                 item.get("code_sample"),
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -684,18 +684,18 @@ async def seed_all(dry_run: bool = False):
                     id, arbitrage_type, pair_or_route, title, execution_steps,
                     min_spread_threshold, transfer_delay_risk, fee_model, content,
                     embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb, $9, $10::vector, $11::jsonb, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    arbitrage_type = EXCLUDED.arbitrage_type,
-                    pair_or_route = EXCLUDED.pair_or_route,
-                    title = EXCLUDED.title,
-                    execution_steps = EXCLUDED.execution_steps,
-                    min_spread_threshold = EXCLUDED.min_spread_threshold,
-                    transfer_delay_risk = EXCLUDED.transfer_delay_risk,
-                    fee_model = EXCLUDED.fee_model,
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    arbitrage_type = VALUES(arbitrage_type),
+                    pair_or_route = VALUES(pair_or_route),
+                    title = VALUES(title),
+                    execution_steps = VALUES(execution_steps),
+                    min_spread_threshold = VALUES(min_spread_threshold),
+                    transfer_delay_risk = VALUES(transfer_delay_risk),
+                    fee_model = VALUES(fee_model),
+                    content = VALUES(content),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -709,7 +709,7 @@ async def seed_all(dry_run: bool = False):
                 item["transfer_delay_risk"],
                 json.dumps(item["fee_model"]),
                 item["content"],
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -725,17 +725,17 @@ async def seed_all(dry_run: bool = False):
                 INSERT INTO kb_fundamental_frameworks (
                     id, asset_class, ticker_or_symbol, framework_type, title,
                     summary, metrics, content, embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::vector, $10::jsonb, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    asset_class = EXCLUDED.asset_class,
-                    ticker_or_symbol = EXCLUDED.ticker_or_symbol,
-                    framework_type = EXCLUDED.framework_type,
-                    title = EXCLUDED.title,
-                    summary = EXCLUDED.summary,
-                    metrics = EXCLUDED.metrics,
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    asset_class = VALUES(asset_class),
+                    ticker_or_symbol = VALUES(ticker_or_symbol),
+                    framework_type = VALUES(framework_type),
+                    title = VALUES(title),
+                    summary = VALUES(summary),
+                    metrics = VALUES(metrics),
+                    content = VALUES(content),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata),
                     updated_at = NOW();
             """
             await db.execute(
@@ -748,7 +748,7 @@ async def seed_all(dry_run: bool = False):
                 item["summary"],
                 json.dumps(item["metrics"]),
                 item["content"],
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -766,16 +766,16 @@ async def seed_all(dry_run: bool = False):
                     order_type, expected_price, executed_price, slippage_bps,
                     latency_ms, fee_deducted, fee_asset, market_condition,
                     narrative_summary, embedding, metadata, executed_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::vector, $16::jsonb, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    expected_price = EXCLUDED.expected_price,
-                    executed_price = EXCLUDED.executed_price,
-                    slippage_bps = EXCLUDED.slippage_bps,
-                    latency_ms = EXCLUDED.latency_ms,
-                    fee_deducted = EXCLUDED.fee_deducted,
-                    narrative_summary = EXCLUDED.narrative_summary,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata;
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    expected_price = VALUES(expected_price),
+                    executed_price = VALUES(executed_price),
+                    slippage_bps = VALUES(slippage_bps),
+                    latency_ms = VALUES(latency_ms),
+                    fee_deducted = VALUES(fee_deducted),
+                    narrative_summary = VALUES(narrative_summary),
+                    embedding = VALUES(embedding),
+                    metadata = VALUES(metadata);
             """
             await db.execute(
                 query,
@@ -793,7 +793,7 @@ async def seed_all(dry_run: bool = False):
                 item["fee_asset"],
                 item["market_condition"],
                 item["narrative_summary"],
-                vector,
+                json.dumps(vector),
                 json.dumps(item["metadata"])
             )
 
@@ -813,6 +813,7 @@ async def seed_all(dry_run: bool = False):
         json.dump(dump_data, f, indent=2)
     logger.info(f"💾 Saved Knowledge Base seed dump fixture to {dump_path}")
 
+    await db.close()
     logger.info("✅ Knowledge base seeding successfully finished!")
 
 def main():

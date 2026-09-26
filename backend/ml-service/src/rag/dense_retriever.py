@@ -1,6 +1,6 @@
 """
 Dense Vector Search Retriever
-Queries PostgreSQL + pgvector (768 dimensions) with HNSW cosine distance indexing
+Queries MySQL vector storage (768 dimensions) with cosine similarity ranking
 across AI-BDM Knowledge Base collections and real-time market news.
 """
 import logging
@@ -24,7 +24,7 @@ ALL_KB_COLLECTIONS = [
 ]
 
 class DenseRetriever:
-    """Retriever for dense vector cosine similarity search in PostgreSQL pgvector"""
+    """Retriever for dense vector cosine similarity search in MySQL"""
 
     def __init__(self):
         self.embedder = embedder
@@ -150,8 +150,8 @@ class DenseRetriever:
             
             # Optional metadata filter optimization
             if symbol and col in ["kb_trade_history", "kb_fundamental_frameworks"]:
-                filter_sql = "symbol ILIKE $1 OR ticker_or_symbol ILIKE $1" if col == "kb_fundamental_frameworks" else "symbol ILIKE $1"
-                filter_params = [f"%{symbol}%"]
+                filter_sql = "symbol LIKE %s OR ticker_or_symbol LIKE %s" if col == "kb_fundamental_frameworks" else "symbol LIKE %s"
+                filter_params = [f"%{symbol}%", f"%{symbol}%"] if col == "kb_fundamental_frameworks" else [f"%{symbol}%"]
 
             tasks.append(
                 self.search_collection(

@@ -73,8 +73,8 @@ class SparseRetriever:
             params = []
 
             for idx, term in enumerate(like_terms, start=1):
-                where_clauses.append(f"(title ILIKE ${idx} OR content ILIKE ${idx})")
-                params.append(f"%{term}%")
+                where_clauses.append(f"(title LIKE %s OR content LIKE %s)")
+                params.extend([f"%{term}%", f"%{term}%"])
 
             # Default to limit 20 to score in memory
             where_sql = f"WHERE {' OR '.join(where_clauses)}" if where_clauses else ""

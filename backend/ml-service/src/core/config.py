@@ -4,7 +4,8 @@ Loads settings from environment and .env files
 """
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+from urllib.parse import urlparse, unquote
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -15,15 +16,20 @@ BACKEND_DIR = ML_SERVICE_DIR.parent
 ENV_FILE = BACKEND_DIR / ".env" if (BACKEND_DIR / ".env").exists() else ML_SERVICE_DIR / ".env"
 
 class Settings(BaseSettings):
-    # Database Settings (PostgreSQL + pgvector)
+    # Database Settings (MySQL)
     DATABASE_URL: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/trading_system?schema=public",
-        description="PostgreSQL connection string with pgvector"
+        default="mysql://db-user:WElcome%40123@3.111.226.32:3306/trading_system",
+        description="MySQL connection string"
     )
-    POSTGRES_URL: Optional[str] = Field(
+    MYSQL_DATABASE_URL: Optional[str] = Field(
         default=None,
-        description="Optional alias for PostgreSQL connection string"
+        description="Optional alias for MySQL connection string"
     )
+    DB_HOST: Optional[str] = Field(default=None, description="MySQL Host")
+    DB_PORT: int = Field(default=3306, description="MySQL Port")
+    DB_USER: Optional[str] = Field(default=None, description="MySQL User")
+    DB_PASSWORD: Optional[str] = Field(default=None, description="MySQL Password")
+    DB_NAME: Optional[str] = Field(default="trading_system", description="MySQL Database Name")
     
     # Gemini AI Embeddings (text-embedding-004: 768 dimensions)
     GEMINI_API_KEY: str = Field(
@@ -69,8 +75,40 @@ class Settings(BaseSettings):
         extra = "ignore"
 
     @property
-    def postgres_connection_url(self) -> str:
-        """Returns the active PostgreSQL connection URL"""
-        return self.POSTGRES_URL or self.DATABASE_URL
+    def mysql_connection_params(self) -> Dict[str, Any]:
+        """Returns MySQL connection parameters dict for aiomysql/pymysql"""
+        if self.DB_HOST and self.DB_USER:
+            return {
+                "host": self.DB_HOST,
+                "port": int(self.DB_PORT or 3306),
+                "user": self.DB_USER,
+                "password": self.DB_PASSWORD or "",
+                "db": self.DB_NAME or "trading_system",
+                "charset": "utf8mb4",
+                "autocommit": True,
+            }
+        
+        raw_url = self.MYSQL_DATABASE_URL or self.DATABASE_URL
+        # Normalize protocol if needed
+        if raw_url.startswith("mysql://"):
+            parsed = urlparse(raw_url)
+            return {
+                "host": parsed.hostname or "localhost",
+                "port": int(parsed.port or 3306),
+                "user": unquote(parsed.username or "root"),
+                "password": unquote(parsed.password or ""),
+                "db": parsed.path.lstrip("/") or "trading_system",
+                "charset": "utf8mb4",
+                "autocommit": True,
+            }
+        return {
+            "host": "localhost",
+            "port": 3306,
+            "user": "root",
+            "password": "",
+            "db": "trading_system",
+            "charset": "utf8mb4",
+            "autocommit": True,
+        }
 
 settings = Settings()

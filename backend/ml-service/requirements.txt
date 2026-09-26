@@ -24,9 +24,10 @@ httpx>=0.27.0
 feedparser>=6.0.11
 beautifulsoup4>=4.12.3
 
-# RAG & Vector Storage (pgvector + Gemini)
-asyncpg>=0.29.0
-pgvector>=0.2.5
+# RAG & Vector Storage (MySQL + Gemini)
+aiomysql>=0.3.2
+pymysql>=1.2.3
+cryptography>=46.0.0
 google-generativeai>=0.8.0
 
 # Scheduling & Utilities

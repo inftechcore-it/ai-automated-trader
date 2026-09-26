@@ -1,86 +1,105 @@
 """
-Async PostgreSQL + pgvector Database Client
-Handles connection pooling, pgvector type registration, and vector similarity queries.
+Async MySQL Database Client
+Handles connection pooling and vector similarity search for AI-BDM Knowledge Base and RAG.
 """
 import logging
 import json
+import re
 from typing import List, Dict, Any, Optional
+import numpy as np
+try:
+    import aiomysql
+except ImportError:
+    aiomysql = None
 from src.core.config import settings
 
 logger = logging.getLogger("rag.db")
 
+def _convert_pg_placeholders_to_mysql(query: str) -> str:
+    """Converts Postgres $1, $2 placeholders to MySQL %s placeholders if needed."""
+    return re.sub(r'\$\d+', '%s', query)
+
 class DatabasePool:
-    """Async connection pool manager for PostgreSQL with pgvector"""
+    """Async connection pool manager for MySQL"""
     _pool: Optional[Any] = None
 
     @classmethod
     async def get_pool(cls):
-        try:
-            import asyncpg
-        except ImportError:
+        if aiomysql is None:
             raise ImportError(
-                "asyncpg is not installed. Please run `pip install -r backend/ml-service/requirements.txt` to enable PostgreSQL database connectivity."
+                "aiomysql is not installed. Please run `pip install aiomysql pymysql` to enable MySQL database connectivity."
             )
 
         if cls._pool is None or cls._pool._closed:
-            dsn = settings.postgres_connection_url
-            # Clean DSN schema query parameter if present for asyncpg
-            if "?schema=" in dsn:
-                dsn = dsn.split("?schema=")[0]
-            
-            logger.info(f"Initializing PostgreSQL connection pool to {dsn.split('@')[-1] if '@' in dsn else dsn}")
-            cls._pool = await asyncpg.create_pool(
-                dsn=dsn,
-                min_size=2,
-                max_size=10,
-                init=cls._init_connection,
-                command_timeout=30.0
+            params = settings.mysql_connection_params
+            logger.info(f"Initializing MySQL connection pool to {params.get('host')}:{params.get('port')}/{params.get('db')}")
+            cls._pool = await aiomysql.create_pool(
+                host=params["host"],
+                port=params["port"],
+                user=params["user"],
+                password=params["password"],
+                db=params["db"],
+                charset=params.get("charset", "utf8mb4"),
+                autocommit=True,
+                minsize=2,
+                maxsize=10,
+                cursorclass=aiomysql.DictCursor
             )
         return cls._pool
 
     @classmethod
-    async def _init_connection(cls, conn):
-        """Register pgvector extension codec on every new connection"""
-        try:
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            try:
-                from pgvector.asyncpg import register_vector
-                await register_vector(conn)
-            except ImportError:
-                pass
-        except Exception as e:
-            logger.warning(f"Could not register pgvector on connection initialization (extension may need superuser): {e}")
-
-    @classmethod
     async def close(cls):
         if cls._pool is not None and not cls._pool._closed:
-            await cls._pool.close()
+            cls._pool.close()
+            await cls._pool.wait_closed()
             cls._pool = None
-            logger.info("PostgreSQL connection pool closed.")
+            logger.info("MySQL connection pool closed.")
 
     @classmethod
-    async def execute(cls, query: str, *args) -> str:
+    async def execute(cls, query: str, *args) -> int:
         pool = await cls.get_pool()
+        query = _convert_pg_placeholders_to_mysql(query)
         async with pool.acquire() as conn:
-            return await conn.execute(query, *args)
+            async with conn.cursor() as cursor:
+                # If single argument is list/tuple, pass as args
+                if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                    params = args[0]
+                else:
+                    params = args
+                return await cursor.execute(query, params)
 
     @classmethod
-    async def fetch(cls, query: str, *args) -> List[Any]:
+    async def fetch(cls, query: str, *args) -> List[Dict[str, Any]]:
         pool = await cls.get_pool()
+        query = _convert_pg_placeholders_to_mysql(query)
         async with pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                    params = args[0]
+                else:
+                    params = args
+                await cursor.execute(query, params)
+                return await cursor.fetchall()
 
     @classmethod
-    async def fetchrow(cls, query: str, *args) -> Optional[Any]:
+    async def fetchrow(cls, query: str, *args) -> Optional[Dict[str, Any]]:
         pool = await cls.get_pool()
+        query = _convert_pg_placeholders_to_mysql(query)
         async with pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                    params = args[0]
+                else:
+                    params = args
+                await cursor.execute(query, params)
+                return await cursor.fetchone()
 
     @classmethod
     async def fetchval(cls, query: str, *args) -> Any:
-        pool = await cls.get_pool()
-        async with pool.acquire() as conn:
-            return await conn.fetchval(query, *args)
+        row = await cls.fetchrow(query, *args)
+        if row and isinstance(row, dict):
+            return next(iter(row.values()), None)
+        return None
 
     @classmethod
     async def vector_similarity_search(
@@ -92,28 +111,55 @@ class DatabasePool:
         filter_params: Optional[List[Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Performs Cosine Distance vector similarity search with HNSW index acceleration.
-        Returns top_k matching records ranked by similarity score (1.0 - cosine_distance).
+        Performs Cosine Similarity vector search on records stored in MySQL.
+        Calculates cosine distance via fast vectorized numpy operations.
+        Returns top_k matching records ranked by similarity score.
         """
-        pool = await cls.get_pool()
         filter_params = filter_params or []
-        
         where_clause = f"WHERE {filter_sql}" if filter_sql else ""
-        vector_param_idx = len(filter_params) + 1
-        limit_param_idx = len(filter_params) + 2
+        query = f"SELECT * FROM `{table_name}` {where_clause};"
+        
+        records = await cls.fetch(query, *filter_params)
+        if not records:
+            return []
 
-        query = f"""
-            SELECT *,
-                   1.0 - (embedding <=> ${vector_param_idx}::vector) AS similarity_score
-            FROM {table_name}
-            {where_clause}
-            ORDER BY embedding <=> ${vector_param_idx}::vector ASC
-            LIMIT ${limit_param_idx};
-        """
+        q_vec = np.array(query_vector, dtype=np.float32)
+        q_norm = np.linalg.norm(q_vec)
+        if q_norm == 0:
+            return records[:top_k]
 
-        params = [*filter_params, query_vector, top_k]
-        async with pool.acquire() as conn:
-            records = await conn.fetch(query, *params)
-            return [dict(r) for r in records]
+        scored_records = []
+        for r in records:
+            raw_emb = r.get("embedding")
+            if raw_emb is None:
+                continue
+            
+            if isinstance(raw_emb, str):
+                try:
+                    emb = json.loads(raw_emb)
+                except Exception:
+                    continue
+            elif isinstance(raw_emb, (list, tuple)):
+                emb = raw_emb
+            else:
+                continue
+
+            if not emb or len(emb) != len(query_vector):
+                continue
+
+            emb_arr = np.array(emb, dtype=np.float32)
+            emb_norm = np.linalg.norm(emb_arr)
+            if emb_norm == 0:
+                sim = 0.0
+            else:
+                sim = float(np.dot(q_vec, emb_arr) / (q_norm * emb_norm))
+
+            # Store similarity score
+            record_copy = dict(r)
+            record_copy["similarity_score"] = sim
+            scored_records.append(record_copy)
+
+        scored_records.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return scored_records[:top_k]
 
 db = DatabasePool

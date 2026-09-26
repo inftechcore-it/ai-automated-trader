@@ -1,12 +1,10 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [pgvector(map: "vector")]
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Exchange {
@@ -452,7 +450,7 @@ model KbStrategyPlaybook {
   parameters      Json?
   backtestPresets Json?                        @map("backtest_presets")
   tags            Json?
-  embedding       Unsupported("vector(768)")?
+  embedding       Json?
   createdAt       DateTime                     @default(now()) @map("created_at")
   updatedAt       DateTime                     @updatedAt @map("updated_at")
 
@@ -469,7 +467,7 @@ model KbRmsRule {
   content        String                       @db.Text
   thresholds     Json?
   actionOnBreach String                       @map("action_on_breach")
-  embedding      Unsupported("vector(768)")?
+  embedding      Json?
   metadata       Json?
   createdAt      DateTime                     @default(now()) @map("created_at")
   updatedAt      DateTime                     @updatedAt @map("updated_at")
@@ -488,7 +486,7 @@ model KbBrokerDiagnostic {
   rootCause       String                       @db.Text @map("root_cause")
   resolutionSteps String                       @db.Text @map("resolution_steps")
   recoveryAction  String                       @map("recovery_action") // RETRY, RECONNECT, REAUTHENTICATE, LIQUIDATE, ABORT, ADJUST_PARAM
-  embedding       Unsupported("vector(768)")?
+  embedding       Json?
   metadata        Json?
   createdAt       DateTime                     @default(now()) @map("created_at")
   updatedAt       DateTime                     @updatedAt @map("updated_at")
@@ -514,7 +512,7 @@ model KbTradeHistory {
   feeAsset         String?                      @map("fee_asset")
   marketCondition  String?                      @map("market_condition")
   narrativeSummary String?                      @map("narrative_summary") @db.Text
-  embedding        Unsupported("vector(768)")?
+  embedding        Json?
   metadata         Json?
   executedAt       DateTime                     @default(now()) @map("executed_at")
 
@@ -531,7 +529,7 @@ model KbIndicatorTa {
   signalRules       Json?                        @map("signal_rules")
   interpretation    String                       @db.Text
   optimalTimeframes Json?                        @map("optimal_timeframes")
-  embedding         Unsupported("vector(768)")?
+  embedding         Json?
   metadata          Json?
   createdAt         DateTime                     @default(now()) @map("created_at")
   updatedAt         DateTime                     @updatedAt @map("updated_at")
@@ -548,7 +546,7 @@ model KbDexOnchain {
   title      String
   content    String                       @db.Text
   codeSample String?                      @db.Text @map("code_sample")
-  embedding  Unsupported("vector(768)")?
+  embedding  Json?
   metadata   Json?
   createdAt  DateTime                     @default(now()) @map("created_at")
   updatedAt  DateTime                     @updatedAt @map("updated_at")
@@ -568,7 +566,7 @@ model KbArbitragePlaybook {
   transferDelayRisk  String?                      @map("transfer_delay_risk") @db.Text
   feeModel           Json?                        @map("fee_model")
   content            String                       @db.Text
-  embedding          Unsupported("vector(768)")?
+  embedding          Json?
   metadata           Json?
   createdAt          DateTime                     @default(now()) @map("created_at")
   updatedAt          DateTime                     @updatedAt @map("updated_at")
@@ -586,7 +584,7 @@ model KbFundamentalFramework {
   summary        String?                      @db.Text
   metrics        Json?
   content        String                       @db.Text
-  embedding      Unsupported("vector(768)")?
+  embedding      Json?
   metadata       Json?
   createdAt      DateTime                     @default(now()) @map("created_at")
   updatedAt      DateTime                     @updatedAt @map("updated_at")
@@ -607,7 +605,7 @@ model ExternalMarketNews {
   symbols      Json?
   marketImpact String?                      @map("market_impact") // BULLISH, BEARISH, NEUTRAL, HIGH_VOLATILITY
   publishedAt  DateTime                     @default(now()) @map("published_at")
-  embedding    Unsupported("vector(768)")?
+  embedding    Json?
   metadata     Json?
   createdAt    DateTime                     @default(now()) @map("created_at")
 
