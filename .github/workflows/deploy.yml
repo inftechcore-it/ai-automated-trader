@@ -8,12 +8,35 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Server
+    name: Deploy to Server with Dynamic AWS SG Whitelisting
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+
+      - name: Get GitHub Runner Public IP
+        id: ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "runner_ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
+          echo "Detected Runner Public IP: ${RUNNER_IP}"
+
+      - name: Temporarily Whitelist Runner IP in AWS Security Group
+        run: |
+          echo "Authorizing IP ${{ steps.ip.outputs.runner_ip }} on port ${{ secrets.SERVER_PORT || 22 }} in Security Group ${{ secrets.AWS_SECURITY_GROUP_ID }}..."
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ secrets.AWS_SECURITY_GROUP_ID }} \
+            --protocol tcp \
+            --port ${{ secrets.SERVER_PORT || 22 }} \
+            --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       - name: Execute Deployment on Server via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -68,3 +91,16 @@ jobs:
             echo "=========================================================="
             echo "✅ Deployment Successfully Completed!"
             echo "=========================================================="
+
+      - name: Revoke Runner IP from AWS Security Group
+        if: always()
+        run: |
+          if [ -n "${{ steps.ip.outputs.runner_ip }}" ]; then
+            echo "Revoking IP ${{ steps.ip.outputs.runner_ip }} from Security Group ${{ secrets.AWS_SECURITY_GROUP_ID }}..."
+            aws ec2 revoke-security-group-ingress \
+              --group-id ${{ secrets.AWS_SECURITY_GROUP_ID }} \
+              --protocol tcp \
+              --port ${{ secrets.SERVER_PORT || 22 }} \
+              --cidr "${{ steps.ip.outputs.runner_ip }}/32" || true
+            echo "Security Group ingress rule revoked successfully."
+          fi
