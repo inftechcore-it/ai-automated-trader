@@ -1,0 +1,73 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy to Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Transfer Frontend Dist to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "frontend/dist/*"
+          target: "/tmp/ai-trade-frontend"
+          strip_components: 2
+
+      - name: Deploy Backend & Restart Services via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 [1/3] Deploying Frontend to Nginx Webroot..."
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S mkdir -p /usr/share/nginx/html/ai-trade/
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S cp -r /tmp/ai-trade-frontend/* /usr/share/nginx/html/ai-trade/
+            rm -rf /tmp/ai-trade-frontend
+
+            echo "📦 [2/3] Updating Backend Application (/apps/docker/ai-trade/backend)..."
+            cd /apps/docker/ai-trade
+            if [ -d ".git" ]; then
+              git fetch origin main
+              git reset --hard origin/main
+            fi
+
+            cd /apps/docker/ai-trade/backend
+            npm ci --production=false
+            npx prisma generate
+            npm run build:bots || true
+            npm run build:arbitrage || true
+
+            echo "🔄 [3/3] Restarting Backend Service..."
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl restart ai-backend.service
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl status ai-backend.service --no-pager -n 10 || true
+
+            echo "✅ Deployment completed successfully!"
