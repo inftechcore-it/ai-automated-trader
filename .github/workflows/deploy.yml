@@ -75,6 +75,15 @@ jobs:
             echo "🎨 [2/4] Building Frontend in /apps/docker/ai-trade/frontend"
             echo "=========================================================="
             cd /apps/docker/ai-trade/frontend
+
+            # Load .env from backup location
+            if [ -f "/opt/ai-bkp/19-09-26/frontend/.env" ]; then
+              echo "📄 Copying frontend .env from /opt/ai-bkp/19-09-26/frontend/.env..."
+              cp /opt/ai-bkp/19-09-26/frontend/.env /apps/docker/ai-trade/frontend/.env
+            else
+              echo "⚠️ /opt/ai-bkp/19-09-26/frontend/.env not found, using existing .env if present"
+            fi
+
             npm ci
             npm run build
 
@@ -86,6 +95,18 @@ jobs:
             echo "📦 [3/4] Building Backend in /apps/docker/ai-trade/backend"
             echo "=========================================================="
             cd /apps/docker/ai-trade/backend
+
+            # Load .env from backup location
+            if [ -f "/opt/ai-bkp/19-09-26/backend/.env" ]; then
+              echo "📄 Copying backend .env from /opt/ai-bkp/19-09-26/backend/.env..."
+              cp /opt/ai-bkp/19-09-26/backend/.env /apps/docker/ai-trade/backend/.env
+              if [ -d "/apps/docker/ai-trade/backend/arbitrage" ]; then
+                cp /opt/ai-bkp/19-09-26/backend/.env /apps/docker/ai-trade/backend/arbitrage/.env || true
+              fi
+            else
+              echo "⚠️ /opt/ai-bkp/19-09-26/backend/.env not found, using existing .env if present"
+            fi
+
             npm ci --production=false
             npx prisma generate
             npm run build:bots || true
