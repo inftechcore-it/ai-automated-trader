@@ -47,6 +47,10 @@ export class SuperZeeBot extends BaseBotStrategy {
   private lastThought = '';
   private lastDirectiveAction = 'DEFENSIVE_HOLD';
 
+  // Telemetry & Ticks
+  private lastPrice = 0;
+  private lastStatusLog = 0;
+
   // Hysteresis & Cooldown Control
   private actionCooldownMs = 20000; // 20s minimum between regular actions
   private lastActionTimestamp = 0;
@@ -85,6 +89,8 @@ export class SuperZeeBot extends BaseBotStrategy {
     this.baseInvestment = toNum(p.baseInvestment, 50);
     this.actionCooldownMs = toNum(p.actionCooldownMs, 20000);
     this.marketRegime = p.activeRegime || 'RANGE_ACCUMULATION';
+    this.lastPrice = toNum(p.currentPrice) || (this.dynamicLower > 0 ? (this.dynamicLower + this.dynamicUpper) / 2 : 0);
+    this.lastStatusLog = 0;
 
     if (p.initialDirective?.thought) {
       this.lastThought = p.initialDirective.thought;
@@ -101,6 +107,7 @@ export class SuperZeeBot extends BaseBotStrategy {
     const now = Date.now();
 
     if (!currentPrice || currentPrice <= 0) return actions;
+    this.lastPrice = currentPrice;
 
     // Parse symbols from tick if present
     if (tick.symbol) {
@@ -111,6 +118,13 @@ export class SuperZeeBot extends BaseBotStrategy {
 
     const currentHoldings = (state.holdings || []).reduce((sum, h) => sum + (h.quantity || 0), 0) + this.activeHoldingsQuantity;
     const availableCash = state.availableBalance || this.baseInvestment;
+
+    // 📡 0. TELEMETRY STATUS LOG (Heartbeat every 18s for active telemetry feed)
+    if (now - this.lastStatusLog > 18000) {
+      this.lastStatusLog = now;
+      const profitText = this.realizedProfit >= 0 ? `+$${this.realizedProfit.toFixed(2)}` : `-$${Math.abs(this.realizedProfit).toFixed(2)}`;
+      this.log(`📊 [Super Zee Telemetry] Price: $${currentPrice.toFixed(4)} | Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Regime: ${this.marketRegime} | Holdings: ${currentHoldings.toFixed(4)} ${this.asset} | Available: $${availableCash.toFixed(2)} | Realized PnL: ${profitText}`, 'info');
+    }
 
     // ══════════════════════════════════════════════════════════════════
     // 🛡️ 1. LOCAL MICROSECOND GUARD (<50ms execution without AI latency)
@@ -258,6 +272,8 @@ export class SuperZeeBot extends BaseBotStrategy {
 
       if (data && data.agentDirective) {
         const d = data.agentDirective;
+        const oldLower = this.dynamicLower;
+        const oldUpper = this.dynamicUpper;
         this.dynamicLower = d.dynamicLower || this.dynamicLower;
         this.dynamicUpper = d.dynamicUpper || this.dynamicUpper;
         this.dynamicSpacing = d.dynamicSpacing || this.dynamicSpacing;
@@ -266,8 +282,11 @@ export class SuperZeeBot extends BaseBotStrategy {
         this.marketRegime = data.regime || this.marketRegime;
         this.lastDirectiveAction = d.action || this.lastDirectiveAction;
 
-        if (d.thought) {
+        if (d.thought && d.thought !== this.lastThought) {
           this.lastThought = d.thought;
+          this.log(`🔮 [Super Zee AI Brain] Directive: ${this.lastDirectiveAction} | ${this.lastThought}`, 'info');
+        } else if (Math.abs(this.dynamicLower - oldLower) > 0.0001 || Math.abs(this.dynamicUpper - oldUpper) > 0.0001) {
+          this.log(`📐 [Super Zee Recalibration] New Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Microsecond Floor: $${this.emergencyFloorPrice.toFixed(4)}`, 'info');
         }
       }
     } catch {
@@ -275,6 +294,7 @@ export class SuperZeeBot extends BaseBotStrategy {
       if (this.dynamicLower > 0 && currentPrice > this.dynamicUpper) {
         this.dynamicLower = currentPrice * 0.98;
         this.dynamicUpper = currentPrice * 1.04;
+        this.log(`🔄 [Super Zee Drift] Dynamic corridor adjusted upward to [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}]`, 'info');
       }
     }
   }
@@ -297,11 +317,13 @@ export class SuperZeeBot extends BaseBotStrategy {
 
   protected getMetrics(): Record<string, number> {
     return {
+      currentPrice: this.lastPrice || 0,
       dynamicLower: this.dynamicLower,
       dynamicUpper: this.dynamicUpper,
       dynamicSpacing: this.dynamicSpacing,
       emergencyFloorPrice: this.emergencyFloorPrice,
       takeProfitCeilingPrice: this.takeProfitCeilingPrice,
+      avgEntryPrice: this.avgEntryPrice,
       realizedProfit: this.realizedProfit,
       totalHarvests: this.totalHarvests,
       totalDipBuys: this.totalDipBuys,
@@ -329,6 +351,8 @@ export class SuperZeeBot extends BaseBotStrategy {
       lastThought: this.lastThought,
       lastDirectiveAction: this.lastDirectiveAction,
       lastActionTimestamp: this.lastActionTimestamp,
+      lastPrice: this.lastPrice,
+      lastStatusLog: this.lastStatusLog,
     };
   }
 
@@ -352,6 +376,8 @@ export class SuperZeeBot extends BaseBotStrategy {
     if (customState.lastThought) this.lastThought = customState.lastThought;
     if (customState.lastDirectiveAction) this.lastDirectiveAction = customState.lastDirectiveAction;
     if (customState.lastActionTimestamp) this.lastActionTimestamp = toNum(customState.lastActionTimestamp);
+    if (customState.lastPrice) this.lastPrice = toNum(customState.lastPrice);
+    if (customState.lastStatusLog) this.lastStatusLog = toNum(customState.lastStatusLog);
 
     this.log(`🔄 [Super Zee Restore] Resumed state seamlessly from database. Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Floor: $${this.emergencyFloorPrice.toFixed(4)}.`, 'info');
   }

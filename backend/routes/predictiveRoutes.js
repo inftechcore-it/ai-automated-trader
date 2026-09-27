@@ -99,6 +99,7 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
     const params = {
       lowerPrice: directive.dynamicLower,
       upperPrice: directive.dynamicUpper,
+      currentPrice: analytics.currentPrice,
       stepSpace: directive.dynamicSpacing,
       emergencyFloorPrice: directive.emergencyFloorPrice,
       takeProfitCeilingPrice: directive.takeProfitCeilingPrice,

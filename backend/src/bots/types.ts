@@ -270,6 +270,7 @@ export interface CoinTradeState {
 export interface SuperZeeParams {
   lowerPrice?: number;
   upperPrice?: number;
+  currentPrice?: number;
   stepSpace?: number;
   emergencyFloorPrice?: number;
   takeProfitCeilingPrice?: number;

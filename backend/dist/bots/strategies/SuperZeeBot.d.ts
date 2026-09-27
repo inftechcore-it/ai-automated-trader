@@ -24,6 +24,8 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     private marketRegime;
     private lastThought;
     private lastDirectiveAction;
+    private lastPrice;
+    private lastStatusLog;
     private actionCooldownMs;
     private lastActionTimestamp;
     private lastDirectiveFetchTime;

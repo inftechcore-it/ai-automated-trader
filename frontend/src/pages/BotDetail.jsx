@@ -80,11 +80,12 @@ export default function BotDetail() {
     loadSnapshots();
     loadLogs();
 
-    // Auto-refresh orders and bot stats periodically
+    // Auto-refresh orders, logs and bot stats periodically
     const pollInterval = setInterval(() => {
       loadOrders();
       loadBot();
-    }, 8000);
+      loadLogs();
+    }, 6000);
 
     const socket = io(import.meta.env.VITE_API || 'http://localhost:5000');
     socketRef.current = socket;
@@ -459,6 +460,12 @@ export default function BotDetail() {
           </div>
 
           <div className="strategy-metrics">
+            <div className="metric-item">
+              <span className="metric-label">Current Price</span>
+              <span className="metric-value" style={{ color: '#38bdf8', fontWeight: '800' }}>
+                ${Number(bot.strategyStatus?.metrics?.currentPrice || bot.strategyStatus?.metrics?.lastPrice || bot.currentPrice || bot.params?.currentPrice || 0).toFixed(4)}
+              </span>
+            </div>
             <div className="metric-item">
               <span className="metric-label">Market Regime</span>
               <span className="metric-value" style={{ color: '#10b981' }}>{bot.params?.activeRegime || bot.params?.marketRegime || 'RANGE ACCUMULATION'}</span>
