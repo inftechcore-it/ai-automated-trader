@@ -112,6 +112,35 @@ jobs:
             npm run build:bots || true
             npm run build:arbitrage || true
 
+            # Ensure logging directories exist with write permissions
+            SUDO mkdir -p /var/log/ai-bdm /var/log/ai-trade
+            SUDO chmod -R 777 /var/log/ai-bdm /var/log/ai-trade || true
+
+            # Fix file permissions and ownership for systemd access
+            echo "🔑 Ensuring proper permissions on /apps/docker/ai-trade..."
+            SUDO chmod -R 755 /apps/docker/ai-trade
+            if [ -f "/apps/docker/ai-trade/backend/.env" ]; then
+              SUDO chmod 644 /apps/docker/ai-trade/backend/.env
+            fi
+            if [ -f "/apps/docker/ai-trade/frontend/.env" ]; then
+              SUDO chmod 644 /apps/docker/ai-trade/frontend/.env
+            fi
+            if [ -f "/apps/docker/ai-trade/backend/arbitrage/.env" ]; then
+              SUDO chmod 644 /apps/docker/ai-trade/backend/arbitrage/.env
+            fi
+
+            # Align ownership with service user if specified in systemd unit
+            SVC_USER=$(SUDO systemctl show -p User ai-backend.service 2>/dev/null | cut -d= -f2 || true)
+            if [ -n "$SVC_USER" ] && [ "$SVC_USER" != "root" ] && [ "$SVC_USER" != "" ]; then
+              echo "Setting backend directory ownership for service user: $SVC_USER"
+              SUDO chown -R $SVC_USER:$SVC_USER /apps/docker/ai-trade/backend || true
+            fi
+
+            # Restore SELinux security context on RHEL/CentOS systems
+            if command -v restorecon >/dev/null 2>&1; then
+              SUDO restorecon -R /apps/docker/ai-trade || true
+            fi
+
             echo "=========================================================="
             echo "🔄 [4/4] Restarting ai-backend.service"
             echo "=========================================================="
