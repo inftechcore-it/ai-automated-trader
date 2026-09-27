@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, Play, Pause, Square, Edit2, Trash2, Share2,
   TrendingUp, TrendingDown, DollarSign, Activity, Clock, Target,
   BarChart3, Wallet, FlaskConical, RefreshCw, Loader2, AlertTriangle,
-  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar, Zap
+  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar, Zap, Sparkles
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -20,6 +20,7 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGY_ICONS = {
+  SUPER_ZEE: Sparkles,
   JARVIS: TrendingUp,
   PRECISION_GRID: Zap,
   GRID: Grid3X3,
@@ -442,6 +443,50 @@ export default function BotDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Super Zee Predictive Brain & Thought Section */}
+      {bot.strategyType === 'SUPER_ZEE' && (
+        <div className="strategy-section" style={{ border: '1px solid rgba(147, 51, 234, 0.4)', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.5) 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: '#c084fc' }}>
+              <Sparkles size={20} /> Super Zee Predictive AI Brain
+            </h2>
+            <span style={{ background: 'rgba(147, 51, 234, 0.2)', border: '1px solid rgba(147, 51, 234, 0.5)', color: '#c084fc', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
+              QUANT CONTROLLED
+            </span>
+          </div>
+
+          <div className="strategy-metrics">
+            <div className="metric-item">
+              <span className="metric-label">Market Regime</span>
+              <span className="metric-value" style={{ color: '#10b981' }}>{bot.params?.activeRegime || bot.params?.marketRegime || 'RANGE ACCUMULATION'}</span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Dynamic Lower ($X)</span>
+              <span className="metric-value" style={{ color: '#10b981' }}>${Number(bot.params?.lowerPrice || bot.strategyStatus?.metrics?.dynamicLower || 0).toFixed(4)}</span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Dynamic Upper ($Y)</span>
+              <span className="metric-value" style={{ color: '#ef4444' }}>${Number(bot.params?.upperPrice || bot.strategyStatus?.metrics?.dynamicUpper || 0).toFixed(4)}</span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Microsecond Stop Floor</span>
+              <span className="metric-value" style={{ color: '#ef4444' }}>${Number(bot.params?.emergencyFloorPrice || bot.strategyStatus?.metrics?.emergencyFloorPrice || 0).toFixed(4)}</span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Microsecond Ceiling</span>
+              <span className="metric-value" style={{ color: '#38bdf8' }}>${Number(bot.params?.takeProfitCeilingPrice || bot.strategyStatus?.metrics?.takeProfitCeilingPrice || 0).toFixed(4)}</span>
+            </div>
+          </div>
+
+          {bot.params?.initialDirective?.thought && (
+            <div style={{ marginTop: '1rem', padding: '10px 14px', background: 'rgba(15, 23, 42, 0.8)', borderLeft: '3px solid #c084fc', borderRadius: '6px', fontSize: '0.85rem', color: '#e2e8f0' }}>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '2px', fontWeight: '700' }}>LATEST QUANT DIRECTIVE RATIONALE:</div>
+              {bot.params.initialDirective.thought}
+            </div>
+          )}
         </div>
       )}
 

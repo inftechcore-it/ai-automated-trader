@@ -15,6 +15,9 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGY_COLORS = {
+  SUPER_ZEE: '#a855f7',
+  JARVIS: '#06b6d4',
+  PRECISION_GRID: '#0ea5e9',
   GRID: '#3b82f6',
   INFINITY_GRID: '#8b5cf6',
   DCA: '#10b981',
@@ -23,6 +26,7 @@ const STRATEGY_COLORS = {
   MARTINGALE: '#ef4444',
   REBALANCING: '#06b6d4',
   ARBITRAGE: '#6366f1',
+  DYNAMIC_GRID: '#14b8a6',
 };
 
 export default function BotAnalytics() {

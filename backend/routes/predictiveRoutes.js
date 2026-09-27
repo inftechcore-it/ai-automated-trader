@@ -111,6 +111,14 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
       lastDirectiveTime: new Date().toISOString()
     };
 
+    // Proactively verify & migrate database column for strategyType
+    try {
+      const { query } = await import('../config/db.js');
+      await query("ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` VARCHAR(64) NOT NULL").catch(() => {
+        return query("ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` ENUM('GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE', 'DYNAMIC_GRID', 'PRECISION_GRID', 'JARVIS', 'SUPER_ZEE') NOT NULL").catch(() => {});
+      });
+    } catch {}
+
     // 2. Create the Super Zee Bot instance
     const bot = await engine.createBot({
       userId,

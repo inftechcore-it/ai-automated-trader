@@ -76,6 +76,19 @@ export class BotEngine extends EventEmitter {
 
     this.socketIo = socketIo;
 
+    // Ensure database column strategyType supports all strategies
+    try {
+      await this.prisma.$executeRawUnsafe(
+        "ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` VARCHAR(64) NOT NULL"
+      );
+    } catch {
+      try {
+        await this.prisma.$executeRawUnsafe(
+          "ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` ENUM('GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE', 'DYNAMIC_GRID', 'PRECISION_GRID', 'JARVIS', 'SUPER_ZEE') NOT NULL"
+        );
+      } catch {}
+    }
+
     // Initialize execution engine
     this.executionEngine = await this.createExecutionEngine();
 
@@ -188,23 +201,58 @@ export class BotEngine extends EventEmitter {
       }
     }
 
-    // Create in database
-    const dbBot = await this.prisma.botConfig.create({
-      data: {
-        userId: params.userId,
-        name: params.name,
-        strategyType: params.strategyType,
-        exchangeName: params.exchangeName,
-        symbol: symbol,
-        mode: params.mode,
-        status: 'CREATED',
-        params: params.params as any,
-        investedAmount: params.investedAmount,
-        currentValue: params.investedAmount,
-        totalProfit: 0,
-        totalTrades: 0,
-      },
-    });
+    // Create in database with automatic schema repair resilience
+    let dbBot;
+    try {
+      dbBot = await this.prisma.botConfig.create({
+        data: {
+          userId: params.userId,
+          name: params.name,
+          strategyType: params.strategyType,
+          exchangeName: params.exchangeName,
+          symbol: symbol,
+          mode: params.mode,
+          status: 'CREATED',
+          params: params.params as any,
+          investedAmount: params.investedAmount,
+          currentValue: params.investedAmount,
+          totalProfit: 0,
+          totalTrades: 0,
+        },
+      });
+    } catch (createErr: any) {
+      if (createErr?.message?.includes('1265') || createErr?.message?.includes('strategyType') || createErr?.message?.includes('Data truncated')) {
+        console.log('[BotEngine] Attempting auto-migration for strategyType column...');
+        try {
+          await this.prisma.$executeRawUnsafe(
+            "ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` VARCHAR(64) NOT NULL"
+          );
+        } catch {
+          await this.prisma.$executeRawUnsafe(
+            "ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` ENUM('GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE', 'DYNAMIC_GRID', 'PRECISION_GRID', 'JARVIS', 'SUPER_ZEE') NOT NULL"
+          ).catch(() => {});
+        }
+        // Retry insert
+        dbBot = await this.prisma.botConfig.create({
+          data: {
+            userId: params.userId,
+            name: params.name,
+            strategyType: params.strategyType,
+            exchangeName: params.exchangeName,
+            symbol: symbol,
+            mode: params.mode,
+            status: 'CREATED',
+            params: params.params as any,
+            investedAmount: params.investedAmount,
+            currentValue: params.investedAmount,
+            totalProfit: 0,
+            totalTrades: 0,
+          },
+        });
+      } else {
+        throw createErr;
+      }
+    }
 
     const config = this.dbToConfig(dbBot);
     console.log(`[BotEngine] Created bot: ${config.name} (${config.id})`);
