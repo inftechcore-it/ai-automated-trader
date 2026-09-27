@@ -194,16 +194,46 @@ export default function Watchlist() {
     }
   }
 
+  function parseTimestamp(ts) {
+    if (ts === undefined || ts === null || ts === '') return null;
+    let num = Number(ts);
+    if (!isNaN(num) && num > 0) {
+      if (num < 1e11) num *= 1000;
+      const d = new Date(num);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   function formatPrice(price, exchange) {
-    if (price === undefined || price === null || isNaN(price)) return '0.00';
-    const symbol = ['NSE', 'BSE', 'AngelOne'].includes(exchange) ? '₹' : '$';
-    if (price >= 1000) return `${symbol}${Number(price).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-    if (price >= 1) return `${symbol}${Number(price).toFixed(2)}`;
-    return `${symbol}${Number(price).toFixed(5)}`;
+    if (price === undefined || price === null || isNaN(price) || price === '') return '0.00';
+    const num = Number(price);
+    if (num === 0) return '0.00';
+    const symbol = ['NSE', 'BSE', 'AngelOne', 'Upstox'].includes(exchange) ? '₹' : '$';
+
+    const str = price.toString();
+    const rawDecimals = str.includes('.') ? str.split('.')[1].length : 0;
+
+    let decimals = 2;
+    if (num < 0.00001) decimals = 8;
+    else if (num < 0.001) decimals = 6;
+    else if (num < 1) decimals = 5;
+    else if (num < 10) decimals = 4;
+    else decimals = Math.max(2, Math.min(rawDecimals, 4));
+
+    const finalDecimals = Math.min(Math.max(rawDecimals, decimals), 8);
+
+    return `${symbol}${num.toLocaleString('en-US', {
+      minimumFractionDigits: Math.min(2, finalDecimals),
+      maximumFractionDigits: finalDecimals
+    })}`;
   }
 
   function formatTime(dateStr) {
-    return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const d = parseTimestamp(dateStr);
+    if (!d) return '-';
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   }
 
   // Filter items by exchange and detected pattern filter

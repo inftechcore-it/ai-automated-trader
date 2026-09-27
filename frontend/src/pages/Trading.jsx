@@ -712,7 +712,7 @@ export default function Trading() {
       const response = await api.get('/api/market/quote', { params: { symbol, exchange: exchangeName } });
       setQuote(response.data.quote);
       if (orderType === 'market') {
-        setPrice(String(Number(response.data.quote.price).toFixed(2)));
+        setPrice(String(response.data.quote.price));
       }
     } catch {
       setQuote(null);
@@ -1075,26 +1075,55 @@ export default function Trading() {
     }
   }
 
-  function formatPrice(val) {
+  function parseTimestamp(ts) {
+    if (ts === undefined || ts === null || ts === '') return null;
+    let num = Number(ts);
+    if (!isNaN(num) && num > 0) {
+      if (num < 1e11) num *= 1000;
+      const d = new Date(num);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatPrice(val, maxDecimals = 8) {
     if (!val && val !== 0) return '-';
     const num = Number(val);
-    if (num >= 1000) return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (num >= 1) return num.toFixed(2);
-    return num.toFixed(6);
+    if (isNaN(num)) return '-';
+    if (num === 0) return '0.00';
+
+    const str = val.toString();
+    const rawDecimals = str.includes('.') ? str.split('.')[1].length : 0;
+
+    let decimals = 2;
+    if (num < 0.00001) decimals = 8;
+    else if (num < 0.001) decimals = 6;
+    else if (num < 1) decimals = 5;
+    else if (num < 10) decimals = 4;
+    else decimals = Math.max(2, Math.min(rawDecimals, 4));
+
+    const finalDecimals = Math.min(Math.max(rawDecimals, decimals), maxDecimals);
+
+    return num.toLocaleString('en-US', {
+      minimumFractionDigits: Math.min(2, finalDecimals),
+      maximumFractionDigits: finalDecimals
+    });
   }
 
   function formatTime(dateStr) {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const d = parseTimestamp(dateStr);
+    if (!d) return '-';
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   }
 
   function formatChartTime(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
+    const d = parseTimestamp(dateStr);
+    if (!d) return '';
     if (chartInterval.includes('d') || chartInterval.includes('w')) {
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   const total = Number(qty || 0) * Number(price || quote?.price || 0);

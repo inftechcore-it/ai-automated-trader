@@ -42,20 +42,57 @@ export default function CandlestickChart({
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
-  // Compute displayed candle data (regular or Heikin-Ashi)
+  // Parse any timestamp format (Unix seconds, Unix milliseconds, ISO string, Date object)
+  const parseTimestamp = (ts) => {
+    if (ts === undefined || ts === null || ts === '') return null;
+    let num = Number(ts);
+    if (!isNaN(num) && num > 0) {
+      if (num < 1e11) num *= 1000; // Convert Unix seconds to milliseconds
+      const d = new Date(num);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  // Format full time string for headers and tooltips
+  const formatTime = (ts) => {
+    const date = parseTimestamp(ts);
+    if (!date) return '';
+    const int = (interval || '').toLowerCase();
+    if (int.includes('d') || int.includes('w')) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`;
+  };
+
+  // Format compact time string for X-axis labels
+  const formatAxisTime = (ts) => {
+    const date = parseTimestamp(ts);
+    if (!date) return '';
+    const int = (interval || '').toLowerCase();
+    if (int.includes('d') || int.includes('w')) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  // Compute displayed candle data (regular or Heikin-Ashi) preserving exact raw values & timestamps
   const displayCandles = useMemo(() => {
     if (!candles || candles.length === 0) return [];
-    if (chartType === 'heikin') {
-      return calculateHeikinAshi(candles);
-    }
-    return candles.map(c => ({
-      ...c,
-      open: Number(c.open || 0),
-      high: Number(c.high || 0),
-      low: Number(c.low || 0),
-      close: Number(c.close || 0),
-      volume: Number(c.volume || 0)
-    }));
+    const source = chartType === 'heikin' ? calculateHeikinAshi(candles) : candles;
+    return source.map(c => {
+      const rawTime = c.time ?? c.timestamp ?? c.t ?? c.date ?? c.time_str;
+      return {
+        ...c,
+        time: rawTime,
+        open: Number(c.open ?? 0),
+        high: Number(c.high ?? 0),
+        low: Number(c.low ?? 0),
+        close: Number(c.close ?? 0),
+        volume: Number(c.volume ?? 0)
+      };
+    });
   }, [candles, chartType]);
 
   // Compute Moving Averages, Bollinger Bands, and RSI
@@ -167,10 +204,11 @@ export default function CandlestickChart({
 
   // Layout measurements
   const paddingLeft = 10;
-  const paddingRight = 65;
+  const paddingRight = 78; // Space for multi-decimal right Y-axis tick labels
   const paddingTop = 25;
+  const xAxisHeight = 24; // Dedicated height for bottom X-axis time labels
   const rsiHeight = showRSI ? 85 : 0;
-  const mainChartHeight = height - paddingTop - (showRSI ? 100 : 35);
+  const mainChartHeight = height - paddingTop - xAxisHeight - (showRSI ? 95 : 15);
   const chartWidth = Math.max(200, containerWidth - paddingLeft - paddingRight);
   const candleCount = displayCandles.length || 1;
   const candleSpacing = chartWidth / candleCount;
@@ -187,21 +225,30 @@ export default function CandlestickChart({
     return paddingLeft + index * candleSpacing + candleSpacing / 2;
   };
 
-  // Formatters
-  const formatPrice = (p) => {
-    if (p === undefined || p === null || isNaN(p)) return '0.00';
-    if (p >= 1000) return `${currencySymbol}${p.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-    if (p >= 1) return `${currencySymbol}${p.toFixed(2)}`;
-    return `${currencySymbol}${p.toFixed(5)}`;
-  };
+  // Format exact prices as coming from broker/exchange without truncation
+  const formatPrice = (p, exact = true) => {
+    if (p === undefined || p === null || isNaN(p) || p === '') return '0.00';
+    const num = Number(p);
+    if (num === 0) return '0.00';
 
-  const formatTime = (ts) => {
-    if (!ts) return '';
-    const date = new Date(ts);
-    if (interval.includes('d') || interval.includes('w')) {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const str = p.toString();
+    const rawDecimals = str.includes('.') ? str.split('.')[1].length : 0;
+
+    let decimals = 2;
+    if (num < 0.00001) decimals = 8;
+    else if (num < 0.001) decimals = 6;
+    else if (num < 1) decimals = 5;
+    else if (num < 10) decimals = 4;
+    else decimals = Math.max(2, Math.min(rawDecimals, 4));
+
+    if (exact && rawDecimals > 0) {
+      decimals = Math.max(decimals, Math.min(rawDecimals, 8));
     }
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    return `${currencySymbol}${num.toLocaleString('en-US', {
+      minimumFractionDigits: Math.min(2, decimals),
+      maximumFractionDigits: Math.min(decimals, 8)
+    })}`;
   };
 
   // Generate path strings for lines and areas
@@ -272,6 +319,23 @@ export default function CandlestickChart({
     const step = (maxPrice - minPrice) / (count - 1);
     return Array.from({ length: count }, (_, i) => minPrice + i * step);
   }, [chartMetrics]);
+
+  // X-axis Time Ticks (5-7 evenly distributed timestamps across available candles)
+  const timeTicks = useMemo(() => {
+    if (displayCandles.length === 0) return [];
+    const targetCount = Math.min(7, Math.max(3, Math.floor(chartWidth / 95)));
+    const total = displayCandles.length;
+    if (total <= targetCount) {
+      return displayCandles.map((c, i) => ({ index: i, candle: c }));
+    }
+    const step = (total - 1) / (targetCount - 1);
+    const ticks = [];
+    for (let i = 0; i < targetCount; i++) {
+      const idx = Math.min(total - 1, Math.round(i * step));
+      ticks.push({ index: idx, candle: displayCandles[idx] });
+    }
+    return ticks;
+  }, [displayCandles, chartWidth]);
 
   return (
     <div className="candlestick-chart-wrapper" ref={containerRef} style={{ width: '100%' }}>
@@ -380,7 +444,7 @@ export default function CandlestickChart({
       <div className="chart-ohlc-banner">
         {hoveredCandle ? (
           <div className="ohlc-stats">
-            <span className="ohlc-time">{formatTime(hoveredCandle.time)}</span>
+            <span className="ohlc-time">🕒 {formatTime(hoveredCandle.time)}</span>
             <span className="ohlc-item">
               <span className="lbl">O:</span> <span className="val">{formatPrice(hoveredCandle.open)}</span>
             </span>
@@ -404,7 +468,7 @@ export default function CandlestickChart({
             </span>
             {showVolume && hoveredCandle.volume !== undefined && (
               <span className="ohlc-item">
-                <span className="lbl">Vol:</span> <span className="val">{hoveredCandle.volume.toLocaleString()}</span>
+                <span className="lbl">Vol:</span> <span className="val">{Number(hoveredCandle.volume).toLocaleString()}</span>
               </span>
             )}
           </div>
@@ -417,7 +481,10 @@ export default function CandlestickChart({
                 {formatPrice(displayCandles[displayCandles.length - 1].close)}
               </span>
             </span>
-            <span className="ohlc-hint">Hover chart to inspect candlestick data & detected patterns</span>
+            <span className="ohlc-time" style={{ color: '#8d9aad', fontSize: '11px', marginLeft: '6px' }}>
+              🕒 {formatTime(displayCandles[displayCandles.length - 1].time)}
+            </span>
+            <span className="ohlc-hint">Hover chart to inspect exact candle prices, timings & detected patterns</span>
           </div>
         ) : null}
       </div>
@@ -460,15 +527,67 @@ export default function CandlestickChart({
                     strokeDasharray="4 4"
                     strokeWidth="1"
                   />
-                  {/* Price Tick Labels on Right */}
+                  {/* Price Tick Labels on Right with exact precision */}
                   <text
                     x={chartWidth + paddingLeft + 6}
                     y={y + 4}
-                    fill="#62758d"
+                    fill="#7e91a9"
                     fontSize="11"
                     fontFamily="monospace"
                   >
                     {formatPrice(price).replace(currencySymbol, '')}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* X-axis Baseline */}
+          <line
+            x1={paddingLeft}
+            y1={paddingTop + mainChartHeight}
+            x2={chartWidth + paddingLeft}
+            y2={paddingTop + mainChartHeight}
+            stroke="#223044"
+            strokeWidth="1"
+          />
+
+          {/* X-axis Time Ticks along the bottom */}
+          <g className="time-axis-labels">
+            {timeTicks.map((t, idx) => {
+              const x = getX(t.index);
+              const timeLabel = formatAxisTime(t.candle.time);
+              if (!timeLabel) return null;
+              return (
+                <g key={`time-tick-${idx}`}>
+                  <line
+                    x1={x}
+                    y1={paddingTop}
+                    x2={x}
+                    y2={paddingTop + mainChartHeight}
+                    stroke="#141c28"
+                    strokeDasharray="2 2"
+                    strokeWidth="1"
+                  />
+                  {/* Tick mark */}
+                  <line
+                    x1={x}
+                    y1={paddingTop + mainChartHeight}
+                    x2={x}
+                    y2={paddingTop + mainChartHeight + 4}
+                    stroke="#3b4d66"
+                    strokeWidth="1.2"
+                  />
+                  {/* Time label text */}
+                  <text
+                    x={x}
+                    y={paddingTop + mainChartHeight + 16}
+                    fill="#8d9aad"
+                    fontSize="10"
+                    fontFamily="monospace"
+                    textAnchor="middle"
+                  >
+                    {timeLabel}
                   </text>
                 </g>
               );
@@ -668,7 +787,7 @@ export default function CandlestickChart({
             );
           })}
 
-          {/* Interactive Crosshairs */}
+          {/* Interactive Crosshairs with Floating Badges */}
           {hoveredCandle && (
             <g className="crosshair">
               {/* Vertical line */}
@@ -676,7 +795,7 @@ export default function CandlestickChart({
                 x1={tooltipPos.x}
                 y1={paddingTop}
                 x2={tooltipPos.x}
-                y2={paddingTop + mainChartHeight + rsiHeight}
+                y2={paddingTop + mainChartHeight}
                 stroke="#4a5d78"
                 strokeDasharray="3 3"
                 strokeWidth="1"
@@ -691,6 +810,52 @@ export default function CandlestickChart({
                 strokeDasharray="3 3"
                 strokeWidth="1"
               />
+
+              {/* Floating Time Badge on X-Axis */}
+              <g transform={`translate(${Math.max(paddingLeft, Math.min(chartWidth + paddingLeft - 80, tooltipPos.x - 45))}, ${paddingTop + mainChartHeight + 3})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width="90"
+                  height="18"
+                  fill="#00b4d8"
+                  rx="3"
+                />
+                <text
+                  x="45"
+                  y="13"
+                  fill="#071016"
+                  fontSize="10"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  textAnchor="middle"
+                >
+                  {formatAxisTime(hoveredCandle.time)}
+                </text>
+              </g>
+
+              {/* Floating Price Badge on Y-Axis */}
+              <g transform={`translate(${chartWidth + paddingLeft + 3}, ${Math.max(paddingTop, Math.min(paddingTop + mainChartHeight - 9, tooltipPos.y - 9))})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width="72"
+                  height="18"
+                  fill="#ffb703"
+                  rx="3"
+                />
+                <text
+                  x="36"
+                  y="13"
+                  fill="#071016"
+                  fontSize="10"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  textAnchor="middle"
+                >
+                  {formatPrice(chartMetrics.maxPrice - ((Math.max(paddingTop, Math.min(paddingTop + mainChartHeight, tooltipPos.y)) - paddingTop) / mainChartHeight) * (chartMetrics.maxPrice - chartMetrics.minPrice)).replace(currencySymbol, '')}
+                </text>
+              </g>
             </g>
           )}
 
