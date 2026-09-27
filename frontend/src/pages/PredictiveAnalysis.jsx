@@ -289,6 +289,8 @@ export default function PredictiveAnalysis() {
       
       {/* 🔮 TOP CONTROL HEADER */}
       <div className="quant-header-card" style={{
+        position: 'relative',
+        zIndex: 100,
         background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.7) 100%)',
         border: '1px solid rgba(147, 51, 234, 0.3)',
         borderRadius: '16px',
@@ -341,7 +343,7 @@ export default function PredictiveAnalysis() {
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           
           {/* 🔍 SEARCHABLE COIN DROPDOWN */}
-          <div ref={searchDropdownRef} style={{ position: 'relative' }}>
+          <div ref={searchDropdownRef} style={{ position: 'relative', zIndex: 110 }}>
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               style={{
@@ -376,8 +378,8 @@ export default function PredictiveAnalysis() {
                 border: '1px solid rgba(147, 51, 234, 0.4)',
                 borderRadius: '12px',
                 padding: '12px',
-                zIndex: 1000,
-                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.8)',
+                zIndex: 9999,
+                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.9)',
                 backdropFilter: 'blur(16px)'
               }}>
                 {/* Search Input */}
