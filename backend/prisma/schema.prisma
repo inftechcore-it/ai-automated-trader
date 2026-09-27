@@ -320,6 +320,7 @@ enum BotStrategyType {
   DYNAMIC_GRID
   PRECISION_GRID
   JARVIS
+  SUPER_ZEE
 }
 
 enum BotMode {

@@ -1,7 +1,7 @@
 /**
  * Trading Bot Engine - Type Definitions
  */
-export type BotStrategyType = 'GRID' | 'PRECISION_GRID' | 'JARVIS' | 'INFINITY_GRID' | 'DCA' | 'SMART_TRADE' | 'TRAILING' | 'MARTINGALE' | 'REBALANCING' | 'ARBITRAGE' | 'DYNAMIC_GRID';
+export type BotStrategyType = 'GRID' | 'PRECISION_GRID' | 'JARVIS' | 'INFINITY_GRID' | 'DCA' | 'SMART_TRADE' | 'TRAILING' | 'MARTINGALE' | 'REBALANCING' | 'ARBITRAGE' | 'DYNAMIC_GRID' | 'SUPER_ZEE';
 export type CoinSelectionMode = 'MANUAL' | 'AUTO';
 export type BotMode = 'PAPER' | 'LIVE';
 export type BotStatus = 'CREATED' | 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ERROR';
@@ -219,7 +219,23 @@ export interface CoinTradeState {
     profit: number;
     status: 'active' | 'maxed_out' | 'completed' | 'stopped';
 }
-export type BotParams = GridBotParams | PrecisionGridParams | JarvisParams | InfinityGridParams | DCABotParams | SmartTradeParams | TrailingBotParams | MartingaleParams | RebalancingParams | ArbitrageBotParams | DynamicGridParams;
+export interface SuperZeeParams {
+    lowerPrice?: number;
+    upperPrice?: number;
+    stepSpace?: number;
+    emergencyFloorPrice?: number;
+    takeProfitCeilingPrice?: number;
+    trailingStopLoss?: number;
+    activeRegime?: string;
+    initialDirective?: any;
+    actionCooldownMs?: number;
+    baseInvestment?: number;
+    isPredictiveControlled?: boolean;
+    lastDirectiveTime?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+}
+export type BotParams = GridBotParams | PrecisionGridParams | JarvisParams | InfinityGridParams | DCABotParams | SmartTradeParams | TrailingBotParams | MartingaleParams | RebalancingParams | ArbitrageBotParams | DynamicGridParams | SuperZeeParams;
 export interface BotConfig {
     id: string;
     userId: string;

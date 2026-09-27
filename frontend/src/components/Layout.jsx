@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Activity, BarChart3, Bot, Briefcase, ChevronRight, Gauge, ListOrdered, Settings, Shield, Star, Wallet, User, Cpu, PieChart, Users } from 'lucide-react';
+import { Activity, BarChart3, Bot, Briefcase, ChevronRight, Gauge, ListOrdered, Settings, Shield, Star, Wallet, User, Cpu, PieChart, Users, Sparkles } from 'lucide-react';
 import { useAuth } from '../auth.jsx';
 
 const navItems = [
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/account', label: 'My Account', icon: User },
   { to: '/exchanges', label: 'Exchanges', icon: Shield },
   { to: '/trading', label: 'Trading', icon: Activity },
+  { to: '/predictive-analysis', label: '🔮 Predictive Analysis', icon: Sparkles },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/orders', label: 'Orders', icon: ListOrdered },
   { to: '/watchlist', label: 'Watchlist', icon: Star },

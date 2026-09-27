@@ -28,6 +28,7 @@ import { InfinityGridBot } from './strategies/InfinityGridBot.js';
 import { MartingaleBot } from './strategies/MartingaleBot.js';
 import { RebalancingBot } from './strategies/RebalancingBot.js';
 import { DynamicGridBot } from './strategies/DynamicGridBot.js';
+import { SuperZeeBot } from './strategies/SuperZeeBot.js';
 
 interface BotEngineConfig {
   maxBotsPerUser: number;
@@ -458,6 +459,8 @@ export class BotEngine extends EventEmitter {
         return new RebalancingBot();
       case 'DYNAMIC_GRID':
         return new DynamicGridBot();
+      case 'SUPER_ZEE':
+        return new SuperZeeBot();
       case 'ARBITRAGE':
         throw new Error('Arbitrage bot uses existing scanner - not implemented as strategy');
       default:

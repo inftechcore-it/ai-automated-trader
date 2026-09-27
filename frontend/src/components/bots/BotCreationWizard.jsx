@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   X, ChevronRight, ChevronLeft, Check, Sparkles, Loader2,
   Grid3X3, Repeat, Target, ArrowUpDown, BarChart3, Scale, Shuffle, Radar,
@@ -22,6 +23,17 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGIES = [
+  {
+    type: 'SUPER_ZEE',
+    name: '🤖 Super Zee Bot',
+    icon: Sparkles,
+    description: 'Autonomous Predictive AI Quant Engine. 100% Dynamic boundaries (X, Y, Z), Microsecond Guard (<50ms), and autonomous CVD/VWAP sizing.',
+    difficulty: 'Advanced AI',
+    color: '#a855f7',
+    featured: true,
+    isPredictiveStudio: true,
+    badge: '🔮 Controlled via Predictive Analysis Studio →'
+  },
   {
     type: 'JARVIS',
     name: 'JARVIS Bot',
@@ -213,6 +225,7 @@ const PROMPT_PRESETS = [
 ];
 
 export default function BotCreationWizard({ onClose, onCreated, prefilledConfig }) {
+  const navigate = useNavigate();
   const [wizardMode, setWizardMode] = useState(prefilledConfig ? 'manual' : 'prompt'); // 'prompt' | 'manual'
   const [promptText, setPromptText] = useState('I have $30 capital, I want to make $0.50 profit on FIL/USDT, and my maximum acceptable loss is $0.50. Simulate and configure the bot.');
   const [promptExchange, setPromptExchange] = useState('binance');
@@ -846,7 +859,14 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                   <div
                     key={strategy.type}
                     className={`strategy-card ${config.strategyType === strategy.type ? 'selected' : ''}`}
-                    onClick={() => setConfig(c => ({ ...c, strategyType: strategy.type }))}
+                    onClick={() => {
+                      if (strategy.isPredictiveStudio) {
+                        if (onClose) onClose();
+                        navigate('/predictive-analysis');
+                      } else {
+                        setConfig(c => ({ ...c, strategyType: strategy.type }));
+                      }
+                    }}
                     style={{ '--strategy-color': strategy.color }}
                   >
                     <div className="strategy-icon" style={{ background: `${strategy.color}15`, color: strategy.color }}>
@@ -855,6 +875,19 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                     <div className="strategy-info">
                       <div className="strategy-header">
                         <h4>{strategy.name}</h4>
+                        {strategy.badge && (
+                          <span style={{
+                            background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(6, 182, 212, 0.2))',
+                            border: '1px solid rgba(147, 51, 234, 0.5)',
+                            color: '#c084fc',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.72rem',
+                            fontWeight: '700'
+                          }}>
+                            {strategy.badge}
+                          </span>
+                        )}
                         {strategy.warning && (
                           <span className="risk-badge">
                             <AlertTriangle size={12} /> High Risk

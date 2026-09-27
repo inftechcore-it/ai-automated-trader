@@ -17,6 +17,7 @@ const api = (path, opts = {}) =>
   }).then(r => r.json());
 
 const STRATEGY_ICONS = {
+  SUPER_ZEE: Sparkles,
   JARVIS: TrendingUp,
   PRECISION_GRID: Zap,
   GRID: Grid3X3,
@@ -31,6 +32,7 @@ const STRATEGY_ICONS = {
 };
 
 const STRATEGY_COLORS = {
+  SUPER_ZEE: '#a855f7',
   JARVIS: '#06b6d4',
   PRECISION_GRID: '#0ea5e9',
   GRID: '#3b82f6',
@@ -66,16 +68,22 @@ function BotCard({ bot, onAction, onClick, onShare, onPanicSell }) {
     value: Number(s.equity || 0)
   }));
 
+  const isSuperZee = bot.strategyType === 'SUPER_ZEE';
+
   return (
     <div
-      className="bot-card"
+      className={`bot-card ${isSuperZee ? 'super-zee-card' : ''}`}
       onClick={onClick}
+      style={isSuperZee ? { border: '1px solid rgba(168, 85, 247, 0.4)', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.5) 100%)' } : {}}
     >
       <div className="bot-card-header">
         <div className="bot-name-row">
           <div
             className="bot-icon"
-            style={{ background: `${STRATEGY_COLORS[bot.strategyType]}20`, color: STRATEGY_COLORS[bot.strategyType] }}
+            style={{
+              background: isSuperZee ? 'linear-gradient(135deg, #9333ea20, #06b6d420)' : `${STRATEGY_COLORS[bot.strategyType]}20`,
+              color: isSuperZee ? '#c084fc' : STRATEGY_COLORS[bot.strategyType]
+            }}
           >
             <Icon size={18} />
           </div>
@@ -85,12 +93,26 @@ function BotCard({ bot, onAction, onClick, onShare, onPanicSell }) {
           </div>
         </div>
         <div className="bot-badges">
-          <span
-            className="strategy-badge"
-            style={{ background: `${STRATEGY_COLORS[bot.strategyType]}15`, color: STRATEGY_COLORS[bot.strategyType] }}
-          >
-            {bot.strategyType.replace('_', ' ')}
-          </span>
+          {isSuperZee ? (
+            <span
+              className="strategy-badge"
+              style={{
+                background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(6, 182, 212, 0.2))',
+                border: '1px solid rgba(147, 51, 234, 0.4)',
+                color: '#c084fc',
+                fontWeight: '700'
+              }}
+            >
+              ✨ Super Zee (Predictive AI)
+            </span>
+          ) : (
+            <span
+              className="strategy-badge"
+              style={{ background: `${STRATEGY_COLORS[bot.strategyType]}15`, color: STRATEGY_COLORS[bot.strategyType] }}
+            >
+              {bot.strategyType.replace('_', ' ')}
+            </span>
+          )}
           <span className={`mode-badge ${bot.mode?.toLowerCase()}`}>
             {bot.mode === 'PAPER' ? <FlaskConical size={10} /> : <Wallet size={10} />}
             {bot.mode}

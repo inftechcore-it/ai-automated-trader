@@ -13,7 +13,8 @@ export type BotStrategyType =
   | 'MARTINGALE'
   | 'REBALANCING'
   | 'ARBITRAGE'
-  | 'DYNAMIC_GRID';
+  | 'DYNAMIC_GRID'
+  | 'SUPER_ZEE';
 
 export type CoinSelectionMode = 'MANUAL' | 'AUTO';
 
@@ -266,6 +267,23 @@ export interface CoinTradeState {
   status: 'active' | 'maxed_out' | 'completed' | 'stopped';
 }
 
+export interface SuperZeeParams {
+  lowerPrice?: number;
+  upperPrice?: number;
+  stepSpace?: number;
+  emergencyFloorPrice?: number;
+  takeProfitCeilingPrice?: number;
+  trailingStopLoss?: number;
+  activeRegime?: string;
+  initialDirective?: any;
+  actionCooldownMs?: number;
+  baseInvestment?: number;
+  isPredictiveControlled?: boolean;
+  lastDirectiveTime?: string;
+  stopLoss?: number;
+  takeProfit?: number;
+}
+
 export type BotParams =
   | GridBotParams
   | PrecisionGridParams
@@ -277,7 +295,8 @@ export type BotParams =
   | MartingaleParams
   | RebalancingParams
   | ArbitrageBotParams
-  | DynamicGridParams;
+  | DynamicGridParams
+  | SuperZeeParams;
 
 export interface BotConfig {
   id: string;
