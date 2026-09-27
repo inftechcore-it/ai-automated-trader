@@ -115,8 +115,23 @@ jobs:
             echo "=========================================================="
             echo "🔄 [4/4] Restarting ai-backend.service"
             echo "=========================================================="
-            SUDO systemctl restart ai-backend.service
-            SUDO systemctl status ai-backend.service --no-pager -n 10 || true
+            SUDO systemctl daemon-reload
+            SUDO systemctl reset-failed ai-backend.service || true
+
+            # Restart service with diagnostic capture and fallback recovery
+            if ! SUDO systemctl restart ai-backend.service; then
+              echo "⚠️ Initial systemctl restart failed. Fetching journalctl logs..."
+              SUDO journalctl -xeu ai-backend.service --no-pager -n 50 || true
+              SUDO systemctl status ai-backend.service --no-pager || true
+
+              echo "🧹 Attempting cleanup of any stale node processes..."
+              SUDO pkill -f "node server.js" || true
+              sleep 2
+              SUDO systemctl reset-failed ai-backend.service || true
+              SUDO systemctl restart ai-backend.service
+            fi
+
+            SUDO systemctl status ai-backend.service --no-pager -n 15
 
             echo "=========================================================="
             echo "✅ Deployment Successfully Completed!"
