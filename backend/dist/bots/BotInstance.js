@@ -602,6 +602,20 @@ export class BotInstance extends EventEmitter {
             quantity = action.quantity / tick.price;
             this.log(`${prefix} Converting $${action.quantity.toFixed(2)} to ${quantity.toFixed(6)} coins @ $${tick.price}`);
         }
+        // Auto-truncate quantity to exchange market precision (e.g. 1 decimal for XRP on CoinDCX)
+        const exName = (this.config.exchangeName || '').toLowerCase();
+        if (exName === 'coindcx') {
+            const parts = (this.config.symbol || '').split('/');
+            const baseAsset = (parts[0] || '').toUpperCase();
+            const coindcxPrecisions = {
+                XRP: 1, ADA: 1, DOGE: 0, TRX: 1, POL: 1, MATIC: 1,
+                BTC: 5, ETH: 4, SOL: 2, BNB: 3, DOT: 2, LTC: 3,
+                LINK: 2, AVAX: 2, SHIB: 0, PEPE: 0, NEAR: 2, UNI: 2, ATOM: 2
+            };
+            const precision = coindcxPrecisions[baseAsset] ?? 1;
+            const factor = Math.pow(10, precision);
+            quantity = Math.floor(quantity * factor) / factor;
+        }
         // Check minimum notional value
         const MIN_NOTIONAL = 0.50;
         const orderValue = quantity * (price || tick.price);

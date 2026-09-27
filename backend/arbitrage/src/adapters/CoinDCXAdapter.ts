@@ -25,12 +25,35 @@ import type {
 const COINDCX_BASE_URL = 'https://api.coindcx.com';
 const COINDCX_PUBLIC_URL = 'https://public.coindcx.com';
 
+const COINDCX_DEFAULT_PRECISIONS: Record<string, number> = {
+  XRP: 1,
+  ADA: 1,
+  DOGE: 0,
+  TRX: 1,
+  POL: 1,
+  MATIC: 1,
+  BTC: 5,
+  ETH: 4,
+  SOL: 2,
+  BNB: 3,
+  DOT: 2,
+  LTC: 3,
+  LINK: 2,
+  AVAX: 2,
+  SHIB: 0,
+  PEPE: 0,
+  NEAR: 2,
+  UNI: 2,
+  ATOM: 2,
+};
+
 export class CoinDCXAdapter extends BaseAdapter {
   readonly exchangeName = 'CoinDCX';
   private _isTestnet = false;
   private apiKey: string | undefined;
   private apiSecret: string | undefined;
   private intervals: Set<NodeJS.Timeout> = new Set();
+  private precisionCache: Map<string, { targetPrecision: number; basePrecision: number }> = new Map();
 
   get isTestnet(): boolean {
     return this._isTestnet;
@@ -227,6 +250,24 @@ export class CoinDCXAdapter extends BaseAdapter {
     }
   }
 
+  private formatQuantity(symbol: string, quantity: number): number {
+    if (!quantity || isNaN(quantity)) return 0;
+    const clean = symbol.replace(/[-_]/g, '/').toUpperCase();
+    const parts = clean.split('/');
+    const baseAsset = (parts[0] || '').replace(/^[BI]-/, '') || clean;
+    const precision = COINDCX_DEFAULT_PRECISIONS[baseAsset] ?? 1;
+    const factor = Math.pow(10, precision);
+    const floored = Math.floor(quantity * factor) / factor;
+    return Number(floored.toFixed(precision));
+  }
+
+  private formatPrice(price?: number): number | undefined {
+    if (price === undefined || price === null || isNaN(price)) return undefined;
+    const factor = Math.pow(10, 4);
+    const rounded = Math.round(price * factor) / factor;
+    return Number(rounded.toFixed(4));
+  }
+
   async placeOrder(params: OrderParams): Promise<OrderResult> {
     if (!this.apiKey || !this.apiSecret) {
       throw new AdapterError(this.exchangeName, 'API credentials not configured', 'AUTH_ERROR');
@@ -238,15 +279,22 @@ export class CoinDCXAdapter extends BaseAdapter {
     if (params.type === 'limit') orderType = 'limit_order';
     else if (params.type === 'stop_limit') orderType = 'stop_limit';
 
+    const formattedQuantity = this.formatQuantity(params.symbol, params.quantity);
+    if (formattedQuantity <= 0) {
+      throw new AdapterError(this.exchangeName, `Formatted quantity is 0 for ${params.symbol} (raw: ${params.quantity})`);
+    }
+
+    const formattedPrice = params.price ? this.formatPrice(params.price) : undefined;
+
     const body: Record<string, any> = {
       side,
       order_type: orderType,
       market,
-      total_quantity: params.quantity,
+      total_quantity: formattedQuantity,
     };
 
-    if (params.price && orderType === 'limit_order') {
-      body.price_per_unit = params.price;
+    if (formattedPrice && orderType === 'limit_order') {
+      body.price_per_unit = formattedPrice;
     }
 
     if (params.clientOrderId) {
@@ -263,8 +311,8 @@ export class CoinDCXAdapter extends BaseAdapter {
         symbol: this.toUnifiedSymbol(params.symbol),
         side: params.side,
         type: params.type,
-        quantity: params.quantity,
-        price: params.price,
+        quantity: formattedQuantity,
+        price: formattedPrice || params.price,
         status: this.mapStatus(order.status),
         filledQuantity: parseFloat(order.filled_quantity || 0),
         avgFillPrice: parseFloat(order.avg_price || params.price || 0),

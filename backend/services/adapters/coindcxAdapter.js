@@ -530,6 +530,74 @@ export async function getBalances(apiKey, apiSecret) {
 }
 
 /**
+ * Known CoinDCX Target Currency (Base Asset Quantity) Precisions
+ */
+export const COINDCX_DEFAULT_PRECISIONS = {
+  XRP: 1,
+  ADA: 1,
+  DOGE: 0,
+  TRX: 1,
+  POL: 1,
+  MATIC: 1,
+  BTC: 5,
+  ETH: 4,
+  SOL: 2,
+  BNB: 3,
+  DOT: 2,
+  LTC: 3,
+  LINK: 2,
+  AVAX: 2,
+  SHIB: 0,
+  PEPE: 0,
+  NEAR: 2,
+  UNI: 2,
+  ATOM: 2
+};
+
+/**
+ * Format quantity to CoinDCX target currency allowed precision (e.g. 1 decimal for XRP)
+ */
+export function formatOrderQuantity(symbol, quantity, precisionOverride = null) {
+  if (quantity === undefined || quantity === null || isNaN(quantity)) return 0;
+  const clean = (symbol || '').toUpperCase().replace(/[-_]/g, '/');
+  const parts = clean.split('/');
+  const baseAsset = (parts[0] || '').replace(/^[BI]-/, '') || clean;
+
+  let precision = precisionOverride;
+  if (precision === null || precision === undefined) {
+    const marketSym = normalizeSymbol(symbol, 'market');
+    const cached = symbolFiltersCache.get(marketSym);
+    if (cached?.filters?.targetPrecision !== undefined) {
+      precision = cached.filters.targetPrecision;
+    } else if (COINDCX_DEFAULT_PRECISIONS[baseAsset] !== undefined) {
+      precision = COINDCX_DEFAULT_PRECISIONS[baseAsset];
+    } else {
+      precision = 1;
+    }
+  }
+
+  const factor = Math.pow(10, precision);
+  const floored = Math.floor(Number(quantity) * factor) / factor;
+  return Number(floored.toFixed(precision));
+}
+
+/**
+ * Format price to CoinDCX base currency allowed precision
+ */
+export function formatOrderPrice(symbol, price, precisionOverride = null) {
+  if (price === undefined || price === null || isNaN(price)) return undefined;
+  let precision = precisionOverride;
+  if (precision === null || precision === undefined) {
+    const marketSym = normalizeSymbol(symbol, 'market');
+    const cached = symbolFiltersCache.get(marketSym);
+    precision = cached?.filters?.basePrecision ?? 4;
+  }
+  const factor = Math.pow(10, precision);
+  const rounded = Math.round(Number(price) * factor) / factor;
+  return Number(rounded.toFixed(precision));
+}
+
+/**
  * Place a Spot Order on CoinDCX
  */
 export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, quantity, price, stopPrice, amount }) {
@@ -550,21 +618,33 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
   if (upperType === 'limit') cdcxOrderType = 'limit_order';
   else if (upperType === 'stop_limit' || upperType === 'stop_loss') cdcxOrderType = 'stop_limit';
 
+  // Fetch precision rules from CoinDCX market details
+  const filters = await getSymbolFilters(symbol);
+  const formattedQuantity = formatOrderQuantity(symbol, quantity, filters.targetPrecision);
+  const formattedPrice = price ? formatOrderPrice(symbol, price, filters.basePrecision) : undefined;
+  const formattedStopPrice = stopPrice ? formatOrderPrice(symbol, stopPrice, filters.basePrecision) : undefined;
+
+  if (formattedQuantity <= 0) {
+    throw new Error(`[CoinDCX] Formatted quantity is 0 for ${symbol} with precision ${filters.targetPrecision}. Minimum order quantity is ${filters.minAmount}`);
+  }
+
   const body = {
     side: upperSide,
     order_type: cdcxOrderType,
     market: marketSymbol,
-    total_quantity: Number(quantity),
+    total_quantity: formattedQuantity,
     timestamp: timestamp
   };
 
-  if (cdcxOrderType === 'limit_order' || price) {
-    body.price_per_unit = Number(price);
+  if (cdcxOrderType === 'limit_order' || formattedPrice) {
+    body.price_per_unit = formattedPrice;
   }
 
-  if (stopPrice) {
-    body.stop_price = Number(stopPrice);
+  if (formattedStopPrice) {
+    body.stop_price = formattedStopPrice;
   }
+
+  console.log(`[CoinDCX] Dispatching order: ${upperSide.toUpperCase()} ${formattedQuantity} ${marketSymbol} (precision: ${filters.targetPrecision}) @ ${formattedPrice || 'MARKET'}`);
 
   const signature = createSignature(body, secret);
 
@@ -586,8 +666,8 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
         symbol: denormalizeSymbol(symbol) || symbol,
         side: upperSide,
         orderType: upperType,
-        quantity: parseFloat(order.total_quantity || quantity),
-        price: parseFloat(order.price_per_unit || price) || null,
+        quantity: parseFloat(order.total_quantity || formattedQuantity),
+        price: parseFloat(order.price_per_unit || formattedPrice) || null,
         status: mapCoinDCXStatus(order.status),
         createdAt: new Date().toISOString()
       };
@@ -600,8 +680,8 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
         symbol: denormalizeSymbol(symbol) || symbol,
         side: upperSide,
         orderType: upperType,
-        quantity: parseFloat(data.total_quantity || quantity),
-        price: parseFloat(data.price_per_unit || price) || null,
+        quantity: parseFloat(data.total_quantity || formattedQuantity),
+        price: parseFloat(data.price_per_unit || formattedPrice) || null,
         status: mapCoinDCXStatus(data.status),
         createdAt: new Date().toISOString()
       };

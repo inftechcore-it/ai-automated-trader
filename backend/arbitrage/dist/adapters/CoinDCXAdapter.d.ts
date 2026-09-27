@@ -6,6 +6,7 @@ export declare class CoinDCXAdapter extends BaseAdapter {
     private apiKey;
     private apiSecret;
     private intervals;
+    private precisionCache;
     get isTestnet(): boolean;
     initialize(config: ExchangeConfig): Promise<void>;
     private createSignature;
@@ -17,6 +18,8 @@ export declare class CoinDCXAdapter extends BaseAdapter {
     getTicker(symbol: string): Promise<Ticker>;
     getTickers(symbols?: string[]): Promise<Ticker[]>;
     getBalance(): Promise<Balance[]>;
+    private formatQuantity;
+    private formatPrice;
     placeOrder(params: OrderParams): Promise<OrderResult>;
     cancelOrder(orderId: string, symbol: string): Promise<void>;
     getOpenOrders(symbol?: string): Promise<Order[]>;
