@@ -34,7 +34,7 @@ router.get('/analytics', async (req, res) => {
   try {
     const { symbol = 'SOL/USDT', timeframe = '15m', exchange = 'Binance' } = req.query;
     const analytics = await predictiveService.getQuantAnalytics(symbol, timeframe, exchange);
-    return ok(res, analytics);
+    return ok(res, { data: analytics, analytics, ...analytics });
   } catch (error) {
     console.error('[predictiveRoutes] Analytics error:', error);
     return fail(res, 500, error.message);
