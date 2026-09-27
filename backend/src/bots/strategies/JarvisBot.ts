@@ -546,7 +546,8 @@ export class JarvisBot extends BaseBotStrategy {
       (totalHoldingQty === 0 && this.stageStatus !== 'SL_LIQUIDATED' && now - (grid0.lastActionTimestamp || 0) > 2000)
     );
 
-    if (isGrid0Touch && currentPrice <= (grid0.price + this.gridSpacing * 0.8)) {
+    // Strict 4th-Decimal Precision Corridor: Triggers only when live price touches Grid #0 ± priceTolerance (e.g. $1.04700 + 0.0009)
+    if (isGrid0Touch && currentPrice <= (grid0.price + this.priceTolerance)) {
       const entryBudget = totalInvestment * 0.75;
       if (!this.insufficientBalance && (state.availableBalance >= entryBudget || state.availableBalance >= 5.0)) {
         const actualBudget = Math.min(state.availableBalance, entryBudget);
