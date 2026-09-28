@@ -1,6 +1,7 @@
 /**
  * SuperZeeBot Strategy - Autonomous Predictive AI Quant Engine
  * Real-time dynamic boundaries ($X, $Y, $Z), Local Microsecond Guard (<50ms),
+ * Fractional Kelly Criterion Position Sizing, 4 Selectable Quant Methodologies,
  * Hysteresis Action Cooldowns, State Persistence, and Live AI Thought Stream.
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
@@ -21,6 +22,12 @@ export class SuperZeeBot extends BaseBotStrategy {
     emergencyFloorPrice = 0;
     takeProfitCeilingPrice = 0;
     trailingStopLoss = 0;
+    // Quant Methodology & Kelly Position Sizing
+    methodology = 'HYBRID_ENSEMBLE';
+    kellyAllocPercent = 35;
+    quantScore = 75;
+    winProbability = 65;
+    expectedValueDollar = 1.5;
     // Sizing & Capital Allocation
     baseInvestment = 50;
     initialEntryFilled = false;
@@ -67,13 +74,16 @@ export class SuperZeeBot extends BaseBotStrategy {
         this.baseInvestment = toNum(p.baseInvestment, 50);
         this.actionCooldownMs = toNum(p.actionCooldownMs, 20000);
         this.marketRegime = p.activeRegime || 'RANGE_ACCUMULATION';
+        this.methodology = p.methodology || p.method || 'HYBRID_ENSEMBLE';
+        this.kellyAllocPercent = toNum(p.kellyAllocPercent, 35);
+        this.quantScore = toNum(p.quantScore, 75);
         this.lastPrice = toNum(p.currentPrice) || (this.dynamicLower > 0 ? (this.dynamicLower + this.dynamicUpper) / 2 : 0);
         this.lastStatusLog = 0;
         if (p.initialDirective?.thought) {
             this.lastThought = p.initialDirective.thought;
         }
         else {
-            this.lastThought = `🧠 [Super Zee AI] Initialized in ${this.marketRegime}. Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Emergency Floor: $${this.emergencyFloorPrice.toFixed(4)}.`;
+            this.lastThought = `🧠 [Super Zee AI (${this.methodology})] Initialized in ${this.marketRegime}. Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Floor: $${this.emergencyFloorPrice.toFixed(4)}. Kelly Sizing: ${this.kellyAllocPercent}%.`;
         }
         this.log(this.lastThought, 'info');
     }
@@ -98,7 +108,7 @@ export class SuperZeeBot extends BaseBotStrategy {
         if (now - this.lastStatusLog > 18000) {
             this.lastStatusLog = now;
             const profitText = this.realizedProfit >= 0 ? `+$${this.realizedProfit.toFixed(2)}` : `-$${Math.abs(this.realizedProfit).toFixed(2)}`;
-            this.log(`📊 [Super Zee Telemetry] Price: $${currentPrice.toFixed(4)} | Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Regime: ${this.marketRegime} | Holdings: ${currentHoldings.toFixed(4)} ${this.asset} | Available: $${availableCash.toFixed(2)} | Realized PnL: ${profitText}`, 'info');
+            this.log(`📊 [Super Zee Telemetry] Price: $${currentPrice.toFixed(4)} | Model: ${this.methodology} | Score: ${this.quantScore}/100 | Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Holdings: ${currentHoldings.toFixed(4)} ${this.asset} | Kelly: ${this.kellyAllocPercent}% | PnL: ${profitText}`, 'info');
         }
         // ══════════════════════════════════════════════════════════════════
         // 🛡️ 1. LOCAL MICROSECOND GUARD (<50ms execution without AI latency)
@@ -140,19 +150,20 @@ export class SuperZeeBot extends BaseBotStrategy {
             }
         }
         // ══════════════════════════════════════════════════════════════════
-        // 🚀 2. INITIAL BASE ENTRY (75% Allocation upon Bot Start)
+        // 🚀 2. DYNAMIC FRACTIONAL KELLY ENTRY (Dynamic Allocation upon Bot Start)
         // ══════════════════════════════════════════════════════════════════
         if (!this.initialEntryFilled && currentHoldings <= 0) {
-            const entryCapital = Math.max(5.5, availableCash * 0.75);
+            const allocPct = Math.min(0.50, Math.max(0.15, this.kellyAllocPercent / 100));
+            const entryCapital = Math.max(5.5, availableCash * allocPct);
             const buyQty = entryCapital / currentPrice;
-            this.lastThought = `⚡ [Super Zee AI] Establishing initial 75% base position ($${entryCapital.toFixed(2)}) @ $${currentPrice.toFixed(4)} inside ${this.marketRegime} corridor.`;
+            this.lastThought = `⚡ [Super Zee AI (${this.methodology})] Fractional Kelly deployed ${(allocPct * 100).toFixed(1)}% ($${entryCapital.toFixed(2)}) @ $${currentPrice.toFixed(4)} | EV: +$${this.expectedValueDollar.toFixed(2)} | Score: ${this.quantScore}/100.`;
             this.log(this.lastThought, 'info');
             actions.push({
                 action: 'buy',
                 orderType: 'MARKET',
                 quantity: buyQty,
                 metadata: {
-                    reason: 'Initial 75% Predictive Base Entry',
+                    reason: `Fractional Kelly ${(allocPct * 100).toFixed(1)}% Predictive Entry (${this.methodology})`,
                 },
             });
             this.initialEntryFilled = true;
@@ -179,7 +190,7 @@ export class SuperZeeBot extends BaseBotStrategy {
         if (this.dynamicUpper > 0 && currentPrice >= this.dynamicUpper && currentHoldings > 0) {
             const harvestQty = currentHoldings * 0.70;
             const estProfit = (currentPrice - this.avgEntryPrice) * harvestQty;
-            this.lastThought = `⚡ [Super Zee AI] Sold 70% (${harvestQty.toFixed(4)} ${this.asset}) @ $${currentPrice.toFixed(4)}: Tagged Upper +2σ VWAP Band ($${this.dynamicUpper.toFixed(4)}). Est. Profit: ${estProfit >= 0 ? '+' : ''}$${estProfit.toFixed(2)}.`;
+            this.lastThought = `⚡ [Super Zee AI (${this.methodology})] Sold 70% (${harvestQty.toFixed(4)} ${this.asset}) @ $${currentPrice.toFixed(4)}: Tagged Upper +2σ Band ($${this.dynamicUpper.toFixed(4)}). Est. Profit: ${estProfit >= 0 ? '+' : ''}$${estProfit.toFixed(2)}.`;
             this.log(this.lastThought, 'info');
             actions.push({
                 action: 'sell',
@@ -195,18 +206,19 @@ export class SuperZeeBot extends BaseBotStrategy {
             this.lastActionTimestamp = now;
             return actions;
         }
-        // Condition B: 25% Opportunistic Dip Buy at Lower Band / Support
+        // Condition B: Opportunistic Dip Buy at Lower Band / Support with Kelly Sizing
         if (this.dynamicLower > 0 && currentPrice <= this.dynamicLower && availableCash >= 5.5) {
-            const dipCapital = Math.min(availableCash, Math.max(5.5, this.baseInvestment * 0.25));
+            const dipPct = Math.min(0.35, Math.max(0.15, (this.kellyAllocPercent * 0.6) / 100));
+            const dipCapital = Math.min(availableCash, Math.max(5.5, this.baseInvestment * dipPct));
             const dipQty = dipCapital / currentPrice;
-            this.lastThought = `⚡ [Super Zee AI] Opportunistic 25% Dip Buy ($${dipCapital.toFixed(2)}) @ $${currentPrice.toFixed(4)}: Price touched Lower -2σ VWAP Band ($${this.dynamicLower.toFixed(4)}) with CVD absorption.`;
+            this.lastThought = `⚡ [Super Zee AI (${this.methodology})] Opportunistic Kelly Dip Buy ($${dipCapital.toFixed(2)}) @ $${currentPrice.toFixed(4)}: Price touched Lower -2σ VWAP Band ($${this.dynamicLower.toFixed(4)}) with CVD absorption.`;
             this.log(this.lastThought, 'info');
             actions.push({
                 action: 'buy',
                 orderType: 'MARKET',
                 quantity: dipQty,
                 metadata: {
-                    reason: `Autonomous 25% Dip Buy at Lower Band ($${this.dynamicLower.toFixed(4)})`,
+                    reason: `Autonomous ${(dipPct * 100).toFixed(0)}% Dip Buy at Lower Band ($${this.dynamicLower.toFixed(4)})`,
                 },
             });
             this.totalDipBuys++;
@@ -221,7 +233,7 @@ export class SuperZeeBot extends BaseBotStrategy {
     async refreshPredictiveDirective(symbol, currentPrice) {
         try {
             const { getQuantAnalytics } = await import('../../../services/predictiveService.js');
-            const data = await getQuantAnalytics(symbol, '15m', 'Binance');
+            const data = await getQuantAnalytics(symbol, '15m', 'Binance', this.methodology);
             if (data && data.agentDirective) {
                 const d = data.agentDirective;
                 const oldLower = this.dynamicLower;
@@ -233,12 +245,22 @@ export class SuperZeeBot extends BaseBotStrategy {
                 this.takeProfitCeilingPrice = d.takeProfitCeilingPrice || this.takeProfitCeilingPrice;
                 this.marketRegime = data.regime || this.marketRegime;
                 this.lastDirectiveAction = d.action || this.lastDirectiveAction;
+                if (data.expectedValue) {
+                    this.winProbability = data.expectedValue.winProbability || this.winProbability;
+                    this.expectedValueDollar = data.expectedValue.expectedValueDollar || this.expectedValueDollar;
+                    if (data.expectedValue.kellyAllocationPercent) {
+                        this.kellyAllocPercent = data.expectedValue.kellyAllocationPercent;
+                    }
+                }
+                if (data.quantScore) {
+                    this.quantScore = data.quantScore;
+                }
                 if (d.thought && d.thought !== this.lastThought) {
                     this.lastThought = d.thought;
-                    this.log(`🔮 [Super Zee AI Brain] Directive: ${this.lastDirectiveAction} | ${this.lastThought}`, 'info');
+                    this.log(`🔮 [Super Zee AI Brain (${this.methodology})] Directive: ${this.lastDirectiveAction} | ${this.lastThought}`, 'info');
                 }
                 else if (Math.abs(this.dynamicLower - oldLower) > 0.0001 || Math.abs(this.dynamicUpper - oldUpper) > 0.0001) {
-                    this.log(`📐 [Super Zee Recalibration] New Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Microsecond Floor: $${this.emergencyFloorPrice.toFixed(4)}`, 'info');
+                    this.log(`📐 [Super Zee Recalibration] New Corridor: [$${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}] | Floor: $${this.emergencyFloorPrice.toFixed(4)}`, 'info');
                 }
             }
         }
@@ -275,6 +297,10 @@ export class SuperZeeBot extends BaseBotStrategy {
             emergencyFloorPrice: this.emergencyFloorPrice,
             takeProfitCeilingPrice: this.takeProfitCeilingPrice,
             avgEntryPrice: this.avgEntryPrice,
+            kellyAllocPercent: this.kellyAllocPercent,
+            quantScore: this.quantScore,
+            winProbability: this.winProbability,
+            expectedValueDollar: this.expectedValueDollar,
             realizedProfit: this.realizedProfit,
             totalHarvests: this.totalHarvests,
             totalDipBuys: this.totalDipBuys,
@@ -298,6 +324,11 @@ export class SuperZeeBot extends BaseBotStrategy {
             totalHarvests: this.totalHarvests,
             totalDipBuys: this.totalDipBuys,
             marketRegime: this.marketRegime,
+            methodology: this.methodology,
+            kellyAllocPercent: this.kellyAllocPercent,
+            quantScore: this.quantScore,
+            winProbability: this.winProbability,
+            expectedValueDollar: this.expectedValueDollar,
             lastThought: this.lastThought,
             lastDirectiveAction: this.lastDirectiveAction,
             lastActionTimestamp: this.lastActionTimestamp,
@@ -336,6 +367,16 @@ export class SuperZeeBot extends BaseBotStrategy {
             this.totalDipBuys = toNum(customState.totalDipBuys);
         if (customState.marketRegime)
             this.marketRegime = customState.marketRegime;
+        if (customState.methodology)
+            this.methodology = customState.methodology;
+        if (customState.kellyAllocPercent)
+            this.kellyAllocPercent = toNum(customState.kellyAllocPercent);
+        if (customState.quantScore)
+            this.quantScore = toNum(customState.quantScore);
+        if (customState.winProbability)
+            this.winProbability = toNum(customState.winProbability);
+        if (customState.expectedValueDollar)
+            this.expectedValueDollar = toNum(customState.expectedValueDollar);
         if (customState.lastThought)
             this.lastThought = customState.lastThought;
         if (customState.lastDirectiveAction)
@@ -346,10 +387,10 @@ export class SuperZeeBot extends BaseBotStrategy {
             this.lastPrice = toNum(customState.lastPrice);
         if (customState.lastStatusLog)
             this.lastStatusLog = toNum(customState.lastStatusLog);
-        this.log(`🔄 [Super Zee Restore] Resumed state seamlessly from database. Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Floor: $${this.emergencyFloorPrice.toFixed(4)}.`, 'info');
+        this.log(`🔄 [Super Zee Restore] Resumed state seamlessly from database (${this.methodology}). Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Floor: $${this.emergencyFloorPrice.toFixed(4)}. Kelly: ${this.kellyAllocPercent}%.`, 'info');
     }
     async cleanup() {
-        this.log('🛑 [Super Zee Cleanup] Strategy shutting down safely', 'info');
+        this.log(`🛑 [Super Zee Cleanup] Strategy shutting down safely (${this.methodology})`, 'info');
     }
 }
 export default SuperZeeBot;

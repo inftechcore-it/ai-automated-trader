@@ -27,13 +27,46 @@ async function getBotEngine() {
 }
 
 /**
+ * GET /api/predictive/top-opportunities
+ * Multi-Coin Quant Screener: Scans 20-30 tokens and returns top 2, 5, or 10 ranked setups
+ */
+router.get('/top-opportunities', async (req, res) => {
+  try {
+    const {
+      exchange = 'Binance',
+      timeframe = '15m',
+      count = 5,
+      method = 'HYBRID_ENSEMBLE'
+    } = req.query;
+
+    const screenerResults = await predictiveService.scanTopOpportunities(
+      exchange,
+      timeframe,
+      Number(count) || 5,
+      method
+    );
+
+    return ok(res, screenerResults);
+  } catch (error) {
+    console.error('[predictiveRoutes] Top opportunities screener error:', error);
+    return fail(res, 500, error.message);
+  }
+});
+
+/**
  * GET /api/predictive/analytics
  * Returns live multi-dev Gaussian VWAP bands, CVD delta, Squeeze status, EV matrix, and Agent Directives.
  */
 router.get('/analytics', async (req, res) => {
   try {
-    const { symbol = 'SOL/USDT', timeframe = '15m', exchange = 'Binance' } = req.query;
-    const analytics = await predictiveService.getQuantAnalytics(symbol, timeframe, exchange);
+    const {
+      symbol = 'SOL/USDT',
+      timeframe = '15m',
+      exchange = 'Binance',
+      method = 'HYBRID_ENSEMBLE'
+    } = req.query;
+
+    const analytics = await predictiveService.getQuantAnalytics(symbol, timeframe, exchange, method);
     return ok(res, { data: analytics, analytics, ...analytics });
   } catch (error) {
     console.error('[predictiveRoutes] Analytics error:', error);
@@ -43,12 +76,21 @@ router.get('/analytics', async (req, res) => {
 
 /**
  * POST /api/predictive/simulate
- * Runs 1-Click Fast Monte Carlo replay simulation for a selected token and capital amount.
+ * Runs 1-Click Fast Monte Carlo replay simulation for a selected token, capital amount, and methodology.
  */
 router.post('/simulate', async (req, res) => {
   try {
-    const { symbol = 'SOL/USDT', timeframe = '15m', exchange = 'Binance', investment = 50, numSimulations = 1000, horizon = 48 } = req.body;
-    const analytics = await predictiveService.getQuantAnalytics(symbol, timeframe, exchange);
+    const {
+      symbol = 'SOL/USDT',
+      timeframe = '15m',
+      exchange = 'Binance',
+      investment = 50,
+      numSimulations = 1000,
+      horizon = 48,
+      method = 'HYBRID_ENSEMBLE'
+    } = req.body;
+
+    const analytics = await predictiveService.getQuantAnalytics(symbol, timeframe, exchange, method);
     const simulation = predictiveService.simulateMonteCarlo(
       analytics.series.candles,
       Number(investment) || 50,
@@ -60,6 +102,7 @@ router.post('/simulate', async (req, res) => {
       symbol,
       timeframe,
       exchange,
+      method,
       investment: Number(investment),
       simulation
     });
@@ -80,7 +123,9 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
       exchange = 'Binance',
       mode = 'PAPER',
       investedAmount = 50,
-      name
+      name,
+      method = 'HYBRID_ENSEMBLE',
+      kellyAllocPercent
     } = req.body;
 
     const engine = await getBotEngine();
@@ -90,11 +135,13 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
 
     const userId = String(req.user?.id || 'default-user');
 
-    // 1. Fetch fresh quantitative baseline calibration
-    const analytics = await predictiveService.getQuantAnalytics(symbol, '15m', exchange);
+    // 1. Fetch fresh quantitative baseline calibration for chosen methodology
+    const analytics = await predictiveService.getQuantAnalytics(symbol, '15m', exchange, method);
     const directive = analytics.agentDirective;
+    const ev = analytics.expectedValue;
 
-    const botName = name || `Super Zee ${symbol} (${mode})`;
+    const chosenKelly = Number(kellyAllocPercent) || ev.kellyAllocationPercent || 35;
+    const botName = name || `Super Zee ${symbol} (${method.replace('_', ' ')})`;
 
     const params = {
       lowerPrice: directive.dynamicLower,
@@ -105,6 +152,9 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
       takeProfitCeilingPrice: directive.takeProfitCeilingPrice,
       trailingStopLoss: directive.emergencyFloorPrice,
       activeRegime: analytics.regime,
+      methodology: method,
+      kellyAllocPercent: chosenKelly,
+      quantScore: analytics.quantScore,
       initialDirective: directive,
       actionCooldownMs: 20000, // 20-second hysteresis cooldown
       baseInvestment: Number(investedAmount),
@@ -141,9 +191,11 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
       analytics: {
         regime: analytics.regime,
         vwap: analytics.vwap,
-        directive
+        directive,
+        methodology: method,
+        quantScore: analytics.quantScore
       },
-      message: `🚀 Super Zee Bot (${symbol}) launched successfully with AI Predictive Control!`
+      message: `🚀 Super Zee Bot (${symbol}) launched successfully with ${method.replace('_', ' ')} Quant Engine!`
     });
   } catch (error) {
     console.error('[predictiveRoutes] Launch Super Zee error:', error);

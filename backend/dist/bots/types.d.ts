@@ -228,6 +228,9 @@ export interface SuperZeeParams {
     takeProfitCeilingPrice?: number;
     trailingStopLoss?: number;
     activeRegime?: string;
+    methodology?: string;
+    kellyAllocPercent?: number;
+    quantScore?: number;
     initialDirective?: any;
     actionCooldownMs?: number;
     baseInvestment?: number;

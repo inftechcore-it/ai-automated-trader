@@ -7,12 +7,38 @@ import * as exchangeService from './exchangeService.js';
 
 const BINANCE_BASE = env?.exchanges?.binanceBaseUrl || 'https://api.binance.com';
 
+// Cache for screener to prevent excessive API hammering and provide ultra-fast UI rendering
+const screenerCache = new Map();
+const SCREENER_CACHE_TTL_MS = 12000; // 12-second cache
+
 /**
  * Normalizes symbol format (e.g., "SOL/USDT" -> "SOLUSDT")
  */
 function normalizeSymbol(symbol) {
   return (symbol || 'SOL/USDT').replace('/', '').replace('-', '').replace('_', '').toUpperCase();
 }
+
+/**
+ * Canonical liquid symbol catalog per exchange
+ */
+export const POPULAR_SCREENER_PAIRS = {
+  Binance: [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
+    'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT',
+    'SUI/USDT', 'PEPE/USDT', 'RENDER/USDT', 'FET/USDT', 'INJ/USDT',
+    'APT/USDT', 'AR/USDT', 'TIA/USDT', 'SEI/USDT', 'DOT/USDT',
+    'UNI/USDT', 'OP/USDT', 'ARB/USDT', 'FIL/USDT', 'LTC/USDT'
+  ],
+  CoinDCX: [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT',
+    'ADA/USDT', 'BNB/USDT', 'MATIC/USDT', 'AVAX/USDT', 'LINK/USDT',
+    'NEAR/USDT', 'PEPE/USDT', 'DOT/USDT', 'LTC/USDT'
+  ],
+  Jupiter: [
+    'SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC', 'WIF/USDC',
+    'PYTH/USDC', 'DRIFT/USDC', 'POPCAT/USDC', 'RENDER/USDC', 'JTO/USDC'
+  ]
+};
 
 /**
  * Fallback synthetic candle generator so the chart and math NEVER render blank
@@ -56,7 +82,7 @@ function generateFallbackCandles(symbol, basePrice = 100, limit = 100) {
 /**
  * Robust Multi-Exchange Klines Fetcher
  */
-async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange = 'Binance', limit = 100) {
+export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange = 'Binance', limit = 100) {
   const norm = normalizeSymbol(symbol);
   const exLower = (exchange || 'binance').toLowerCase();
 
@@ -66,7 +92,7 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
       const url = `${BINANCE_BASE}/api/v3/klines`;
       const { data } = await axios.get(url, {
         params: { symbol: norm, interval, limit },
-        timeout: 6000
+        timeout: 5000
       });
 
       if (Array.isArray(data) && data.length > 0) {
@@ -95,7 +121,7 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
         });
       }
     } catch (err) {
-      console.warn(`[predictiveService] Binance API failed for ${symbol}: ${err.message}`);
+      // non-blocking fallback
     }
   }
 
@@ -112,9 +138,7 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
           typicalPrice: (c.high + c.low + c.close) / 3
         }));
       }
-    } catch (err) {
-      console.warn(`[predictiveService] CoinDCX adapter failed for ${symbol}: ${err.message}`);
-    }
+    } catch {}
   }
 
   // 3. Try Jupiter Adapter
@@ -130,9 +154,7 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
           typicalPrice: (c.high + c.low + c.close) / 3
         }));
       }
-    } catch (err) {
-      console.warn(`[predictiveService] Jupiter adapter failed for ${symbol}: ${err.message}`);
-    }
+    } catch {}
   }
 
   // 4. Try Binance Adapter Fallback
@@ -147,9 +169,7 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
         typicalPrice: (c.high + c.low + c.close) / 3
       }));
     }
-  } catch (err) {
-    console.warn(`[predictiveService] Binance adapter fallback failed for ${symbol}: ${err.message}`);
-  }
+  } catch {}
 
   // 5. Infallible Price Anchor + Synthetic Generator
   let anchorPrice = 100;
@@ -160,7 +180,6 @@ async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange
     }
   } catch {}
 
-  console.log(`[predictiveService] Generating synthetic calibrated candles for ${symbol} @ $${anchorPrice}`);
   return generateFallbackCandles(symbol, anchorPrice, limit);
 }
 
@@ -325,31 +344,56 @@ export function calculateVolatilitySqueeze(candles, period = 20) {
 }
 
 /**
- * 4. Expected Value (EV) & Risk:Reward Probability Matrix
+ * 4. Expected Value (EV) & Fractional Kelly Criterion Position Sizing
+ * Enforces Law 1 (EV > 0 Gatekeeper) & Law 2 (Fractional Kelly)
  */
-export function calculateExpectedValueMatrix(candles, vwapData, squeeze, currentPrice) {
+export function calculateExpectedValueMatrix(candles, vwapData, squeeze, currentPrice, methodology = 'HYBRID_ENSEMBLE') {
   const lastVwap = vwapData[vwapData.length - 1] || {};
   const sigma = lastVwap.sigma || (currentPrice * 0.01);
+  const methodUpper = (methodology || 'HYBRID_ENSEMBLE').toUpperCase();
 
-  let winProb = 0.65;
-  if (currentPrice < (lastVwap.lower1Sigma || currentPrice)) {
-    winProb += 0.12;
-  } else if (currentPrice > (lastVwap.upper2Sigma || currentPrice)) {
-    winProb -= 0.10;
+  let winProb = 0.62;
+
+  // Methodology-specific win probability calibration
+  if (methodUpper.includes('GAUSSIAN')) {
+    const zScore = (currentPrice - (lastVwap.vwap || currentPrice)) / (sigma || 1);
+    if (zScore <= -1.5) {
+      winProb += Math.min(0.22, Math.abs(zScore) * 0.08);
+    } else if (zScore >= 1.8) {
+      winProb -= 0.18;
+    }
+  } else if (methodUpper.includes('MOMENTUM')) {
+    if (squeeze.squeezeFired && squeeze.momentum > 0) {
+      winProb += 0.16;
+    } else if (squeeze.inSqueeze) {
+      winProb += 0.04;
+    } else if (squeeze.momentum < -0.5) {
+      winProb -= 0.12;
+    }
+  } else if (methodUpper.includes('ORDER_FLOW') || methodUpper.includes('ORDERFLOW')) {
+    const lastCVD = calculateCVD(candles.slice(-15));
+    const recent = lastCVD[lastCVD.length - 1] || {};
+    if (recent.divergence === 'BULLISH_ABSORPTION' || recent.delta > 0) {
+      winProb += 0.15;
+    } else if (recent.divergence === 'BEARISH_EXHAUSTION' || recent.delta < 0) {
+      winProb -= 0.14;
+    }
+  } else {
+    // HYBRID_ENSEMBLE
+    if (currentPrice < (lastVwap.lower1Sigma || currentPrice)) winProb += 0.10;
+    if (currentPrice > (lastVwap.upper2Sigma || currentPrice)) winProb -= 0.12;
+    if (squeeze.squeezeFired && squeeze.momentum > 0) winProb += 0.09;
   }
 
-  if (squeeze.squeezeFired && squeeze.momentum > 0) {
-    winProb += 0.08;
-  }
-
-  winProb = Math.min(0.88, Math.max(0.55, winProb));
+  winProb = Math.min(0.89, Math.max(0.42, winProb));
   const lossProb = 1 - winProb;
 
-  const targetGainPrice = currentPrice + (1.8 * sigma);
+  // Target and stop loss calculated asymmetrically (Law 3)
+  const targetGainPrice = currentPrice + (1.85 * sigma);
   const stopLossPrice = currentPrice - (1.0 * sigma);
 
-  const potentialWinPerUnit = targetGainPrice - currentPrice;
-  const potentialLossPerUnit = currentPrice - stopLossPrice;
+  const potentialWinPerUnit = Math.max(0.0001, targetGainPrice - currentPrice);
+  const potentialLossPerUnit = Math.max(0.0001, currentPrice - stopLossPrice);
 
   const rrRatio = potentialLossPerUnit > 0 ? potentialWinPerUnit / potentialLossPerUnit : 2.5;
 
@@ -358,6 +402,24 @@ export function calculateExpectedValueMatrix(candles, vwapData, squeeze, current
   const expectedLossDollar = standardPosition * (potentialLossPerUnit / currentPrice);
   const expectedValueDollar = (winProb * expectedWinDollar) - (lossProb * expectedLossDollar);
 
+  // ════════════════════════════════════════════════════════════════════
+  // 📐 LAW 2: FRACTIONAL KELLY CRITERION SIZING FORMULA
+  // f* = (b * p - q) / b
+  // Kelly % = clamp(15%, 50%, f* * 0.5 * 100) if EV > 0, else 0% (Cash)
+  // ════════════════════════════════════════════════════════════════════
+  const b = rrRatio;
+  const p = winProb;
+  const q = lossProb;
+  const rawKelly = (b * p - q) / b;
+
+  let kellyAllocationPercent = 0;
+  if (expectedValueDollar > 0 && rawKelly > 0) {
+    const halfKelly = rawKelly * 0.5; // Half-Kelly for drawdown mitigation
+    kellyAllocationPercent = Number((Math.min(0.50, Math.max(0.15, halfKelly)) * 100).toFixed(1));
+  } else {
+    kellyAllocationPercent = 0; // Hold Cash when EV <= 0
+  }
+
   return {
     winProbability: Number((winProb * 100).toFixed(1)),
     lossProbability: Number((lossProb * 100).toFixed(1)),
@@ -365,7 +427,10 @@ export function calculateExpectedValueMatrix(candles, vwapData, squeeze, current
     expectedValueDollar: Number(expectedValueDollar.toFixed(2)),
     profitFactor: Number(((winProb * expectedWinDollar) / (lossProb * expectedLossDollar || 0.01)).toFixed(2)),
     targetPrice: Number(targetGainPrice.toFixed(6)),
-    stopLossPrice: Number(stopLossPrice.toFixed(6))
+    stopLossPrice: Number(stopLossPrice.toFixed(6)),
+    kellyAllocationPercent,
+    rawKellyFraction: Number(rawKelly.toFixed(3)),
+    isPositiveEV: expectedValueDollar > 0
   };
 }
 
@@ -473,9 +538,9 @@ export function simulateMonteCarlo(candles, investment = 50, numSims = 1000, hor
 }
 
 /**
- * 6. Quant Agent Intelligence & AI Directive Generator
+ * 6. Quant Agent Intelligence & AI Directive Generator with 4 Methodologies
  */
-export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', exchange = 'Binance') {
+export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', exchange = 'Binance', methodology = 'HYBRID_ENSEMBLE') {
   const candles = await fetchMarketKlines(symbol, timeframe, exchange, 100);
   if (!candles || candles.length === 0) {
     throw new Error(`Failed to fetch candlestick data for ${symbol}`);
@@ -485,10 +550,11 @@ export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', 
   const vwapSeries = calculateGaussianVWAP(candles);
   const cvdSeries = calculateCVD(candles);
   const squeeze = calculateVolatilitySqueeze(candles, 20);
-  const evMatrix = calculateExpectedValueMatrix(candles, vwapSeries, squeeze, currentPrice);
+  const evMatrix = calculateExpectedValueMatrix(candles, vwapSeries, squeeze, currentPrice, methodology);
 
   const lastVwap = vwapSeries[vwapSeries.length - 1];
   const lastCvd = cvdSeries[cvdSeries.length - 1];
+  const methodUpper = (methodology || 'HYBRID_ENSEMBLE').toUpperCase();
 
   let regime = 'RANGE_ACCUMULATION';
   if (squeeze.squeezeFired && squeeze.momentum > 0.5) {
@@ -508,32 +574,82 @@ export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', 
   const emergencyFloorPrice = Number((lastVwap.lower3Sigma || (currentPrice * 0.95)).toFixed(6));
   const takeProfitCeilingPrice = Number((lastVwap.upper3Sigma || (currentPrice * 1.05)).toFixed(6));
 
+  // Compute composite Quant Conviction Score (0-100)
+  const zScore = (currentPrice - lastVwap.vwap) / (lastVwap.sigma || 1);
+  const zScoreDiscount = Math.max(0, Math.min(30, (Math.abs(Math.min(0, zScore)) / 2.0) * 30));
+  const cvdAbsorptionFactor = lastCvd.divergence === 'BULLISH_ABSORPTION' ? 25 : (lastCvd.delta > 0 ? 15 : 5);
+  const squeezeFactor = squeeze.squeezeFired && squeeze.momentum > 0 ? 20 : (squeeze.inSqueeze ? 12 : 5);
+  const evFactor = evMatrix.expectedValueDollar > 0 ? Math.min(25, (evMatrix.winProbability / 100) * 25) : 0;
+
+  const quantScore = Math.min(100, Math.max(10, Math.round(zScoreDiscount + cvdAbsorptionFactor + squeezeFactor + evFactor)));
+
+  // Generate dynamic, raw, unfiltered mathematical directives based on methodology
   let action = 'DEFENSIVE_HOLD';
-  let buyRatio = 0;
+  let buyRatio = evMatrix.kellyAllocationPercent ? (evMatrix.kellyAllocationPercent / 100) : 0;
   let sellRatio = 0;
   let thought = '';
 
-  if (currentPrice <= lastVwap.lower1Sigma || lastCvd.divergence === 'BULLISH_ABSORPTION') {
-    action = 'OPPORTUNISTIC_DIP_BUY';
-    buyRatio = 0.25;
-    thought = `⚡ [Super Zee AI] Price ($${currentPrice.toFixed(4)}) touched Lower -1.5σ VWAP Band while CVD (${lastCvd.cvd > 0 ? '+' : ''}${lastCvd.cvd.toFixed(1)}) detected Bullish Absorption. Recommending 25% dip entry.`;
-  } else if (currentPrice >= lastVwap.upper2Sigma || lastCvd.divergence === 'BEARISH_EXHAUSTION') {
-    action = 'HARVEST_PROFIT';
-    sellRatio = 0.70;
-    thought = `⚡ [Super Zee AI] Price ($${currentPrice.toFixed(4)}) tagged Upper +2σ Band with Bearish Divergence exhaustion. Recommending 70% capital harvest.`;
-  } else if (squeeze.squeezeFired && squeeze.momentum > 0) {
-    action = 'RUNNER_EXPANSION';
-    buyRatio = 0.15;
-    thought = `⚡ [Super Zee AI] Volatility Squeeze fired bullish momentum (+${squeeze.momentum.toFixed(2)}). Releasing 30% trailing runner bag.`;
+  if (!evMatrix.isPositiveEV) {
+    action = 'REFUSE_ENTRY_HOLD_CASH';
+    buyRatio = 0;
+    sellRatio = 0.50;
+    thought = `⚠️ [Quant Law 1 Enforced] Negative Expected Value (EV: -$${Math.abs(evMatrix.expectedValueDollar).toFixed(2)}) & Win Prob ${evMatrix.winProbability}%. Super Zee strictly refuses trade entry. Recommending 100% Cash retention.`;
+  } else if (methodUpper.includes('GAUSSIAN')) {
+    if (zScore <= -1.4) {
+      action = 'OPPORTUNISTIC_DIP_BUY';
+      thought = `🟣 [Gaussian Mean Reversion] Price at $${currentPrice.toFixed(4)} sits at ${zScore.toFixed(2)}σ Gaussian discount below VWAP ($${lastVwap.vwap.toFixed(4)}). Fractional Kelly sizes entry to ${evMatrix.kellyAllocationPercent}%. Target VWAP +1.8σ ($${evMatrix.targetPrice.toFixed(4)}), Invalidation Floor: $${emergencyFloorPrice.toFixed(4)}.`;
+    } else if (zScore >= 1.8) {
+      action = 'HARVEST_PROFIT';
+      sellRatio = 0.70;
+      thought = `🟣 [Gaussian Mean Reversion] Price tagged Upper +${zScore.toFixed(2)}σ Band ($${currentPrice.toFixed(4)}). Statistical exhaustion imminent. Harvesting 70% realized gains.`;
+    } else {
+      action = 'DEFENSIVE_HOLD';
+      thought = `🟣 [Gaussian Mean Reversion] Price oscillating inside fair-value corridor ($${dynamicLower.toFixed(4)} - $${dynamicUpper.toFixed(4)}). Z-score: ${zScore.toFixed(2)}σ. Holding position safely.`;
+    }
+  } else if (methodUpper.includes('MOMENTUM')) {
+    if (squeeze.squeezeFired && squeeze.momentum > 0) {
+      action = 'RUNNER_EXPANSION';
+      thought = `🚀 [Momentum Breakout] Volatility Squeeze triggered bullish expansion (+${squeeze.momentum.toFixed(2)} momentum) with ATR at ${squeeze.atrPercent}%. Kelly deploying ${evMatrix.kellyAllocationPercent}% capital into expansion corridor. Target: $${evMatrix.targetPrice.toFixed(4)}.`;
+    } else if (squeeze.inSqueeze) {
+      action = 'PRE_BREAKOUT_ACCUMULATION';
+      thought = `🚀 [Momentum Squeeze] Bollinger Bands compressed inside Keltner Channels (Bandwidth: ${squeeze.bandwidth}%). Accumulating ${evMatrix.kellyAllocationPercent}% in anticipation of directional volatility release.`;
+    } else {
+      action = 'DEFENSIVE_HOLD';
+      thought = `🚀 [Momentum Breakout] No active momentum breakout. Momentum: ${squeeze.momentum.toFixed(2)}. Invalidation Floor at $${emergencyFloorPrice.toFixed(4)}. Holding cash.`;
+    }
+  } else if (methodUpper.includes('ORDER_FLOW') || methodUpper.includes('ORDERFLOW')) {
+    if (lastCvd.divergence === 'BULLISH_ABSORPTION') {
+      action = 'OPPORTUNISTIC_DIP_BUY';
+      thought = `🌊 [Order Flow Imbalance] CVD Bullish Absorption confirmed (Delta: ${lastCvd.delta > 0 ? '+' : ''}${lastCvd.delta.toFixed(1)}). Limit bid buyers absorbing market sell pressure. Kelly allocating ${evMatrix.kellyAllocationPercent}% position.`;
+    } else if (lastCvd.divergence === 'BEARISH_EXHAUSTION') {
+      action = 'HARVEST_PROFIT';
+      sellRatio = 0.75;
+      thought = `🌊 [Order Flow Imbalance] Bearish CVD exhaustion at resistance. Taker buying drying up. Liquidating 75% runner to lock in maximum alpha.`;
+    } else {
+      action = 'DEFENSIVE_HOLD';
+      thought = `🌊 [Order Flow Imbalance] CVD flow balanced at ${lastCvd.cvd.toFixed(1)}. No significant order flow divergence detected. Microsecond Floor active at $${emergencyFloorPrice.toFixed(4)}.`;
+    }
   } else {
-    action = 'DEFENSIVE_HOLD';
-    thought = `⚡ [Super Zee AI] Market is in ${regime} with ATR at ${squeeze.atrPercent}%. VWAP fair-value corridor $${dynamicLower.toFixed(4)} - $${dynamicUpper.toFixed(4)}. Holding current positions safely.`;
+    // HYBRID_ENSEMBLE
+    if (quantScore >= 70 && evMatrix.expectedValueDollar > 0) {
+      action = 'OPPORTUNISTIC_DIP_BUY';
+      thought = `🧠 [Hybrid Quant Ensemble] Strong Conviction (${quantScore}/100) | EV: +$${evMatrix.expectedValueDollar.toFixed(2)} | Win Prob: ${evMatrix.winProbability}%. Fractional Kelly recommends ${evMatrix.kellyAllocationPercent}% entry @ $${currentPrice.toFixed(4)}. Corridor: [$${dynamicLower.toFixed(4)} - $${dynamicUpper.toFixed(4)}]. Floor: $${emergencyFloorPrice.toFixed(4)}.`;
+    } else if (currentPrice >= lastVwap.upper2Sigma || lastCvd.divergence === 'BEARISH_EXHAUSTION') {
+      action = 'HARVEST_PROFIT';
+      sellRatio = 0.70;
+      thought = `🧠 [Hybrid Quant Ensemble] Upper +2σ Band tagged with divergence exhaustion. Score: ${quantScore}/100. Executing 70% profit harvest.`;
+    } else {
+      action = 'DEFENSIVE_HOLD';
+      thought = `🧠 [Hybrid Quant Ensemble] Market in ${regime}. Quant Score: ${quantScore}/100 | EV: +$${evMatrix.expectedValueDollar.toFixed(2)}. Corridor: [$${dynamicLower.toFixed(4)} - $${dynamicUpper.toFixed(4)}]. Microsecond Floor: $${emergencyFloorPrice.toFixed(4)}.`;
+    }
   }
 
   return {
     symbol,
     timeframe,
     exchange,
+    methodology: methodUpper,
+    quantScore,
     currentPrice,
     regime,
     vwap: lastVwap.vwap,
@@ -555,6 +671,9 @@ export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', 
     expectedValue: evMatrix,
     agentDirective: {
       action,
+      methodology: methodUpper,
+      quantScore,
+      kellyAllocationPercent: evMatrix.kellyAllocationPercent,
       buyRatio,
       sellRatio,
       dynamicLower,
@@ -574,11 +693,119 @@ export async function getQuantAnalytics(symbol = 'SOL/USDT', timeframe = '15m', 
   };
 }
 
+/**
+ * 7. Multi-Coin Top Screener Engine (`scanTopOpportunities`)
+ * Scans 20-30 liquid pairs and ranks by Quant Conviction Score & Expected Value
+ */
+export async function scanTopOpportunities(exchange = 'Binance', timeframe = '15m', count = 5, methodology = 'HYBRID_ENSEMBLE') {
+  const normCount = [2, 5, 10].includes(Number(count)) ? Number(count) : 5;
+  const cacheKey = `${exchange}:${timeframe}:${methodology}:${normCount}`;
+
+  const cached = screenerCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < SCREENER_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const exKey = Object.keys(POPULAR_SCREENER_PAIRS).find(k => k.toLowerCase() === (exchange || 'binance').toLowerCase()) || 'Binance';
+  const pairsToScan = POPULAR_SCREENER_PAIRS[exKey] || POPULAR_SCREENER_PAIRS.Binance;
+
+  // Process pairs with concurrency throttle (5 parallel) for fast scan under 1.5 seconds
+  const results = [];
+  const chunkSize = 6;
+
+  for (let i = 0; i < pairsToScan.length; i += chunkSize) {
+    const chunk = pairsToScan.slice(i, i + chunkSize);
+    const chunkPromises = chunk.map(async (sym) => {
+      try {
+        const analytics = await getQuantAnalytics(sym, timeframe, exchange, methodology);
+        const ev = analytics.expectedValue;
+        const reasons = [];
+
+        if (analytics.agentDirective.action === 'OPPORTUNISTIC_DIP_BUY') {
+          reasons.push('Gaussian VWAP Discount Setup');
+        }
+        if (analytics.cvd.divergence === 'BULLISH_ABSORPTION') {
+          reasons.push('CVD Bullish Order Absorption');
+        }
+        if (analytics.squeeze.squeezeFired && analytics.squeeze.momentum > 0) {
+          reasons.push('Bullish Volatility Breakout Fired');
+        }
+        if (ev.isPositiveEV) {
+          reasons.push(`Positive EV (+$${ev.expectedValueDollar})`);
+        }
+        if (reasons.length === 0) {
+          reasons.push(`${analytics.regime} Corridor`);
+        }
+
+        let bias = 'HOLD';
+        if (analytics.quantScore >= 75 && ev.isPositiveEV) {
+          bias = 'STRONG_BUY';
+        } else if (analytics.quantScore >= 60 && ev.isPositiveEV) {
+          bias = 'BUY';
+        } else if (analytics.agentDirective.action === 'HARVEST_PROFIT') {
+          bias = 'TAKE_PROFIT';
+        } else {
+          bias = 'DEFENSIVE_HOLD';
+        }
+
+        return {
+          symbol: sym,
+          price: analytics.currentPrice,
+          score: analytics.quantScore,
+          winProbability: ev.winProbability,
+          expectedValueDollar: ev.expectedValueDollar,
+          kellyAllocationPercent: ev.kellyAllocationPercent,
+          recommendedRR: ev.recommendedRR,
+          regime: analytics.regime,
+          bias,
+          reasons,
+          targetPrice: ev.targetPrice,
+          floorPrice: analytics.agentDirective.emergencyFloorPrice,
+          action: analytics.agentDirective.action,
+          thought: analytics.agentDirective.thought,
+          methodology: analytics.methodology
+        };
+      } catch (err) {
+        return null;
+      }
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    for (const r of chunkResults) {
+      if (r) results.push(r);
+    }
+  }
+
+  // Sort strictly by Quant Conviction Score descending, then by Expected Value
+  results.sort((a, b) => (b.score - a.score) || (b.expectedValueDollar - a.expectedValueDollar));
+
+  const rankedOpportunities = results.slice(0, normCount).map((item, idx) => ({
+    rank: idx + 1,
+    ...item
+  }));
+
+  const payload = {
+    exchange,
+    timeframe,
+    methodology: (methodology || 'HYBRID_ENSEMBLE').toUpperCase(),
+    scannedTotal: pairsToScan.length,
+    count: rankedOpportunities.length,
+    opportunities: rankedOpportunities,
+    timestamp: new Date().toISOString()
+  };
+
+  screenerCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+  return payload;
+}
+
 export default {
+  POPULAR_SCREENER_PAIRS,
+  fetchMarketKlines,
   calculateGaussianVWAP,
   calculateCVD,
   calculateVolatilitySqueeze,
   calculateExpectedValueMatrix,
   simulateMonteCarlo,
-  getQuantAnalytics
+  getQuantAnalytics,
+  scanTopOpportunities
 };

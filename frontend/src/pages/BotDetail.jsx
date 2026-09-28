@@ -450,13 +450,18 @@ export default function BotDetail() {
       {/* Super Zee Predictive Brain & Thought Section */}
       {bot.strategyType === 'SUPER_ZEE' && (
         <div className="strategy-section" style={{ border: '1px solid rgba(147, 51, 234, 0.4)', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.5) 100%)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: '#c084fc' }}>
               <Sparkles size={20} /> Super Zee Predictive AI Brain
             </h2>
-            <span style={{ background: 'rgba(147, 51, 234, 0.2)', border: '1px solid rgba(147, 51, 234, 0.5)', color: '#c084fc', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
-              QUANT CONTROLLED
-            </span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <span style={{ background: 'rgba(147, 51, 234, 0.2)', border: '1px solid rgba(147, 51, 234, 0.5)', color: '#c084fc', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
+                {(bot.params?.methodology || 'HYBRID_ENSEMBLE').replace('_', ' ')}
+              </span>
+              <span style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid rgba(16, 185, 129, 0.5)', color: '#10b981', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
+                QUANT CONTROLLED
+              </span>
+            </div>
           </div>
 
           <div className="strategy-metrics">
@@ -464,6 +469,18 @@ export default function BotDetail() {
               <span className="metric-label">Current Price</span>
               <span className="metric-value" style={{ color: '#38bdf8', fontWeight: '800' }}>
                 ${Number(bot.strategyStatus?.metrics?.currentPrice || bot.strategyStatus?.metrics?.lastPrice || bot.currentPrice || bot.params?.currentPrice || 0).toFixed(4)}
+              </span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Quant Score</span>
+              <span className="metric-value" style={{ color: '#f59e0b', fontWeight: '800' }}>
+                {bot.strategyStatus?.metrics?.quantScore || bot.params?.quantScore || 75}/100
+              </span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Fractional Kelly Sizing</span>
+              <span className="metric-value" style={{ color: '#c084fc', fontWeight: '800' }}>
+                {bot.strategyStatus?.metrics?.kellyAllocPercent || bot.params?.kellyAllocPercent || 35}%
               </span>
             </div>
             <div className="metric-item">

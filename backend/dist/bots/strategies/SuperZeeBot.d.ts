@@ -1,6 +1,7 @@
 /**
  * SuperZeeBot Strategy - Autonomous Predictive AI Quant Engine
  * Real-time dynamic boundaries ($X, $Y, $Z), Local Microsecond Guard (<50ms),
+ * Fractional Kelly Criterion Position Sizing, 4 Selectable Quant Methodologies,
  * Hysteresis Action Cooldowns, State Persistence, and Live AI Thought Stream.
  */
 import { BaseBotStrategy } from '../IBotStrategy.js';
@@ -14,6 +15,11 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     private emergencyFloorPrice;
     private takeProfitCeilingPrice;
     private trailingStopLoss;
+    private methodology;
+    private kellyAllocPercent;
+    private quantScore;
+    private winProbability;
+    private expectedValueDollar;
     private baseInvestment;
     private initialEntryFilled;
     private activeHoldingsQuantity;
