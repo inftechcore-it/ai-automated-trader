@@ -44,6 +44,7 @@ export class SuperZeeBot extends BaseBotStrategy {
   // Sizing & Capital Allocation
   private baseInvestment = 50;
   private initialEntryFilled = false;
+  private hasHarvestedUpperBand = false; // Prevents infinite repeat selling at upper band; locks 30% runner
   private activeHoldingsQuantity = 0;
   private avgEntryPrice = 0;
   private realizedProfit = 0;
@@ -225,28 +226,47 @@ export class SuperZeeBot extends BaseBotStrategy {
       this.refreshPredictiveDirective(tick.symbol, currentPrice).catch(() => {});
     }
 
-    // Condition A: 70% Profit Harvest at Upper Band / Resistance
-    if (this.dynamicUpper > 0 && currentPrice >= this.dynamicUpper && currentHoldings > 0) {
+    // Reset harvest lock on pullback towards VWAP / midpoint or lower band
+    const corridorMid = (this.dynamicLower > 0 && this.dynamicUpper > 0)
+      ? (this.dynamicLower + this.dynamicUpper) / 2
+      : (this.dynamicUpper > 0 ? this.dynamicUpper * 0.985 : 0);
+
+    if (this.hasHarvestedUpperBand && corridorMid > 0 && currentPrice <= corridorMid) {
+      this.hasHarvestedUpperBand = false;
+      this.log(`🔄 [Super Zee Cycle Reset] Price pulled back to $${currentPrice.toFixed(4)} (below midpoint $${corridorMid.toFixed(4)}). Upper harvest lock reset for next cycle.`, 'info');
+    }
+
+    // Condition A: 70% Profit Harvest at Upper Band / Resistance (Executes ONCE per cycle touch)
+    if (this.dynamicUpper > 0 && currentPrice >= this.dynamicUpper && currentHoldings > 0 && !this.hasHarvestedUpperBand) {
       const harvestQty = currentHoldings * 0.70;
-      const estProfit = (currentPrice - this.avgEntryPrice) * harvestQty;
+      const harvestVal = harvestQty * currentPrice;
 
-      this.lastThought = `⚡ [Super Zee AI (${this.methodology})] Sold 70% (${harvestQty.toFixed(4)} ${this.asset}) @ $${currentPrice.toFixed(4)}: Tagged Upper +2σ Band ($${this.dynamicUpper.toFixed(4)}). Est. Profit: ${estProfit >= 0 ? '+' : ''}$${estProfit.toFixed(2)}.`;
-      this.log(this.lastThought, 'info');
+      // Gate: Ensure harvest notional value is not dust (>= $0.75)
+      if (harvestVal >= 0.75) {
+        const estProfit = (currentPrice - this.avgEntryPrice) * harvestQty;
 
-      actions.push({
-        action: 'sell',
-        orderType: 'MARKET',
-        quantity: harvestQty,
-        metadata: {
-          reason: `Autonomous 70% Harvest at Upper Band ($${this.dynamicUpper.toFixed(4)})`,
-        },
-      });
+        this.lastThought = `⚡ [Super Zee AI (${this.methodology})] Harvested 70% (${harvestQty.toFixed(4)} ${this.asset}, $${harvestVal.toFixed(2)}) @ $${currentPrice.toFixed(4)}: Tagged Upper +2σ Band ($${this.dynamicUpper.toFixed(4)}). Holding remaining 30% runner. Est. Profit: ${estProfit >= 0 ? '+' : ''}$${estProfit.toFixed(2)}.`;
+        this.log(this.lastThought, 'info');
 
-      this.totalHarvests++;
-      this.realizedProfit += Math.max(0, estProfit);
-      this.activeHoldingsQuantity = Math.max(0, currentHoldings - harvestQty);
-      this.lastActionTimestamp = now;
-      return actions;
+        actions.push({
+          action: 'sell',
+          orderType: 'MARKET',
+          quantity: harvestQty,
+          metadata: {
+            reason: `Autonomous 70% Harvest at Upper Band ($${this.dynamicUpper.toFixed(4)})`,
+          },
+        });
+
+        this.hasHarvestedUpperBand = true;
+        this.totalHarvests++;
+        this.realizedProfit += Math.max(0, estProfit);
+        this.activeHoldingsQuantity = Math.max(0, currentHoldings - harvestQty);
+        this.lastActionTimestamp = now;
+        return actions;
+      } else {
+        // Holdings too small to slice 70/30; mark harvested to protect dust
+        this.hasHarvestedUpperBand = true;
+      }
     }
 
     // Condition B: Opportunistic Dip Buy at Lower Band / Support with Kelly Sizing
@@ -267,6 +287,7 @@ export class SuperZeeBot extends BaseBotStrategy {
         },
       });
 
+      this.hasHarvestedUpperBand = false; // Reset lock when entering new dip
       this.totalDipBuys++;
       this.lastActionTimestamp = now;
       return actions;
@@ -326,11 +347,16 @@ export class SuperZeeBot extends BaseBotStrategy {
   onOrderFilled(orderId: string, filledPrice: number, filledQuantity: number, side?: string): void {
     if (side === 'BUY') {
       this.initialEntryFilled = true;
+      this.hasHarvestedUpperBand = false; // Reset lock upon fresh accumulation
       this.activeHoldingsQuantity += filledQuantity;
       this.avgEntryPrice = filledPrice;
       this.log(`✅ [Super Zee Fill] BUY ${filledQuantity.toFixed(4)} ${this.asset} filled @ $${filledPrice.toFixed(4)}`, 'info');
     } else if (side === 'SELL') {
       this.activeHoldingsQuantity = Math.max(0, this.activeHoldingsQuantity - filledQuantity);
+      if (this.activeHoldingsQuantity <= 0) {
+        this.hasHarvestedUpperBand = false;
+        this.initialEntryFilled = false;
+      }
       this.log(`✅ [Super Zee Fill] SELL ${filledQuantity.toFixed(4)} ${this.asset} filled @ $${filledPrice.toFixed(4)}`, 'info');
     }
   }
@@ -357,6 +383,7 @@ export class SuperZeeBot extends BaseBotStrategy {
       totalDipBuys: this.totalDipBuys,
       baseInvestment: this.baseInvestment,
       activeHoldingsQuantity: this.activeHoldingsQuantity,
+      hasHarvestedUpperBand: this.hasHarvestedUpperBand ? 1 : 0,
     };
   }
 
@@ -370,6 +397,7 @@ export class SuperZeeBot extends BaseBotStrategy {
       trailingStopLoss: this.trailingStopLoss,
       baseInvestment: this.baseInvestment,
       initialEntryFilled: this.initialEntryFilled,
+      hasHarvestedUpperBand: this.hasHarvestedUpperBand,
       activeHoldingsQuantity: this.activeHoldingsQuantity,
       avgEntryPrice: this.avgEntryPrice,
       realizedProfit: this.realizedProfit,
@@ -400,6 +428,7 @@ export class SuperZeeBot extends BaseBotStrategy {
     if (customState.trailingStopLoss) this.trailingStopLoss = toNum(customState.trailingStopLoss);
     if (customState.baseInvestment) this.baseInvestment = toNum(customState.baseInvestment);
     if (customState.initialEntryFilled !== undefined) this.initialEntryFilled = Boolean(customState.initialEntryFilled);
+    if (customState.hasHarvestedUpperBand !== undefined) this.hasHarvestedUpperBand = Boolean(customState.hasHarvestedUpperBand);
     if (customState.activeHoldingsQuantity) this.activeHoldingsQuantity = toNum(customState.activeHoldingsQuantity);
     if (customState.avgEntryPrice) this.avgEntryPrice = toNum(customState.avgEntryPrice);
     if (customState.realizedProfit) this.realizedProfit = toNum(customState.realizedProfit);

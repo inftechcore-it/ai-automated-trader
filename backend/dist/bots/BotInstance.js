@@ -495,6 +495,22 @@ export class BotInstance extends EventEmitter {
                 holding.quantity = 0;
                 holding.value = 0;
             }
+            // In LIVE mode: Purge any stale ghost SELL orders if live base holdings are 0 or clamp if less
+            if (this.config.mode === 'LIVE' && this.state.openOrders.length > 0) {
+                this.state.openOrders = this.state.openOrders.filter(o => {
+                    if (o.side === 'SELL') {
+                        if (baseFree <= 0 || (currentPrice > 0 && baseFree * currentPrice < 0.50)) {
+                            this.log(`[LIVE] Purged stale ghost SELL order ${o.id} (${o.quantity} ${baseAsset}) - wallet balance is ${baseFree.toFixed(4)}.`, 'info');
+                            return false;
+                        }
+                        if (o.quantity > baseFree) {
+                            this.log(`[LIVE] Clamped SELL order ${o.id} quantity from ${o.quantity} to available ${baseFree.toFixed(4)} ${baseAsset}`);
+                            o.quantity = baseFree;
+                        }
+                    }
+                    return true;
+                });
+            }
             if (previouslyPaused && freeAmount > 5) {
                 this.isPausedForBalance = false;
                 this.log(`[LIVE] Balance replenished: $${freeAmount.toFixed(2)} ${quoteAsset}. Resuming bot!`);
@@ -529,6 +545,32 @@ export class BotInstance extends EventEmitter {
                 if (!isPaper && order.side === 'BUY' && this.isPausedForBalance) {
                     continue; // Skip triggering buy when balance is insufficient
                 }
+                // In LIVE SELL mode: Validate actual user holdings to purge ghost / stale orders
+                if (!isPaper && order.side === 'SELL') {
+                    const parts = (this.config.symbol || '').split('/');
+                    const asset = (parts[0] || '').toUpperCase();
+                    let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+                    let freeBalance = holding?.quantity || 0;
+                    if (freeBalance < order.quantity) {
+                        try {
+                            const liveBals = await this.getUserLiveBalances();
+                            if (Array.isArray(liveBals)) {
+                                const bObj = liveBals.find((b) => (b.asset || '').toUpperCase() === asset);
+                                freeBalance = bObj ? Number(bObj.free ?? bObj.total ?? 0) : 0;
+                            }
+                        }
+                        catch { }
+                    }
+                    if (freeBalance <= 0 || (freeBalance * tick.price) < 0.50) {
+                        this.log(`${prefix} Purging stale ghost SELL order ${order.id} (${order.quantity} ${asset}): wallet has only ${freeBalance.toFixed(4)} ${asset} free holdings.`, 'warn');
+                        this.state.openOrders = this.state.openOrders.filter(o => o.id !== order.id);
+                        continue;
+                    }
+                    if (freeBalance < order.quantity) {
+                        this.log(`${prefix} Clamping SELL order ${order.id} quantity from ${order.quantity} to actual available ${freeBalance.toFixed(4)} ${asset}`);
+                        order.quantity = freeBalance;
+                    }
+                }
                 this.log(`${prefix} Triggering limit order ${order.id}: ${order.side} ${order.quantity} @ $${order.price.toFixed(5)} (market: $${tick.price.toFixed(5)})`);
                 try {
                     if (isPaper) {
@@ -557,10 +599,12 @@ export class BotInstance extends EventEmitter {
                     const errMsg = err.message || '';
                     if (errMsg.toLowerCase().includes('insufficient') || errMsg.toLowerCase().includes('balance')) {
                         this.isPausedForBalance = true;
-                        this.log(`${prefix} Order trigger failed: insufficient balance. Pausing orders.`, 'warn');
+                        this.log(`${prefix} Order trigger failed: insufficient balance (${errMsg}). Removing stale trigger order ${order.id}.`, 'warn');
+                        this.state.openOrders = this.state.openOrders.filter(o => o.id !== order.id);
                     }
                     else {
-                        this.log(`${prefix} Execution error on price trigger: ${errMsg}`, 'error');
+                        this.log(`${prefix} Execution error on price trigger ${order.id}: ${errMsg}. Removing failed order.`, 'error');
+                        this.state.openOrders = this.state.openOrders.filter(o => o.id !== order.id);
                     }
                 }
             }

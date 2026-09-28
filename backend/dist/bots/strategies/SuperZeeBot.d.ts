@@ -22,6 +22,7 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     private expectedValueDollar;
     private baseInvestment;
     private initialEntryFilled;
+    private hasHarvestedUpperBand;
     private activeHoldingsQuantity;
     private avgEntryPrice;
     private realizedProfit;
