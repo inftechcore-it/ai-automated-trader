@@ -531,31 +531,100 @@ export async function getBalances(apiKey, apiSecret) {
 
 /**
  * Known CoinDCX Target Currency (Base Asset Quantity) Precisions
+ * Dynamic markets_details takes precedence; this dictionary provides instant accurate fallback.
  */
 export const COINDCX_DEFAULT_PRECISIONS = {
-  XRP: 1,
-  ADA: 1,
-  DOGE: 0,
-  TRX: 1,
-  POL: 1,
-  MATIC: 1,
-  BTC: 5,
-  ETH: 4,
-  SOL: 2,
-  BNB: 3,
-  DOT: 2,
-  LTC: 3,
-  LINK: 2,
-  AVAX: 2,
-  SHIB: 0,
-  PEPE: 0,
-  NEAR: 2,
-  UNI: 2,
-  ATOM: 2
+  // 0 decimal precision (Integer whole numbers only)
+  XLM: 0, DOGE: 0, SHIB: 0, PEPE: 0, BONK: 0, FLOKI: 0, ALGO: 0, HBAR: 0,
+  SAND: 0, CHZ: 0, MANA: 0, CKB: 0, NOT: 0, USDC: 0, HOT: 0, VTHO: 0,
+  GRT: 0, MEME: 0, GALA: 0, HIVE: 0, REQ: 0, POWR: 0, USTC: 0, IQ: 0,
+  DEGEN: 0, HMSTR: 0, PHA: 0, ETN: 0, GEOD: 0, NIBI: 0, BAT: 0, KMNO: 0,
+  REKT: 0, PUMP: 0, XR: 0, VINU: 0, VENOM: 0, RSS3: 0, BLAST: 0, SIS: 0,
+  EDU: 0, USDS: 0, TOWNS: 0, XUSD: 0, ESP: 0, USDE: 0, LINEA: 0, PLUME: 0,
+  SPK: 0, SKY: 0, ZAMA: 0, CHIP: 0, HOME: 0, AVAIL: 0, IOST: 0, MOG: 0,
+  TFUEL: 0, FOGO: 0, CORE: 0, SUN: 0, XAN: 0, PEIPEI: 0, UB: 0, RIF: 0,
+  PENGU: 0, DEFI: 0, TOSHI: 0, NIGHT: 0, FLT: 0, IOTA: 0, CERE: 0, MGO: 0,
+  SENT: 0, ALKIMI: 0, IOTX: 0, SC: 0, ELIZAOS: 0, RAIN: 0, DBR: 0, US: 0,
+  SUPER: 0, CRTS: 0, CFX: 0, BEAMX: 0, VAI: 0, VINE: 0, SUPRA: 0, ZBCN: 0,
+  ZORA: 0, TURBO: 0, MANTRA: 0, VR: 0, OTK: 0, SNEK: 0, ATA: 0, LWP: 0,
+  BEL: 0, GWEI: 0, LAT: 0, XEM: 0, HUMA: 0, AKE: 0, Q: 0, CAT: 0,
+  TAG: 0, PZP: 0, USD1: 0, GHST: 0, ALT: 0, SOLV: 0, MAPO: 0, BOME: 0,
+  EQTY: 0, AMP: 0, CSPR: 0, SLP: 0, OGN: 0, IDEX: 0, MEW: 0, SAHARA: 0,
+  ZRX: 0, MBL: 0, FIO: 0, RWA: 0, TWT: 0, WAXP: 0, ARTFI: 0, ACH: 0,
+  BRISE: 0, SKL: 0, PYBOBO: 0, PIPEDOG: 0, XRD: 0, WENSOL: 0, QUICK: 0,
+  MAV: 0, ZPAY: 0, ORBS: 0, "1000CHEEMS": 0, VSN: 0, XPIN: 0, KONET: 0,
+  RLUSD: 0, STABLE: 0, CHR: 0, SPELL: 0, QKC: 0, TEL: 0, CTSI: 0, DOGS: 0,
+  "2Z": 0, TX: 0, XPRT: 0, BIGTIME: 0, SOPH: 0, HOOK: 0, TUSD: 0, ONT: 0,
+  DUSK: 0, XEC: 0, ARK: 0, BRETT: 0, G: 0, BABY: 0, H: 0, BONE: 0,
+  DEP: 0, DOGELONMARS: 0, FDUSD: 0, SKR: 0, U: 0, ION: 0, DEEP: 0,
+  AIGENSYN: 0, ID: 0, CWEB: 0, UOS: 0, QI: 0, AWE: 0, GUN: 0, ROBO: 0,
+  BNKR: 0, "1MBABYDOGE": 0, EMT: 0, LCX: 0, ADX: 0, BTTC: 0,
+
+  // 1 decimal precision
+  XRP: 1, ADA: 1, TRX: 1, POL: 1, MATIC: 1, NEAR: 1, SUI: 1, SEI: 1,
+  WLD: 1, ARB: 1, FET: 1, CRV: 1, JASMY: 1, ETHFI: 1, ONDO: 1, ANKR: 1,
+  DODO: 1, XAI: 1, XTZ: 1, AGLD: 1, ANIME: 1, PARTI: 1, USUAL: 1, STX: 1,
+  ASTR: 1, PUSH: 1, TST: 1, TKO: 1, BLUR: 1, MOVE: 1, RUNE: 1, WAL: 1,
+  WOD: 1, SQD: 1, CYS: 1, DIA: 1, RAD: 1, TUT: 1, XPL: 1, WOO: 1,
+  ALI: 1, JTO: 1, MON: 1, NYM: 1, MAGIC: 1, CTK: 1, AVA: 1, SNX: 1,
+  QTUM: 1, STG: 1, ARPA: 1, YGG: 1, PYTH: 1, LA: 1, AZTEC: 1, WLFI: 1,
+  ERA: 1, LAB: 1, TREE: 1, OPG: 1, EURI: 1, UMA: 1, EGL1: 1, STBL: 1,
+  MASK: 1, GIGA: 1, AUDIO: 1, ACE: 1, GPS: 1, C98: 1, JELLYJELLY: 1,
+  C: 1, COW: 1, CETUS: 1, AVNT: 1, FRAX: 1, HOLO: 1, MTL: 1, RARE: 1,
+  SYRUP: 1, FIDA: 1, SIGN: 1, AT: 1, SXT: 1, RESOLV: 1, VELVET: 1, STO: 1,
+  KGEN: 1, ICNT: 1, HEMI: 1, O: 1, CELR: 1, SIREN: 1, RLC: 1, KAVA: 1,
+  CXT: 1, THE: 1, S: 1, RED: 1, WCT: 1, KAIO: 1, KERNEL: 1, HAEDAL: 1,
+  NXPC: 1, BR: 1, PORTAL: 1, IRYS: 1, VIRTUAL: 1, PNUT: 1, PEAQ: 1,
+  BIRB: 1, BANK: 1, SAPIEN: 1, ZEST: 1, RE: 1, IN: 1, MMT: 1, TRADE: 1,
+  ACT: 1, NIL: 1, NAKA: 1, NPC: 1, DGB: 1, AIN: 1, PEOPLE: 1, A: 1,
+  CGPT: 1, DYM: 1, THETA: 1, HYPER: 1, JUP: 1, NOM: 1, MANTA: 1, BAS: 1,
+  TROLL: 1, ACX: 1, BB: 1, DRIFT: 1, RSR: 1, OG: 1, COOKIE: 1, TNSR: 1,
+  PUNDIX: 1, BLESS: 1, DGAI: 1, RAY: 1, ACU: 1, MLN: 1, MARSCOIN: 1,
+  T: 1, GMT: 1, GLM: 1, USELESS: 1, CROSS: 1, MEGA: 1, VELODROME: 1,
+  BREV: 1, MUBARAK: 1, SUSHI: 1, FORT: 1, HTX: 1, MINA: 1, HIPPO: 1,
+  VET: 1, KAITO: 1, PONKE: 1, ARKM: 1, GOAT: 1, AIXBT: 1, BIO: 1, ACM: 1,
+  GRIFFAIN: 1, ZEREBRO: 1, ATH: 1, KNC: 1, BLUE: 1, REZ: 1, BAND: 1,
+  MET: 1, SOON: 1, LMWR: 1, NEWT: 1, ESPORTS: 1, ENJ: 1, RVN: 1, LSK: 1,
+  "1INCH": 1, GLMR: 1, PENDLE: 1, OVR: 1, W: 1, KAIA: 1, REACT: 1,
+  HEI: 1, EPIC: 1, ICX: 1, MOCA: 1, CC: 1, AIO: 1, UAI: 1, OPEN: 1,
+  KITE: 1, FF: 1, HPP: 1, ONE: 1, SYN: 1, BOSON: 1, BMT: 1, SHELL: 1,
+  RACA: 1, PRL: 1, ALLO: 1, CATI: 1, SAGA: 1, WMTX: 1, SCR: 1,
+  SUNDOG: 1, ZIL: 1, JST: 1,
+
+  // 2 decimal precision
+  SOL: 2, LINK: 2, AVAX: 2, UNI: 2, ATOM: 2, DOT: 2, LPT: 2, BICO: 2,
+  PROM: 2, WIF: 2, FIL: 2, ENS: 2, PSG: 2, LUMIA: 2, VANA: 2, POPCAT: 2,
+  KSM: 2, COTI: 2, MLK: 2, IO: 2, ICP: 2, CBK: 2, USDG: 2, EWT: 2,
+  MIRA: 2, CLANKER: 2, CARV: 2, SAFE: 2, LIKE: 2, API3: 2, APT: 2,
+  XNO: 2, SUT: 2, ZK: 2, GENIUS: 2, MERL: 2, XVS: 2, HSK: 2, APE: 2,
+  FTT: 2, LIGHT: 2, JUV: 2, LUNC: 2, ORDI: 2, ZENT: 2, DEXE: 2, BNT: 2,
+  ASR: 2, PORTO: 2, SANTOS: 2, VVV: 2, FB: 2, SPX: 2, MBX: 2, INIT: 2,
+  UDS: 2, EDGE: 2, NES: 2, DATA: 2, EGLD: 2, STRK: 2, LISTA: 2, OP: 2,
+  STEEM: 2, GRAM: 2, FORM: 2, ZRO: 2, SOMI: 2, LAZIO: 2, EUL: 2, AXL: 2,
+  "0G": 2, SWAP: 2, GRASS: 2, AR: 2, ME: 2, FIS: 2, ORCA: 2, LF: 2,
+  NMR: 2, USDT: 2, ACA: 2, MDT: 2, NEXO: 2, TIA: 2, PRO: 2, FARTCOIN: 2,
+  CAKE: 2, ENSO: 2, PONS: 2, CASHCAT: 2, FLOCK: 2, AUCTION: 2, FLUX: 2,
+  BARD: 2, B2: 2, GNS: 2, XDC: 2, ALICE: 2, LUNA: 2, CHILLGUY: 2, BAN: 2,
+  MELANIA: 2, HYPE: 2, ETC: 2, AERO: 2, LAYER: 2, RONIN: 2, SWCH: 2,
+  DYDX: 2, EIGEN: 2, ZEN: 2, PIEVERSE: 2, AXS: 2, REN: 2, JOE: 2, ATM: 2,
+  FLOW: 2, CITY: 2, ASTER: 2, LIT: 2, MORPHO: 2, RPL: 2, CYBER: 2,
+  AEVO: 2, ENA: 2, ALPINE: 2, ARC: 2, PRCL: 2, ONG: 2, OSMO: 2,
+
+  // 3 decimal precision
+  BNB: 3, LTC: 3, AAVE: 3, BSV: 3, QNT: 3, BANANA: 3, XMR: 3, CVX: 3,
+  METIS: 3, GIGGLE: 3, ILV: 3, DASH: 3, COMP: 3, TRUMP: 3, GMX: 3,
+  BERA: 3, MOVR: 3, GMMT: 3, TRB: 3, XYO: 3, SSV: 3,
+
+  // 4 decimal precision
+  ETH: 4, BCH: 4, TAO: 4, USDD: 4, PYUSD: 4, PAXG: 4, TRAC: 4, GNO: 4,
+  ETHW: 4, WAVES: 4,
+
+  // 5+ decimal precision
+  BTC: 5, WBTC: 5, YFI: 5, ZEC: 5, NEO: 6
 };
 
 /**
- * Format quantity to CoinDCX target currency allowed precision (e.g. 1 decimal for XRP)
+ * Format quantity to CoinDCX target currency allowed precision (e.g. 0 decimals for XLM/DOGE, 1 for XRP)
  */
 export function formatOrderQuantity(symbol, quantity, precisionOverride = null) {
   if (quantity === undefined || quantity === null || isNaN(quantity)) return 0;
@@ -566,14 +635,22 @@ export function formatOrderQuantity(symbol, quantity, precisionOverride = null) 
   let precision = precisionOverride;
   if (precision === null || precision === undefined) {
     const marketSym = normalizeSymbol(symbol, 'market');
-    const cached = symbolFiltersCache.get(marketSym);
-    if (cached?.filters?.targetPrecision !== undefined) {
+    const pairSym = normalizeSymbol(symbol, 'pair');
+    const cached = symbolFiltersCache.get(marketSym) || symbolFiltersCache.get(pairSym) || symbolFiltersCache.get(clean);
+    if (typeof cached?.filters?.targetPrecision === 'number') {
       precision = cached.filters.targetPrecision;
     } else if (COINDCX_DEFAULT_PRECISIONS[baseAsset] !== undefined) {
       precision = COINDCX_DEFAULT_PRECISIONS[baseAsset];
     } else {
       precision = 1;
     }
+  }
+
+  // Ensure precision is a non-negative integer
+  precision = Math.max(0, Math.floor(Number(precision) || 0));
+
+  if (precision === 0) {
+    return Math.floor(Number(quantity));
   }
 
   const factor = Math.pow(10, precision);
@@ -589,9 +666,12 @@ export function formatOrderPrice(symbol, price, precisionOverride = null) {
   let precision = precisionOverride;
   if (precision === null || precision === undefined) {
     const marketSym = normalizeSymbol(symbol, 'market');
-    const cached = symbolFiltersCache.get(marketSym);
-    precision = cached?.filters?.basePrecision ?? 4;
+    const pairSym = normalizeSymbol(symbol, 'pair');
+    const clean = (symbol || '').toUpperCase().replace(/[-_]/g, '/');
+    const cached = symbolFiltersCache.get(marketSym) || symbolFiltersCache.get(pairSym) || symbolFiltersCache.get(clean);
+    precision = typeof cached?.filters?.basePrecision === 'number' ? cached.filters.basePrecision : 4;
   }
+  precision = Math.max(0, Math.floor(Number(precision) || 0));
   const factor = Math.pow(10, precision);
   const rounded = Math.round(Number(price) * factor) / factor;
   return Number(rounded.toFixed(precision));
@@ -868,42 +948,106 @@ const symbolFiltersCache = new Map();
 const FILTERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 export async function getSymbolFilters(symbol) {
+  if (!symbol) {
+    return {
+      minNotional: 1,
+      minAmount: 1,
+      minTradeSize: 1,
+      maxTradeSize: 100000,
+      basePrecision: 4,
+      targetPrecision: 0
+    };
+  }
+
+  const clean = symbol.replace(/[-_]/g, '/').toUpperCase();
+  const parts = clean.split('/');
+  const baseAsset = (parts[0] || '').replace(/^[BI]-/, '') || clean;
+  const quoteAsset = parts[1] || 'USDT';
   const marketSymbol = normalizeSymbol(symbol, 'market');
-  const cached = symbolFiltersCache.get(marketSymbol);
+  const pairSymbol = normalizeSymbol(symbol, 'pair');
+
+  const cached = symbolFiltersCache.get(marketSymbol) || 
+                 symbolFiltersCache.get(pairSymbol) || 
+                 symbolFiltersCache.get(clean) ||
+                 symbolFiltersCache.get(`${baseAsset}/${quoteAsset}`);
 
   if (cached && Date.now() - cached.timestamp < FILTERS_CACHE_TTL) {
     return cached.filters;
   }
 
-  const { data } = await axios.get(`${BASE_URL}/exchange/v1/markets_details`, {
-    timeout: 10000
-  });
+  try {
+    const { data } = await axios.get(`${BASE_URL}/exchange/v1/markets_details`, {
+      timeout: 10000
+    });
 
-  if (Array.isArray(data)) {
-    const info = data.find(m => m.symbol === marketSymbol || m.coindcx_name === marketSymbol);
-    if (info) {
-      const filters = {
-        minNotional: parseFloat(info.min_notional || 0),
-        minAmount: parseFloat(info.min_quantity || 0),
-        minTradeSize: parseFloat(info.min_quantity || 0),
-        maxTradeSize: parseFloat(info.max_quantity || 0),
-        step: parseFloat(info.step || 0.0001),
-        minPrice: parseFloat(info.min_price || 0),
-        maxPrice: parseFloat(info.max_price || 0),
-        basePrecision: info.base_currency_precision || 8,
-        targetPrecision: info.target_currency_precision || 8
-      };
-      symbolFiltersCache.set(marketSymbol, { filters, timestamp: Date.now() });
-      return filters;
+    if (Array.isArray(data) && data.length > 0) {
+      const now = Date.now();
+      for (const m of data) {
+        const mBase = (m.target_currency_short_name || '').toUpperCase();
+        const mQuote = (m.base_currency_short_name || '').toUpperCase();
+        const mPair = m.pair || '';
+        const mSym = m.symbol || '';
+        const mName = m.coindcx_name || '';
+
+        const targetPrec = typeof m.target_currency_precision === 'number' 
+          ? m.target_currency_precision 
+          : (COINDCX_DEFAULT_PRECISIONS[mBase] !== undefined ? COINDCX_DEFAULT_PRECISIONS[mBase] : 1);
+        
+        const basePrec = typeof m.base_currency_precision === 'number'
+          ? m.base_currency_precision
+          : 4;
+
+        const f = {
+          minNotional: parseFloat(m.min_notional || 0),
+          minAmount: parseFloat(m.min_quantity || 0),
+          minTradeSize: parseFloat(m.min_quantity || 0),
+          maxTradeSize: parseFloat(m.max_quantity || 0),
+          step: parseFloat(m.step || (targetPrec === 0 ? 1 : Math.pow(10, -targetPrec))),
+          minPrice: parseFloat(m.min_price || 0),
+          maxPrice: parseFloat(m.max_price || 0),
+          basePrecision: basePrec,
+          targetPrecision: targetPrec
+        };
+
+        if (mSym) symbolFiltersCache.set(mSym.toUpperCase(), { filters: f, timestamp: now });
+        if (mName) symbolFiltersCache.set(mName.toUpperCase(), { filters: f, timestamp: now });
+        if (mPair) symbolFiltersCache.set(mPair.toUpperCase(), { filters: f, timestamp: now });
+        if (mBase && mQuote) symbolFiltersCache.set(`${mBase}/${mQuote}`, { filters: f, timestamp: now });
+      }
+
+      const match = symbolFiltersCache.get(marketSymbol) || 
+                    symbolFiltersCache.get(pairSymbol) || 
+                    symbolFiltersCache.get(clean) ||
+                    symbolFiltersCache.get(`${baseAsset}/${quoteAsset}`);
+
+      if (match) {
+        return match.filters;
+      }
     }
+  } catch (err) {
+    console.warn(`[CoinDCX] getSymbolFilters API error: ${err.message}`);
   }
 
-  return {
+  // Fallback to COINDCX_DEFAULT_PRECISIONS dictionary
+  const fallbackTargetPrecision = COINDCX_DEFAULT_PRECISIONS[baseAsset] !== undefined
+    ? COINDCX_DEFAULT_PRECISIONS[baseAsset]
+    : 1;
+
+  const fallbackFilters = {
     minNotional: 1,
-    minAmount: 0.0001,
-    minTradeSize: 0.0001,
-    maxTradeSize: 100000,
-    basePrecision: 8,
-    targetPrecision: 8
+    minAmount: fallbackTargetPrecision === 0 ? 1 : 0.0001,
+    minTradeSize: fallbackTargetPrecision === 0 ? 1 : 0.0001,
+    maxTradeSize: 10000000,
+    step: fallbackTargetPrecision === 0 ? 1 : 0.0001,
+    basePrecision: 4,
+    targetPrecision: fallbackTargetPrecision
   };
+
+  symbolFiltersCache.set(marketSymbol, { filters: fallbackFilters, timestamp: Date.now() });
+  return fallbackFilters;
+}
+
+export async function getPrecision(symbol) {
+  const filters = await getSymbolFilters(symbol);
+  return filters.targetPrecision;
 }
