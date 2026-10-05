@@ -11,6 +11,7 @@ import Orders from './pages/Orders.jsx';
 import Watchlist from './pages/Watchlist.jsx';
 import AiAnalysis from './pages/AiAnalysis.jsx';
 import PredictiveAnalysis from './pages/PredictiveAnalysis.jsx';
+import ComplianceScreening from './pages/ComplianceScreening.jsx';
 import Settings from './pages/Settings.jsx';
 import Account from './pages/Account.jsx';
 import Bots from './pages/Bots.jsx';
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="watchlist" element={<Watchlist />} />
           <Route path="ai-analysis" element={<AiAnalysis />} />
           <Route path="predictive-analysis" element={<PredictiveAnalysis />} />
+          <Route path="compliance-screening" element={<ComplianceScreening />} />
           <Route path="bots" element={<Bots />} />
           <Route path="bots/:id" element={<BotDetail />} />
           <Route path="community-bots" element={<CommunityBots />} />
