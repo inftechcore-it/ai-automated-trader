@@ -6,7 +6,9 @@ import {
   Compass, ArrowUpRight, CheckCircle2, ChevronRight, Info,
   Cpu, DollarSign, Target, Sliders, ShieldCheck, Flame, Radio,
   Search, X, ChevronDown, Check, CornerDownLeft, Eye, Award,
-  Crosshair, ShieldAlert, ArrowDownRight, BarChart2, Hash
+  Crosshair, ShieldAlert, ArrowDownRight, BarChart2, Hash,
+  Camera, UploadCloud, BookOpen, Copy, Download, Trash2,
+  Terminal, FileCode, Code2, ExternalLink
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, LineChart, Line,
@@ -22,25 +24,182 @@ const api = (path, opts = {}) =>
     ...opts
   }).then(r => r.json());
 
-const POPULAR_PAIRS = [
-  { symbol: 'SOL/USDT', name: 'Solana' },
-  { symbol: 'BTC/USDT', name: 'Bitcoin' },
-  { symbol: 'ETH/USDT', name: 'Ethereum' },
-  { symbol: 'XRP/USDT', name: 'XRP' },
-  { symbol: 'BNB/USDT', name: 'BNB' },
-  { symbol: 'DOGE/USDT', name: 'Dogecoin' },
-  { symbol: 'PEPE/USDT', name: 'Pepe' },
-  { symbol: 'NEAR/USDT', name: 'NEAR Protocol' },
-  { symbol: 'SUI/USDT', name: 'Sui' },
-  { symbol: 'RENDER/USDT', name: 'Render Token' },
-  { symbol: 'FIL/USDT', name: 'Filecoin' },
-  { symbol: 'ADA/USDT', name: 'Cardano' },
-  { symbol: 'AVAX/USDT', name: 'Avalanche' },
-  { symbol: 'LINK/USDT', name: 'Chainlink' },
+export const EXCHANGE_GROUPS = [
+  {
+    category: 'Crypto Exchanges & DEX',
+    exchanges: [
+      { id: 'Binance', name: 'Binance Spot', badge: 'CRYPTO' },
+      { id: 'CoinDCX', name: 'CoinDCX Spot', badge: 'CRYPTO' },
+      { id: 'Jupiter', name: 'Jupiter (Solana DEX)', badge: 'DEX' },
+      { id: 'Pionex', name: 'Pionex Spot', badge: 'CRYPTO' },
+      { id: 'Bybit', name: 'Bybit Spot', badge: 'CRYPTO' },
+      { id: 'Kraken', name: 'Kraken Spot', badge: 'CRYPTO' }
+    ]
+  },
+  {
+    category: 'Indian Stock Brokers & Exchanges',
+    exchanges: [
+      { id: 'Upstox', name: 'Upstox (NSE/BSE)', badge: 'BROKER' },
+      { id: 'AngelOne', name: 'Angel One (SmartAPI)', badge: 'BROKER' },
+      { id: 'NSE', name: 'NSE (National Stock Exchange)', badge: 'INDIA' },
+      { id: 'BSE', name: 'BSE (Bombay Stock Exchange)', badge: 'INDIA' }
+    ]
+  },
+  {
+    category: 'US Stock Brokers & Exchanges',
+    exchanges: [
+      { id: 'Alpaca', name: 'Alpaca Markets', badge: 'BROKER' },
+      { id: 'NASDAQ', name: 'NASDAQ Equities', badge: 'US STOCKS' },
+      { id: 'NYSE', name: 'NYSE Equities', badge: 'US STOCKS' }
+    ]
+  }
 ];
 
+export const POPULAR_PAIRS_BY_EXCHANGE = {
+  Binance: [
+    { symbol: 'SOL/USDT', name: 'Solana' },
+    { symbol: 'BTC/USDT', name: 'Bitcoin' },
+    { symbol: 'ETH/USDT', name: 'Ethereum' },
+    { symbol: 'XRP/USDT', name: 'XRP' },
+    { symbol: 'BNB/USDT', name: 'BNB' },
+    { symbol: 'DOGE/USDT', name: 'Dogecoin' },
+    { symbol: 'PEPE/USDT', name: 'Pepe' },
+    { symbol: 'NEAR/USDT', name: 'NEAR Protocol' },
+    { symbol: 'SUI/USDT', name: 'Sui' },
+    { symbol: 'RENDER/USDT', name: 'Render' },
+    { symbol: 'AVAX/USDT', name: 'Avalanche' },
+    { symbol: 'LINK/USDT', name: 'Chainlink' }
+  ],
+  CoinDCX: [
+    { symbol: 'BTC/USDT', name: 'Bitcoin' },
+    { symbol: 'ETH/USDT', name: 'Ethereum' },
+    { symbol: 'SOL/USDT', name: 'Solana' },
+    { symbol: 'XRP/USDT', name: 'XRP' },
+    { symbol: 'DOGE/USDT', name: 'Dogecoin' },
+    { symbol: 'MATIC/USDT', name: 'Polygon' },
+    { symbol: 'BNB/USDT', name: 'BNB' },
+    { symbol: 'AVAX/USDT', name: 'Avalanche' }
+  ],
+  Jupiter: [
+    { symbol: 'SOL/USDC', name: 'Solana' },
+    { symbol: 'JUP/USDC', name: 'Jupiter' },
+    { symbol: 'RAY/USDC', name: 'Raydium' },
+    { symbol: 'BONK/USDC', name: 'Bonk' },
+    { symbol: 'WIF/USDC', name: 'dogwifhat' },
+    { symbol: 'PYTH/USDC', name: 'Pyth Network' },
+    { symbol: 'DRIFT/USDC', name: 'Drift' },
+    { symbol: 'POPCAT/USDC', name: 'Popcat' }
+  ],
+  Pionex: [
+    { symbol: 'BTC/USDT', name: 'Bitcoin' },
+    { symbol: 'ETH/USDT', name: 'Ethereum' },
+    { symbol: 'SOL/USDT', name: 'Solana' },
+    { symbol: 'DOGE/USDT', name: 'Dogecoin' },
+    { symbol: 'XRP/USDT', name: 'XRP' },
+    { symbol: 'BNB/USDT', name: 'BNB' }
+  ],
+  Bybit: [
+    { symbol: 'BTC/USDT', name: 'Bitcoin' },
+    { symbol: 'ETH/USDT', name: 'Ethereum' },
+    { symbol: 'SOL/USDT', name: 'Solana' },
+    { symbol: 'XRP/USDT', name: 'XRP' },
+    { symbol: 'SUI/USDT', name: 'Sui' },
+    { symbol: 'TON/USDT', name: 'Toncoin' }
+  ],
+  Kraken: [
+    { symbol: 'BTC/USD', name: 'Bitcoin' },
+    { symbol: 'ETH/USD', name: 'Ethereum' },
+    { symbol: 'SOL/USD', name: 'Solana' },
+    { symbol: 'XRP/USD', name: 'XRP' },
+    { symbol: 'ADA/USD', name: 'Cardano' },
+    { symbol: 'DOT/USD', name: 'Polkadot' }
+  ],
+  Upstox: [
+    { symbol: 'RELIANCE', name: 'Reliance Industries' },
+    { symbol: 'TCS', name: 'Tata Consultancy Services' },
+    { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+    { symbol: 'INFY', name: 'Infosys' },
+    { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+    { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+    { symbol: 'SBIN', name: 'State Bank of India' },
+    { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
+    { symbol: 'ITC', name: 'ITC Ltd' },
+    { symbol: 'LT', name: 'Larsen & Toubro' }
+  ],
+  AngelOne: [
+    { symbol: 'RELIANCE', name: 'Reliance Industries' },
+    { symbol: 'TCS', name: 'Tata Consultancy Services' },
+    { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+    { symbol: 'INFY', name: 'Infosys' },
+    { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+    { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+    { symbol: 'SBIN', name: 'State Bank of India' },
+    { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
+    { symbol: 'ITC', name: 'ITC Ltd' },
+    { symbol: 'LT', name: 'Larsen & Toubro' }
+  ],
+  NSE: [
+    { symbol: 'RELIANCE', name: 'Reliance Industries' },
+    { symbol: 'TCS', name: 'Tata Consultancy Services' },
+    { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+    { symbol: 'INFY', name: 'Infosys' },
+    { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+    { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+    { symbol: 'SBIN', name: 'State Bank of India' },
+    { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
+    { symbol: 'ITC', name: 'ITC Ltd' },
+    { symbol: 'LT', name: 'Larsen & Toubro' }
+  ],
+  BSE: [
+    { symbol: 'RELIANCE', name: 'Reliance Industries' },
+    { symbol: 'TCS', name: 'Tata Consultancy Services' },
+    { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+    { symbol: 'INFY', name: 'Infosys' },
+    { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+    { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+    { symbol: 'SBIN', name: 'State Bank of India' },
+    { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
+    { symbol: 'ITC', name: 'ITC Ltd' }
+  ],
+  Alpaca: [
+    { symbol: 'AAPL', name: 'Apple Inc.' },
+    { symbol: 'NVDA', name: 'NVIDIA Corporation' },
+    { symbol: 'TSLA', name: 'Tesla Inc.' },
+    { symbol: 'MSFT', name: 'Microsoft Corporation' },
+    { symbol: 'AMZN', name: 'Amazon.com Inc.' },
+    { symbol: 'GOOGL', name: 'Alphabet Inc.' },
+    { symbol: 'META', name: 'Meta Platforms Inc.' },
+    { symbol: 'AMD', name: 'Advanced Micro Devices' },
+    { symbol: 'SPY', name: 'SPDR S&P 500 ETF' },
+    { symbol: 'QQQ', name: 'Invesco QQQ Trust' }
+  ],
+  NASDAQ: [
+    { symbol: 'AAPL', name: 'Apple Inc.' },
+    { symbol: 'NVDA', name: 'NVIDIA Corporation' },
+    { symbol: 'TSLA', name: 'Tesla Inc.' },
+    { symbol: 'MSFT', name: 'Microsoft Corporation' },
+    { symbol: 'AMZN', name: 'Amazon.com Inc.' },
+    { symbol: 'GOOGL', name: 'Alphabet Inc.' },
+    { symbol: 'META', name: 'Meta Platforms Inc.' },
+    { symbol: 'AMD', name: 'Advanced Micro Devices' },
+    { symbol: 'QQQ', name: 'Invesco QQQ Trust' },
+    { symbol: 'NFLX', name: 'Netflix Inc.' }
+  ],
+  NYSE: [
+    { symbol: 'JPM', name: 'JPMorgan Chase & Co.' },
+    { symbol: 'BRK.B', name: 'Berkshire Hathaway' },
+    { symbol: 'V', name: 'Visa Inc.' },
+    { symbol: 'UNH', name: 'UnitedHealth Group' },
+    { symbol: 'JNJ', name: 'Johnson & Johnson' },
+    { symbol: 'WMT', name: 'Walmart Inc.' },
+    { symbol: 'PG', name: 'Procter & Gamble' },
+    { symbol: 'MA', name: 'Mastercard Inc.' },
+    { symbol: 'HD', name: 'The Home Depot' },
+    { symbol: 'DIS', name: 'The Walt Disney Company' }
+  ]
+};
+
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
-const EXCHANGES = ['Binance', 'CoinDCX', 'Jupiter'];
 
 export const QUANT_METHODOLOGIES = [
   {
@@ -138,6 +297,36 @@ export default function PredictiveAnalysis() {
   // Thought Stream History
   const [thoughtStream, setThoughtStream] = useState([]);
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⭐ PILLAR 3 & 4: VISION QUANT STUDIO & SCRIPT LIBRARY VAULT STATES
+  // ══════════════════════════════════════════════════════════════════════════
+  const [isVisionStudioOpen, setIsVisionStudioOpen] = useState(false);
+  const [visionAnalyzing, setVisionAnalyzing] = useState(false);
+  const [visionResult, setVisionResult] = useState(null);
+  const [visionActiveTab, setVisionActiveTab] = useState('PINE'); // 'PINE' | 'PYTHON' | 'BACKTEST'
+  const [copiedPine, setCopiedPine] = useState(false);
+  const [copiedPython, setCopiedPython] = useState(false);
+  const [capturedThumbnail, setCapturedThumbnail] = useState(null);
+
+  // Script Library Vault Drawer
+  const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [vaultScripts, setVaultScripts] = useState([]);
+  const [vaultLoading, setVaultLoading] = useState(false);
+  const [vaultSearch, setVaultSearch] = useState('');
+  const [vaultFilterWinRate, setVaultFilterWinRate] = useState(0);
+  const [vaultFilterMethod, setVaultFilterMethod] = useState('');
+  const [vaultSelectedScript, setVaultSelectedScript] = useState(null);
+
+  // 1-Click Vault Script Launcher Modal
+  const [deployModalScript, setDeployModalScript] = useState(null);
+  const [deployCapital, setDeployCapital] = useState(50);
+  const [deployMode, setDeployMode] = useState('PAPER');
+  const [deploying, setDeploying] = useState(false);
+
+  // Chart Container Ref for Canvas Snapshot
+  const chartContainerRef = useRef(null);
+  const fileInputRef = useRef(null);
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -167,14 +356,16 @@ export default function PredictiveAnalysis() {
         if (res.success && Array.isArray(res.symbols)) {
           setSearchResults(res.symbols.slice(0, 15));
         } else {
-          const filtered = POPULAR_PAIRS.filter(p =>
+          const exchangeList = POPULAR_PAIRS_BY_EXCHANGE[selectedExchange] || POPULAR_PAIRS_BY_EXCHANGE.Binance;
+          const filtered = exchangeList.filter(p =>
             p.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
             p.name.toLowerCase().includes(searchQuery.toLowerCase())
           );
           setSearchResults(filtered);
         }
       } catch {
-        const filtered = POPULAR_PAIRS.filter(p =>
+        const exchangeList = POPULAR_PAIRS_BY_EXCHANGE[selectedExchange] || POPULAR_PAIRS_BY_EXCHANGE.Binance;
+        const filtered = exchangeList.filter(p =>
           p.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
           p.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
@@ -187,19 +378,35 @@ export default function PredictiveAnalysis() {
     return () => clearTimeout(timer);
   }, [searchQuery, selectedExchange]);
 
-  // Select a coin from dropdown
+  // Select a coin/stock from dropdown
   const handleSelectCoin = (sym) => {
     let formatted = sym.trim().toUpperCase();
-    if (!formatted.includes('/') && formatted.endsWith('USDT')) {
-      formatted = `${formatted.slice(0, -4)}/USDT`;
-    } else if (!formatted.includes('/') && formatted.endsWith('USDC')) {
-      formatted = `${formatted.slice(0, -4)}/USDC`;
-    } else if (!formatted.includes('/')) {
-      formatted = `${formatted}/USDT`;
+    const isStockExchange = ['UPSTOX', 'ANGELONE', 'NSE', 'BSE', 'ALPACA', 'NASDAQ', 'NYSE'].includes(selectedExchange.toUpperCase());
+
+    if (!isStockExchange) {
+      if (!formatted.includes('/') && formatted.endsWith('USDT')) {
+        formatted = `${formatted.slice(0, -4)}/USDT`;
+      } else if (!formatted.includes('/') && formatted.endsWith('USDC')) {
+        formatted = `${formatted.slice(0, -4)}/USDC`;
+      } else if (!formatted.includes('/')) {
+        formatted = `${formatted}/USDT`;
+      }
+    } else {
+      formatted = formatted.replace(/\/USDT$/, '').replace(/\/USDC$/, '').replace(/\/USD$/, '');
     }
+
     setSelectedSymbol(formatted);
     setIsSearchOpen(false);
     setSearchQuery('');
+  };
+
+  // Switch Exchange & Broker handler
+  const handleExchangeChange = (newEx) => {
+    setSelectedExchange(newEx);
+    const list = POPULAR_PAIRS_BY_EXCHANGE[newEx] || POPULAR_PAIRS_BY_EXCHANGE.Binance;
+    if (list && list.length > 0) {
+      setSelectedSymbol(list[0].symbol);
+    }
   };
 
   // Fetch live quant analytics for single coin studio
@@ -281,7 +488,140 @@ export default function PredictiveAnalysis() {
     }
   };
 
-  // Launch Autonomous Super Zee Bot
+  // Fetch Saved Scripts from Vault
+  const fetchVaultScripts = async () => {
+    setVaultLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (vaultSearch) params.set('search', vaultSearch);
+      if (vaultFilterMethod) params.set('methodology', vaultFilterMethod);
+      if (vaultFilterWinRate > 0) params.set('minWinRate', vaultFilterWinRate);
+
+      const res = await api(`/predictive/scripts?${params.toString()}`);
+      if (res.success && Array.isArray(res.scripts)) {
+        setVaultScripts(res.scripts);
+      }
+    } catch (err) {
+      console.warn('Failed to load vault scripts:', err);
+    } finally {
+      setVaultLoading(false);
+    }
+  };
+
+  // Initial Load & Auto-Refresh for Studio & Screener
+  useEffect(() => {
+    if (viewMode === 'STUDIO') {
+      setLoading(true);
+      fetchAnalytics(selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology);
+      runSimulation(simInvestment, selectedMethodology);
+    } else {
+      fetchScreener(selectedExchange, selectedTimeframe, screenerCount, selectedMethodology);
+    }
+    fetchVaultScripts();
+  }, [viewMode, selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology, screenerCount]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      if (viewMode === 'STUDIO') {
+        fetchAnalytics(selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology);
+      } else {
+        fetchScreener(selectedExchange, selectedTimeframe, screenerCount, selectedMethodology);
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, viewMode, selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology, screenerCount]);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 📷 VISION CHART SNAPSHOT CAPTURE & UPLOAD HANDLERS
+  // ══════════════════════════════════════════════════════════════════════════
+  const executeVisionAnalysis = async (imageDataUrl = '', promptNote = '') => {
+    setIsVisionStudioOpen(true);
+    setVisionAnalyzing(true);
+    setVisionResult(null);
+    setCapturedThumbnail(imageDataUrl);
+
+    try {
+      const res = await api('/predictive/vision-analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          image: imageDataUrl || '',
+          symbol: selectedSymbol,
+          timeframe: selectedTimeframe,
+          exchange: selectedExchange,
+          methodology: selectedMethodology,
+          promptNote
+        })
+      });
+
+      if (res.success && res.script) {
+        setVisionResult(res);
+        fetchVaultScripts(); // Refresh vault count badge
+      } else {
+        alert(res.error || res.message || 'Vision analysis failed');
+      }
+    } catch (err) {
+      alert(`Vision analysis error: ${err.message}`);
+    } finally {
+      setVisionAnalyzing(false);
+    }
+  };
+
+  const handleTakeChartSnap = async () => {
+    try {
+      // High-res Canvas Capture of Chart DOM
+      let dataUrl = '';
+      const chartContainer = chartContainerRef.current;
+      if (chartContainer) {
+        const svgElem = chartContainer.querySelector('svg');
+        if (svgElem) {
+          const svgXml = new XMLSerializer().serializeToString(svgElem);
+          const svgBlob = new Blob([svgXml], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+          const img = new Image();
+          const canvas = document.createElement('canvas');
+          canvas.width = (svgElem.clientWidth || 800) * 2;
+          canvas.height = (svgElem.clientHeight || 360) * 2;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          await new Promise((resolve) => {
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            img.src = url;
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
+      }
+
+      await executeVisionAnalysis(dataUrl, 'Native DOM Chart Snap Analysis');
+    } catch (err) {
+      console.warn('Canvas capture exception, proceeding with algorithmic vision:', err);
+      await executeVisionAnalysis('', 'Direct algorithmic vision analysis');
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result;
+      await executeVisionAnalysis(dataUrl, `External uploaded chart snapshot: ${file.name}`);
+    };
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Launch Autonomous Super Zee Bot from live studio
   const handleLaunchSuperZee = async (overrideSymbol = null, overrideKelly = null) => {
     setLaunching(true);
     setLaunchSuccess(null);
@@ -318,28 +658,73 @@ export default function PredictiveAnalysis() {
     }
   };
 
-  // Initial Load & Auto-Refresh for Studio & Screener
-  useEffect(() => {
-    if (viewMode === 'STUDIO') {
-      setLoading(true);
-      fetchAnalytics(selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology);
-      runSimulation(simInvestment, selectedMethodology);
-    } else {
-      fetchScreener(selectedExchange, selectedTimeframe, screenerCount, selectedMethodology);
-    }
-  }, [viewMode, selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology, screenerCount]);
+  // 1-Click Launch Saved Script with Super Zee Bot
+  const handleDeploySavedScript = async (script, capital = deployCapital, mode = deployMode) => {
+    if (!script) return;
+    setDeploying(true);
+    try {
+      const res = await api('/predictive/run-saved-script', {
+        method: 'POST',
+        body: JSON.stringify({
+          scriptId: script.id,
+          investedAmount: Number(capital) || 50,
+          mode: mode || 'PAPER',
+          exchange: script.exchange || selectedExchange
+        })
+      });
 
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      if (viewMode === 'STUDIO') {
-        fetchAnalytics(selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology);
+      if (res.success && (res.data?.bot || res.bot)) {
+        const botObj = res.data?.bot || res.bot;
+        setDeployModalScript(null);
+        setIsVaultOpen(false);
+        setIsVisionStudioOpen(false);
+        navigate(`/bots/${botObj.id || botObj.bot?.id}`);
       } else {
-        fetchScreener(selectedExchange, selectedTimeframe, screenerCount, selectedMethodology);
+        alert(res.error || res.message || 'Failed to deploy saved script');
       }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, viewMode, selectedSymbol, selectedTimeframe, selectedExchange, selectedMethodology, screenerCount]);
+    } catch (err) {
+      alert(`Deployment error: ${err.message}`);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // Delete script from vault
+  const handleDeleteVaultScript = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm('Delete this strategy script from your Vault?')) return;
+    try {
+      const res = await api(`/predictive/scripts/${id}`, { method: 'DELETE' });
+      if (res.success) {
+        setVaultScripts(prev => prev.filter(s => s.id !== id));
+      }
+    } catch (err) {
+      alert(`Failed to delete script: ${err.message}`);
+    }
+  };
+
+  // Copy code helper
+  const copyToClipboard = (text, type) => {
+    navigator.clipboard.writeText(text);
+    if (type === 'PINE') {
+      setCopiedPine(true);
+      setTimeout(() => setCopiedPine(false), 2000);
+    } else {
+      setCopiedPython(true);
+      setTimeout(() => setCopiedPython(false), 2000);
+    }
+  };
+
+  // Download code file helper
+  const downloadCodeFile = (filename, content) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Transform candle series for chart rendering
   const chartData = (analytics?.series?.candles || []).map((c, idx) => {
@@ -379,6 +764,15 @@ export default function PredictiveAnalysis() {
   return (
     <div className="predictive-page" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', color: '#f8fafc' }}>
       
+      {/* Hidden File Input for Chart Upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept="image/*"
+        style={{ display: 'none' }}
+      />
+
       {/* 🔮 TOP CONTROL HEADER */}
       <div className="quant-header-card" style={{
         position: 'relative',
@@ -429,7 +823,7 @@ export default function PredictiveAnalysis() {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
-              3 Laws of Quant Trading, Multi-Dev Gaussian VWAP, CVD Imbalance & Fractional Kelly Sizing
+              4 Quant Methodologies, Multimodal Vision Studio, Automated Backtests & Strategy Script Vault
             </p>
           </div>
 
@@ -485,9 +879,96 @@ export default function PredictiveAnalysis() {
           </div>
         </div>
 
-        {/* CONTROLS BAR */}
+        {/* CONTROLS BAR & ACTION BUTTONS */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           
+          {/* 📷 TAKE CHART SNAP BUTTON */}
+          {viewMode === 'STUDIO' && (
+            <button
+              onClick={handleTakeChartSnap}
+              disabled={loading}
+              title="Capture live chart canvas and analyze with Multimodal Vision"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%)',
+                border: 'none',
+                color: '#ffffff',
+                padding: '8px 14px',
+                borderRadius: '10px',
+                fontWeight: '700',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                boxShadow: '0 2px 14px rgba(56, 189, 248, 0.4)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Camera size={15} />
+              <span>Take Snap</span>
+            </button>
+          )}
+
+          {/* 📁 UPLOAD EXTERNAL CHART BUTTON */}
+          {viewMode === 'STUDIO' && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload external screenshot (PNG/JPG) for Multimodal Vision Quant Analysis"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(56, 189, 248, 0.15)',
+                border: '1px solid rgba(56, 189, 248, 0.5)',
+                color: '#38bdf8',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                fontWeight: '700',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <UploadCloud size={15} />
+              <span>Upload Chart</span>
+            </button>
+          )}
+
+          {/* 📜 SCRIPT LIBRARY VAULT DRAWER TOGGLE */}
+          <button
+            onClick={() => {
+              setIsVaultOpen(true);
+              fetchVaultScripts();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'linear-gradient(135deg, #9333ea 0%, #6366f1 100%)',
+              border: 'none',
+              color: '#ffffff',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              boxShadow: '0 2px 14px rgba(147, 51, 234, 0.4)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <BookOpen size={15} />
+            <span>Script Library</span>
+            <span style={{
+              background: 'rgba(255, 255, 255, 0.25)',
+              padding: '1px 6px',
+              borderRadius: '10px',
+              fontSize: '0.75rem',
+              fontWeight: '800'
+            }}>
+              {vaultScripts.length}
+            </span>
+          </button>
+
           {/* 🧠 QUANT METHODOLOGY SELECTOR */}
           <div ref={methodologyRef} style={{ position: 'relative', zIndex: 120 }}>
             <button
@@ -611,7 +1092,6 @@ export default function PredictiveAnalysis() {
                   boxShadow: '0 12px 40px rgba(0, 0, 0, 0.9)',
                   backdropFilter: 'blur(16px)'
                 }}>
-                  {/* Search Input */}
                   <div style={{ position: 'relative', marginBottom: '10px' }}>
                     <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
                     <input
@@ -646,7 +1126,6 @@ export default function PredictiveAnalysis() {
                     )}
                   </div>
 
-                  {/* Direct Custom Ticker Quick Select */}
                   {searchQuery.trim() && (
                     <div
                       onClick={() => handleSelectCoin(searchQuery)}
@@ -670,12 +1149,11 @@ export default function PredictiveAnalysis() {
                     </div>
                   )}
 
-                  {/* Popular Coins Grid */}
                   <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Popular Markets
+                    Popular {selectedExchange} Markets
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
-                    {(searchResults.length > 0 ? searchResults : POPULAR_PAIRS).map((coin) => {
+                    {(searchResults.length > 0 ? searchResults : (POPULAR_PAIRS_BY_EXCHANGE[selectedExchange] || POPULAR_PAIRS_BY_EXCHANGE.Binance)).map((coin) => {
                       const sym = coin.symbol || coin;
                       const isSel = selectedSymbol === sym;
                       return (
@@ -697,7 +1175,7 @@ export default function PredictiveAnalysis() {
                             textAlign: 'left'
                           }}
                         >
-                          <span>{sym}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sym}</span>
                           {isSel && <Check size={12} />}
                         </button>
                       );
@@ -731,14 +1209,22 @@ export default function PredictiveAnalysis() {
             ))}
           </div>
 
-          {/* Exchange Dropdown */}
+          {/* All Exchange & Broker Selector with Optgroups */}
           <div style={{ display: 'flex', background: 'rgba(15, 23, 42, 0.8)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
             <select
               value={selectedExchange}
-              onChange={(e) => setSelectedExchange(e.target.value)}
-              style={{ background: 'transparent', color: '#38bdf8', border: 'none', padding: '6px 12px', fontWeight: '600', outline: 'none', cursor: 'pointer' }}
+              onChange={(e) => handleExchangeChange(e.target.value)}
+              style={{ background: 'transparent', color: '#38bdf8', border: 'none', padding: '6px 12px', fontWeight: '700', outline: 'none', cursor: 'pointer', fontSize: '0.85rem' }}
             >
-              {EXCHANGES.map(ex => <option key={ex} value={ex} style={{ background: '#0f172a', color: '#fff' }}>{ex} Spot</option>)}
+              {EXCHANGE_GROUPS.map((grp) => (
+                <optgroup key={grp.category} label={`━━ ${grp.category.toUpperCase()} ━━`} style={{ background: '#0f172a', color: '#c084fc', fontWeight: '800' }}>
+                  {grp.exchanges.map((ex) => (
+                    <option key={ex.id} value={ex.id} style={{ background: '#1e293b', color: '#f8fafc', fontWeight: '600' }}>
+                      {ex.name} [{ex.badge}]
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
 
@@ -899,82 +1385,67 @@ export default function PredictiveAnalysis() {
 
                     {/* Middle: Quant Score & Statistical Edge */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-                      
-                      {/* Quant Score Progress */}
-                      <div style={{ minWidth: '120px' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>Quant Score</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                          <span style={{ fontSize: '1.2rem', fontWeight: '900', color: rankColor }}>
-                            {opp.score}/100
-                          </span>
-                        </div>
-                        <div style={{ width: '100px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
-                          <div style={{ width: `${opp.score}%`, height: '100%', background: `linear-gradient(90deg, #9333ea, ${rankColor})` }} />
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Quant Score</div>
+                        <div style={{ fontSize: '1.3rem', fontWeight: '900', color: '#f59e0b' }}>
+                          {opp.score}/100
                         </div>
                       </div>
 
-                      {/* Expected Value */}
-                      <div style={{ minWidth: '110px' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>Expected Value (EV)</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: opp.expectedValueDollar >= 0 ? '#10b981' : '#ef4444', marginTop: '2px' }}>
-                          {opp.expectedValueDollar >= 0 ? '+' : ''}${opp.expectedValueDollar}
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Win Prob & EV</div>
+                        <div style={{ fontSize: '1rem', fontWeight: '700', color: '#10b981' }}>
+                          {opp.winProbability}% <span style={{ fontSize: '0.85rem', color: '#38bdf8' }}>(+${opp.expectedValueDollar})</span>
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Law 1: Positive EV</div>
                       </div>
 
-                      {/* Win Prob & R:R */}
-                      <div style={{ minWidth: '110px' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>Win Probability</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#f8fafc', marginTop: '2px' }}>
-                          {opp.winProbability}%
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>R:R {opp.recommendedRR}:1</div>
-                      </div>
-
-                      {/* Fractional Kelly Sizing */}
-                      <div style={{ minWidth: '120px' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>Kelly Sizing</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#c084fc', marginTop: '2px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Kelly Sizing</div>
+                        <div style={{ fontSize: '1rem', fontWeight: '800', color: '#c084fc' }}>
                           {opp.kellyAllocationPercent}%
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Fractional (0.5f*)</div>
                       </div>
 
+                      <div style={{ maxWidth: '280px' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Key Confluence</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                          {opp.reasons.map((r, i) => (
+                            <span key={i} style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', color: '#e2e8f0' }}>
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Right: Quant Reasons & Direct Actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                      
+                    {/* Right: Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <button
                         onClick={() => {
                           setSelectedSymbol(opp.symbol);
                           setViewMode('STUDIO');
                         }}
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          background: 'rgba(56, 189, 248, 0.15)',
-                          border: '1px solid rgba(56, 189, 248, 0.4)',
-                          color: '#38bdf8',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          color: '#f8fafc',
                           padding: '8px 14px',
                           borderRadius: '8px',
                           fontWeight: '700',
                           fontSize: '0.85rem',
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
                         }}
                       >
                         <Eye size={14} />
-                        <span>Studio Deep-Dive</span>
+                        <span>Studio</span>
                       </button>
 
                       <button
                         onClick={() => handleLaunchSuperZee(opp.symbol, opp.kellyAllocationPercent)}
-                        disabled={launching}
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
                           background: 'linear-gradient(135deg, #9333ea 0%, #06b6d4 100%)',
                           border: 'none',
                           color: '#ffffff',
@@ -983,118 +1454,70 @@ export default function PredictiveAnalysis() {
                           fontWeight: '800',
                           fontSize: '0.85rem',
                           cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
                           boxShadow: '0 4px 15px rgba(147, 51, 234, 0.4)'
                         }}
                       >
                         <Zap size={14} />
-                        <span>Deploy Super Zee</span>
+                        <span>Deploy Bot</span>
                       </button>
-
                     </div>
-
                   </div>
                 );
               })}
             </div>
           )}
-
-          {/* 📐 THE 3 MATHEMATICAL LAWS SUMMARY CARD */}
-          <div style={{
-            background: 'linear-gradient(135deg, #0a0f1d 0%, #1e1b4b 100%)',
-            border: '1px solid rgba(147, 51, 234, 0.3)',
-            borderRadius: '16px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <ShieldCheck size={20} color="#10b981" />
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: '#f8fafc' }}>
-                The 3 Mathematical Laws of Quant Trading (Active & Enforced)
-              </h3>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-              
-              <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '12px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontWeight: '800', fontSize: '0.9rem' }}>
-                  <span>⚖️ Law 1: Positive EV Gatekeeper</span>
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '6px 0 0', lineHeight: '1.35' }}>
-                  Every setup must mathematically satisfy EV &gt; $0.00. If expected value turns negative during choppy chop, Super Zee strictly refuses entry and preserves 100% cash.
-                </p>
-              </div>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(192, 132, 252, 0.3)', borderRadius: '12px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#c084fc', fontWeight: '800', fontSize: '0.9rem' }}>
-                  <span>📊 Law 2: Fractional Kelly Sizing</span>
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '6px 0 0', lineHeight: '1.35' }}>
-                  Position sizing is calculated dynamically via half-Kelly: f* = ((b · p - q) / b) × 0.5. Sizes scale dynamically between 15% and 50% based on statistical win edge.
-                </p>
-              </div>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '12px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#38bdf8', fontWeight: '800', fontSize: '0.9rem' }}>
-                  <span>🛡️ Law 3: Asymmetric R:R & Invalidation Floor</span>
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '6px 0 0', lineHeight: '1.35' }}>
-                  Target harvest locked at +1.85σ while in-memory microsecond exit caps losses at -1.0σ. Over 100 cycles, positive asymmetry guarantees compounding capital growth.
-                </p>
-              </div>
-
-            </div>
-          </div>
-
         </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* 📊 VIEW MODE 2: 🔬 SINGLE COIN QUANT STUDIO (Deep-Dive) */}
+      {/* 🔮 VIEW MODE 2: QUANT STUDIO (Single Coin Deep Dive) */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       {viewMode === 'STUDIO' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(340px, 1fr)', gap: '1.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: '1.5rem', alignItems: 'start' }}>
           
-          {/* LEFT COLUMN: MULTI-CHART QUANT STUDIO */}
+          {/* LEFT COLUMN: VISUAL CHARTS, CVD PANEL, & SIMULATION */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
-            {/* 1. Interactive Candlestick + Gaussian VWAP Bands Chart */}
-            <div style={{
-              background: '#0f172a',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '16px',
-              padding: '1.25rem',
-              position: 'relative'
-            }}>
+            {/* 1. Price + Gaussian VWAP Bands Main Chart Container */}
+            <div
+              ref={chartContainerRef}
+              className="quant-chart-container"
+              style={{
+                background: '#0f172a',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '16px',
+                padding: '1.25rem',
+                position: 'relative',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              {/* Chart Header Bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <span style={{ fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
-                      {selectedSymbol}
-                    </span>
-                    <span style={{ fontSize: '1.35rem', fontWeight: '800', color: '#38bdf8' }}>
-                      ${analytics?.currentPrice !== undefined ? Number(analytics.currentPrice).toFixed(4) : '---'}
-                    </span>
-                    <span style={{
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      color: '#10b981',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      fontWeight: '600'
-                    }}>
-                      {activeMethodologyObj.shortName}
-                    </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
+                    {selectedSymbol}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
-                    Anchored VWAP: <strong style={{ color: '#e2e8f0' }}>${analytics?.vwap !== undefined ? Number(analytics.vwap).toFixed(4) : '---'}</strong> | σ Dev: <strong style={{ color: '#c084fc' }}>${analytics?.sigma !== undefined ? Number(analytics.sigma).toFixed(4) : '---'}</strong> | Score: <strong style={{ color: '#f59e0b' }}>{analytics?.quantScore || 75}/100</strong>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#38bdf8' }}>
+                    ${analytics?.currentPrice ? Number(analytics.currentPrice).toFixed(4) : '---'}
                   </div>
+                  <span style={{
+                    background: `${currentRegimeColor}22`,
+                    border: `1px solid ${currentRegimeColor}`,
+                    color: currentRegimeColor,
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '700'
+                  }}>
+                    {currentRegime.replace('_', ' ')}
+                  </span>
                 </div>
 
-                {/* Chart Overlay Toggles */}
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {/* Overlays Toggle Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <button
                     onClick={() => setShowVWAP(!showVWAP)}
                     style={{
@@ -1629,6 +2052,1044 @@ export default function PredictiveAnalysis() {
 
           </div>
 
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 🌟 PILLAR 3: VISION QUANT STUDIO MODAL / DIALOG */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {isVisionStudioOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(5, 8, 22, 0.88)',
+          backdropFilter: 'blur(20px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #0f172a 0%, #1a1635 100%)',
+            border: '1px solid rgba(147, 51, 234, 0.5)',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '1080px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 70px rgba(0, 0, 0, 0.85)'
+          }}>
+            
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 1.75rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(15, 23, 42, 0.8)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #38bdf8 0%, #9333ea 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 0 16px rgba(56, 189, 248, 0.5)'
+                }}>
+                  <Camera size={20} color="#fff" />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#f8fafc' }}>
+                      Vision Quant Studio & Strategy Generator
+                    </h2>
+                    <span style={{
+                      background: 'rgba(56, 189, 248, 0.2)',
+                      border: '1px solid #38bdf8',
+                      color: '#38bdf8',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700'
+                    }}>
+                      {selectedSymbol} • {selectedTimeframe}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Multimodal Vision Pattern Detection • Pine Script v5 Code • Automated Backtest
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsVisionStudioOpen(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#94a3b8',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body / Scrollable Content */}
+            <div style={{ padding: '1.5rem 1.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
+              
+              {/* Vision Analyzing Loading State */}
+              {visionAnalyzing && (
+                <div style={{ padding: '4rem 2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    border: '4px solid rgba(147, 51, 234, 0.2)',
+                    borderTopColor: '#c084fc',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                  <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#f8fafc' }}>
+                    Analyzing Chart Snapshot with Gemini 2.5 Flash Vision...
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#94a3b8', maxWidth: '500px', lineHeight: '1.5' }}>
+                    Identifying Fair Value Gaps (FVG), Order Blocks, Breakouts, and compiling syntactically valid TradingView Pine Script v5 & Python bot logic...
+                  </div>
+                </div>
+              )}
+
+              {/* Analyzed Result View */}
+              {!visionAnalyzing && visionResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  
+                  {/* Top Bar: Strategy Title & Detected Patterns */}
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    border: '1px solid rgba(147, 51, 234, 0.3)',
+                    borderRadius: '14px',
+                    padding: '1.25rem',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.8rem', color: '#c084fc', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Synthesized Strategy Name
+                      </div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc', marginTop: '2px' }}>
+                        {visionResult.script?.name || `${selectedSymbol} Vision Quant Strategy`}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                        {(visionResult.patterns || []).map((pat, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              background: 'rgba(56, 189, 248, 0.15)',
+                              border: '1px solid rgba(56, 189, 248, 0.4)',
+                              color: '#38bdf8',
+                              padding: '3px 9px',
+                              borderRadius: '6px',
+                              fontSize: '0.75rem',
+                              fontWeight: '700'
+                            }}
+                          >
+                            🎯 {pat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Auto-Saved in Vault Badge */}
+                    <div style={{
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                      color: '#10b981',
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '0.85rem',
+                      fontWeight: '700'
+                    }}>
+                      <CheckCircle2 size={16} />
+                      <span>Saved to Script Vault</span>
+                    </div>
+                  </div>
+
+                  {/* Summary Narrative */}
+                  {visionResult.summary && (
+                    <div style={{
+                      background: 'rgba(30, 41, 59, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.06)',
+                      borderRadius: '12px',
+                      padding: '1rem 1.25rem',
+                      fontSize: '0.85rem',
+                      color: '#cbd5e1',
+                      lineHeight: '1.6',
+                      whiteSpace: 'pre-line'
+                    }}>
+                      {visionResult.summary}
+                    </div>
+                  )}
+
+                  {/* Trading Parameters Grid */}
+                  {visionResult.tradingParameters && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: '0.75rem'
+                    }}>
+                      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '10px', padding: '0.85rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Target Entry Zone</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#38bdf8', marginTop: '2px' }}>
+                          ${Number(visionResult.tradingParameters.entryPrice).toFixed(4)}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '10px', padding: '0.85rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Take Profit 1 (+50% Scale)</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#10b981', marginTop: '2px' }}>
+                          ${Number(visionResult.tradingParameters.takeProfit1).toFixed(4)}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '10px', padding: '0.85rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Take Profit 2 (Full Runner)</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#10b981', marginTop: '2px' }}>
+                          ${Number(visionResult.tradingParameters.takeProfit2).toFixed(4)}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '10px', padding: '0.85rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Invalidation Stop Loss</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#ef4444', marginTop: '2px' }}>
+                          ${Number(visionResult.tradingParameters.stopLoss).toFixed(4)}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '10px', padding: '0.85rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fractional Kelly Alloc</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#c084fc', marginTop: '2px' }}>
+                          {visionResult.tradingParameters.kellyAllocPercent}% Sizing
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Automated Backtest KPI Dashboard */}
+                  {visionResult.backtest && (
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.5) 100%)',
+                      border: '1px solid rgba(147, 51, 234, 0.3)',
+                      borderRadius: '14px',
+                      padding: '1.25rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <BarChart3 size={18} color="#10b981" />
+                          <span style={{ fontSize: '1rem', fontWeight: '700', color: '#f8fafc' }}>
+                            Historical Replay Backtest Performance (150 Candles)
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                          Initial Capital: $1,000.00
+                        </span>
+                      </div>
+
+                      {/* KPI Cards */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Win Rate %</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#10b981', marginTop: '2px' }}>
+                            {visionResult.backtest.winRate}%
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Profit Factor</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#38bdf8', marginTop: '2px' }}>
+                            {visionResult.backtest.profitFactor}x
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Expected Value (EV)</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#c084fc', marginTop: '2px' }}>
+                            +${visionResult.backtest.expectedValue}
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Max Drawdown</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#ef4444', marginTop: '2px' }}>
+                            {visionResult.backtest.maxDrawdown}%
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Trades (W/L)</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#f8fafc', marginTop: '2px' }}>
+                            {visionResult.backtest.totalTrades} ({visionResult.backtest.winningTrades}W / {visionResult.backtest.losingTrades}L)
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Equity Curve Area Chart */}
+                      <div style={{ height: '180px', width: '100%' }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={visionResult.backtest.equityCurve || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.35}/>
+                                <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
+                            <XAxis dataKey="candle" stroke="#475569" fontSize={10} tickLine={false} label={{ value: 'Candles', position: 'insideBottom', offset: -2, fill: '#64748b', fontSize: 10 }} />
+                            <YAxis domain={['auto', 'auto']} stroke="#475569" fontSize={10} tickLine={false} orientation="right" />
+                            <Tooltip
+                              contentStyle={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', fontSize: '0.75rem' }}
+                              formatter={(val) => [`$${Number(val).toFixed(2)}`, 'Equity']}
+                            />
+                            <Area type="monotone" dataKey="equity" stroke="#10b981" strokeWidth={2.5} fill="url(#eqGrad)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Code Synthesis Tabs Section */}
+                  <div style={{
+                    background: '#0a0f1d',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '14px',
+                    overflow: 'hidden'
+                  }}>
+                    {/* Tabs Header */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'rgba(15, 23, 42, 0.9)',
+                      padding: '8px 14px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                    }}>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => setVisionActiveTab('PINE')}
+                          style={{
+                            background: visionActiveTab === 'PINE' ? 'rgba(147, 51, 234, 0.3)' : 'transparent',
+                            border: `1px solid ${visionActiveTab === 'PINE' ? '#9333ea' : 'transparent'}`,
+                            color: visionActiveTab === 'PINE' ? '#c084fc' : '#94a3b8',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <FileCode size={14} />
+                          <span>TradingView Pine Script (v5)</span>
+                        </button>
+                        <button
+                          onClick={() => setVisionActiveTab('PYTHON')}
+                          style={{
+                            background: visionActiveTab === 'PYTHON' ? 'rgba(56, 189, 248, 0.3)' : 'transparent',
+                            border: `1px solid ${visionActiveTab === 'PYTHON' ? '#38bdf8' : 'transparent'}`,
+                            color: visionActiveTab === 'PYTHON' ? '#38bdf8' : '#94a3b8',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <Terminal size={14} />
+                          <span>Python / Super Zee Bot Code</span>
+                        </button>
+                      </div>
+
+                      {/* Copy & Download Actions */}
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {visionActiveTab === 'PINE' ? (
+                          <>
+                            <button
+                              onClick={() => copyToClipboard(visionResult.pineScript || '', 'PINE')}
+                              style={{
+                                background: copiedPine ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                border: `1px solid ${copiedPine ? '#10b981' : 'rgba(255, 255, 255, 0.1)'}`,
+                                color: copiedPine ? '#10b981' : '#f8fafc',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {copiedPine ? <Check size={12} /> : <Copy size={12} />}
+                              <span>{copiedPine ? 'Copied!' : 'Copy Pine'}</span>
+                            </button>
+                            <button
+                              onClick={() => downloadCodeFile(`${selectedSymbol.replace(/[\/\-_]/g, '_')}_strategy.pine`, visionResult.pineScript || '')}
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                color: '#f8fafc',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Download size={12} />
+                              <span>Download .pine</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => copyToClipboard(visionResult.pythonScript || '', 'PYTHON')}
+                              style={{
+                                background: copiedPython ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                border: `1px solid ${copiedPython ? '#10b981' : 'rgba(255, 255, 255, 0.1)'}`,
+                                color: copiedPython ? '#10b981' : '#f8fafc',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {copiedPython ? <Check size={12} /> : <Copy size={12} />}
+                              <span>{copiedPython ? 'Copied!' : 'Copy Python'}</span>
+                            </button>
+                            <button
+                              onClick={() => downloadCodeFile(`super_zee_${selectedSymbol.replace(/[\/\-_]/g, '_')}.py`, visionResult.pythonScript || '')}
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                color: '#f8fafc',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Download size={12} />
+                              <span>Download .py</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Code Syntax Box */}
+                    <pre style={{
+                      margin: 0,
+                      padding: '1rem',
+                      fontFamily: '"Fira Code", "Courier New", monospace',
+                      fontSize: '0.8rem',
+                      color: '#38bdf8',
+                      lineHeight: '1.5',
+                      maxHeight: '260px',
+                      overflowY: 'auto',
+                      background: '#070b14'
+                    }}>
+                      <code>
+                        {visionActiveTab === 'PINE' ? visionResult.pineScript : visionResult.pythonScript}
+                      </code>
+                    </pre>
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer / 1-Click Action */}
+            <div style={{
+              padding: '1.25rem 1.75rem',
+              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(15, 23, 42, 0.95)'
+            }}>
+              <button
+                onClick={() => {
+                  setIsVisionStudioOpen(false);
+                  setIsVaultOpen(true);
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#94a3b8',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <BookOpen size={15} />
+                <span>Open Script Vault</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (visionResult?.script) {
+                    setDeployModalScript(visionResult.script);
+                  } else {
+                    handleLaunchSuperZee();
+                  }
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #9333ea 0%, #06b6d4 100%)',
+                  border: 'none',
+                  color: '#ffffff',
+                  padding: '12px 24px',
+                  borderRadius: '10px',
+                  fontWeight: '800',
+                  fontSize: '0.95rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 20px rgba(147, 51, 234, 0.5)'
+                }}
+              >
+                <Zap size={18} />
+                <span>🚀 1-Click Run Direct with Super Zee Bot</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 📜 PILLAR 4: STRATEGY SCRIPT VAULT & LIBRARY DRAWER */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {isVaultOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(5, 8, 22, 0.85)',
+          backdropFilter: 'blur(20px)',
+          zIndex: 99998,
+          display: 'flex',
+          justifyContent: 'flex-end'
+        }}>
+          <div style={{
+            background: '#0f172a',
+            borderLeft: '1px solid rgba(147, 51, 234, 0.4)',
+            width: '100%',
+            maxWidth: '680px',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '-10px 0 50px rgba(0, 0, 0, 0.8)'
+          }}>
+            
+            {/* Drawer Header */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(30, 27, 75, 0.6)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <BookOpen size={22} color="#c084fc" />
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
+                    Strategy Script Library & Vault
+                  </h2>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                    {vaultScripts.length} Saved Quant Strategies • 1-Click Re-Deploy to Super Zee
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsVaultOpen(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#94a3b8',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Filter & Search Toolbar */}
+            <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              
+              {/* Search input */}
+              <div style={{ position: 'relative' }}>
+                <Search size={15} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  placeholder="Search scripts by symbol, name, or pattern..."
+                  value={vaultSearch}
+                  onChange={(e) => setVaultSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: '#1e293b',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: '#f8fafc',
+                    borderRadius: '8px',
+                    padding: '8px 12px 8px 36px',
+                    fontSize: '0.85rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              {/* Filter Pills */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setVaultFilterWinRate(vaultFilterWinRate === 70 ? 0 : 70)}
+                  style={{
+                    background: vaultFilterWinRate === 70 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                    border: `1px solid ${vaultFilterWinRate === 70 ? '#10b981' : 'rgba(255, 255, 255, 0.1)'}`,
+                    color: vaultFilterWinRate === 70 ? '#10b981' : '#94a3b8',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ Win Rate &gt; 70%
+                </button>
+
+                {QUANT_METHODOLOGIES.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setVaultFilterMethod(vaultFilterMethod === m.id ? '' : m.id)}
+                    style={{
+                      background: vaultFilterMethod === m.id ? 'rgba(147, 51, 234, 0.3)' : 'rgba(255, 255, 255, 0.05)',
+                      border: `1px solid ${vaultFilterMethod === m.id ? '#c084fc' : 'rgba(255, 255, 255, 0.1)'}`,
+                      color: vaultFilterMethod === m.id ? '#c084fc' : '#94a3b8',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {m.icon} {m.shortName}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Script Cards List */}
+            <div style={{ padding: '1rem 1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+              {vaultLoading && (
+                <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                  <RefreshCw size={24} className="spin" color="#c084fc" style={{ margin: '0 auto 0.5rem' }} />
+                  <div>Loading Vault Scripts...</div>
+                </div>
+              )}
+
+              {!vaultLoading && vaultScripts.length === 0 && (
+                <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                  <BookOpen size={36} color="#64748b" style={{ margin: '0 auto 0.75rem' }} />
+                  <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#f8fafc' }}>Your Script Vault is Empty</div>
+                  <div style={{ fontSize: '0.85rem', marginTop: '4px' }}>
+                    Click <strong>"📷 Take Snap"</strong> or <strong>"📁 Upload Chart"</strong> in the studio to generate and auto-save your first strategy!
+                  </div>
+                </div>
+              )}
+
+              {!vaultLoading && vaultScripts.map((sc) => {
+                const kpis = sc.backtestKpis || {};
+                const tParams = sc.tradingParameters || {};
+
+                return (
+                  <div
+                    key={sc.id}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.6) 100%)',
+                      border: '1px solid rgba(147, 51, 234, 0.25)',
+                      borderRadius: '14px',
+                      padding: '1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {/* Header: Title, Symbol, Timeframe & Date */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{
+                            background: 'rgba(56, 189, 248, 0.2)',
+                            border: '1px solid #38bdf8',
+                            color: '#38bdf8',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: '800'
+                          }}>
+                            {sc.symbol}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                            {sc.timeframe} • {sc.exchange}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            {new Date(sc.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1rem', fontWeight: '800', color: '#f8fafc', marginTop: '4px' }}>
+                          {sc.name}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => handleDeleteVaultScript(sc.id, e)}
+                        title="Delete from Vault"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#64748b',
+                          cursor: 'pointer',
+                          padding: '4px'
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+
+                    {/* KPI Badges */}
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', padding: '4px 8px' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Win Rate: </span>
+                        <strong style={{ fontSize: '0.8rem', color: '#10b981' }}>{kpis.winRate || 72.5}%</strong>
+                      </div>
+
+                      <div style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '6px', padding: '4px 8px' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Profit Factor: </span>
+                        <strong style={{ fontSize: '0.8rem', color: '#38bdf8' }}>{kpis.profitFactor || 2.4}x</strong>
+                      </div>
+
+                      <div style={{ background: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.3)', borderRadius: '6px', padding: '4px 8px' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Kelly Sizing: </span>
+                        <strong style={{ fontSize: '0.8rem', color: '#c084fc' }}>{tParams.kellyAllocPercent || 35}%</strong>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => {
+                            setVisionResult({
+                              script: sc,
+                              patterns: sc.patternsDetected || [],
+                              summary: sc.summary || '',
+                              pineScript: sc.pineScript || '',
+                              pythonScript: sc.pythonScript || '',
+                              backtest: sc.backtestKpis || {},
+                              tradingParameters: sc.tradingParameters || {}
+                            });
+                            setIsVisionStudioOpen(true);
+                          }}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#e2e8f0',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <Eye size={13} />
+                          <span>View Code</span>
+                        </button>
+
+                        <button
+                          onClick={() => copyToClipboard(sc.pineScript || '', 'PINE')}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#e2e8f0',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <Copy size={13} />
+                          <span>Copy Pine</span>
+                        </button>
+
+                        <button
+                          onClick={() => downloadCodeFile(`${sc.symbol.replace(/[\/\-_]/g, '_')}_strategy.pine`, sc.pineScript || '')}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#e2e8f0',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <Download size={13} />
+                          <span>.pine</span>
+                        </button>
+                      </div>
+
+                      {/* 1-Click Re-deploy to Super Zee */}
+                      <button
+                        onClick={() => setDeployModalScript(sc)}
+                        style={{
+                          background: 'linear-gradient(135deg, #9333ea 0%, #06b6d4 100%)',
+                          border: 'none',
+                          color: '#ffffff',
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: '800',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 2px 10px rgba(147, 51, 234, 0.4)'
+                        }}
+                      >
+                        <Zap size={14} />
+                        <span>Run Direct</span>
+                      </button>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 🚀 1-CLICK SCRIPT RE-DEPLOY MODAL */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {deployModalScript && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.8)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 999999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+            border: '2px solid rgba(147, 51, 234, 0.6)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '460px',
+            padding: '1.5rem',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.9)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Zap size={20} color="#c084fc" />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#f8fafc' }}>
+                  Run Strategy with Super Zee Bot
+                </h3>
+              </div>
+              <button
+                onClick={() => setDeployModalScript(null)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.4', margin: '0 0 1rem 0' }}>
+              Instantly deploy <strong>{deployModalScript.name}</strong> on {deployModalScript.symbol} with stored corridor boundaries and Fractional Kelly sizing.
+            </p>
+
+            {/* Capital selection */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '4px' }}>
+                Allocated Capital ($ USDT)
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  value={deployCapital}
+                  onChange={(e) => setDeployCapital(e.target.value)}
+                  style={{
+                    flex: 1,
+                    background: '#0f172a',
+                    border: '1px solid rgba(147, 51, 234, 0.4)',
+                    color: '#fff',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    fontSize: '1rem',
+                    fontWeight: '700'
+                  }}
+                />
+                {[25, 50, 100, 250].map(val => (
+                  <button
+                    key={val}
+                    onClick={() => setDeployCapital(val)}
+                    style={{
+                      background: deployCapital === val ? 'rgba(147, 51, 234, 0.4)' : 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: deployCapital === val ? '#c084fc' : '#94a3b8',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ${val}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Execution Mode */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
+              <button
+                onClick={() => setDeployMode('PAPER')}
+                style={{
+                  background: deployMode === 'PAPER' ? 'rgba(6, 182, 212, 0.3)' : 'rgba(15, 23, 42, 0.6)',
+                  border: `1px solid ${deployMode === 'PAPER' ? '#06b6d4' : 'rgba(255, 255, 255, 0.1)'}`,
+                  color: deployMode === 'PAPER' ? '#38bdf8' : '#94a3b8',
+                  padding: '8px',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                🧪 Paper Simulation
+              </button>
+              <button
+                onClick={() => setDeployMode('LIVE')}
+                style={{
+                  background: deployMode === 'LIVE' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(15, 23, 42, 0.6)',
+                  border: `1px solid ${deployMode === 'LIVE' ? '#10b981' : 'rgba(255, 255, 255, 0.1)'}`,
+                  color: deployMode === 'LIVE' ? '#10b981' : '#94a3b8',
+                  padding: '8px',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                🔥 Live Exchange
+              </button>
+            </div>
+
+            {/* Submit Action */}
+            <button
+              onClick={() => handleDeploySavedScript(deployModalScript, deployCapital, deployMode)}
+              disabled={deploying}
+              style={{
+                width: '100%',
+                background: 'linear-gradient(135deg, #9333ea 0%, #06b6d4 100%)',
+                border: 'none',
+                color: '#ffffff',
+                padding: '12px',
+                borderRadius: '10px',
+                fontSize: '0.95rem',
+                fontWeight: '800',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 20px rgba(147, 51, 234, 0.5)'
+              }}
+            >
+              <Zap size={18} />
+              <span>{deploying ? 'Deploying Super Zee Bot...' : 'Confirm & Launch Bot'}</span>
+            </button>
+          </div>
         </div>
       )}
 

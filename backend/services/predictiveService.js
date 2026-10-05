@@ -3,6 +3,13 @@ import { env } from '../config/env.js';
 import * as binanceAdapter from './adapters/binanceAdapter.js';
 import * as coindcxAdapter from './adapters/coindcxAdapter.js';
 import * as jupiterAdapter from './adapters/jupiterAdapter.js';
+import * as bybitAdapter from './adapters/bybitAdapter.js';
+import * as krakenAdapter from './adapters/krakenAdapter.js';
+import * as pionexAdapter from './adapters/pionexAdapter.js';
+import * as upstoxAdapter from './adapters/upstoxAdapter.js';
+import * as angeloneAdapter from './adapters/angeloneAdapter.js';
+import * as alpacaAdapter from './adapters/alpacaAdapter.js';
+import * as yahooAdapter from './adapters/yahooAdapter.js';
 import * as exchangeService from './exchangeService.js';
 
 const BINANCE_BASE = env?.exchanges?.binanceBaseUrl || 'https://api.binance.com';
@@ -19,9 +26,10 @@ function normalizeSymbol(symbol) {
 }
 
 /**
- * Canonical liquid symbol catalog per exchange
+ * Canonical liquid symbol catalog per exchange & broker
  */
 export const POPULAR_SCREENER_PAIRS = {
+  // Crypto Exchanges & DEX
   Binance: [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
     'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT',
@@ -37,6 +45,57 @@ export const POPULAR_SCREENER_PAIRS = {
   Jupiter: [
     'SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC', 'WIF/USDC',
     'PYTH/USDC', 'DRIFT/USDC', 'POPCAT/USDC', 'RENDER/USDC', 'JTO/USDC'
+  ],
+  Pionex: [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'DOGE/USDT', 'XRP/USDT',
+    'BNB/USDT', 'ADA/USDT', 'AVAX/USDT', 'NEAR/USDT', 'PEPE/USDT'
+  ],
+  Bybit: [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'SUI/USDT',
+    'TON/USDT', 'DOGE/USDT', 'MNT/USDT', 'NEAR/USDT', 'AVAX/USDT'
+  ],
+  Kraken: [
+    'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
+    'DOT/USD', 'LINK/USD', 'DOGE/USD', 'AVAX/USD', 'MATIC/USD'
+  ],
+
+  // Indian Stock Brokers & Exchanges
+  Upstox: [
+    'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+    'TATAMOTORS', 'SBIN', 'BHARTIARTL', 'ITC', 'LT',
+    'AXISBANK', 'KOTAKBANK', 'MARUTI', 'SUNPHARMA', 'BAJFINANCE'
+  ],
+  AngelOne: [
+    'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+    'TATAMOTORS', 'SBIN', 'BHARTIARTL', 'ITC', 'LT',
+    'AXISBANK', 'KOTAKBANK', 'MARUTI', 'SUNPHARMA', 'BAJFINANCE'
+  ],
+  NSE: [
+    'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+    'TATAMOTORS', 'SBIN', 'BHARTIARTL', 'ITC', 'LT',
+    'AXISBANK', 'KOTAKBANK', 'MARUTI', 'SUNPHARMA', 'BAJFINANCE'
+  ],
+  BSE: [
+    'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+    'TATAMOTORS', 'SBIN', 'BHARTIARTL', 'ITC', 'LT',
+    'AXISBANK', 'KOTAKBANK', 'MARUTI', 'SUNPHARMA', 'BAJFINANCE'
+  ],
+
+  // US Stock Brokers & Exchanges
+  Alpaca: [
+    'AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN',
+    'GOOGL', 'META', 'AMD', 'SPY', 'QQQ',
+    'NFLX', 'COIN', 'PLTR', 'INTC', 'ARM'
+  ],
+  NASDAQ: [
+    'AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN',
+    'GOOGL', 'META', 'AMD', 'QQQ', 'NFLX',
+    'INTC', 'ARM', 'AVGO', 'ADBE', 'PYPL'
+  ],
+  NYSE: [
+    'JPM', 'BRK.B', 'V', 'UNH', 'JNJ',
+    'WMT', 'PG', 'MA', 'HD', 'DIS',
+    'BAC', 'XOM', 'CVX', 'KO', 'PEP'
   ]
 };
 
@@ -80,14 +139,14 @@ function generateFallbackCandles(symbol, basePrice = 100, limit = 100) {
 }
 
 /**
- * Robust Multi-Exchange Klines Fetcher
+ * Robust Multi-Exchange & Broker Klines Fetcher
  */
 export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', exchange = 'Binance', limit = 100) {
   const norm = normalizeSymbol(symbol);
   const exLower = (exchange || 'binance').toLowerCase();
 
-  // 1. Try Binance Direct API
-  if (exLower.includes('binance')) {
+  // 1. Try Binance
+  if (exLower === 'binance') {
     try {
       const url = `${BINANCE_BASE}/api/v3/klines`;
       const { data } = await axios.get(url, {
@@ -120,13 +179,11 @@ export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', e
           };
         });
       }
-    } catch (err) {
-      // non-blocking fallback
-    }
+    } catch (err) {}
   }
 
-  // 2. Try CoinDCX Adapter
-  if (exLower.includes('coindcx')) {
+  // 2. Try CoinDCX
+  if (exLower === 'coindcx') {
     try {
       const candles = await coindcxAdapter.getOHLCV(symbol, interval, limit);
       if (Array.isArray(candles) && candles.length > 0) {
@@ -141,8 +198,8 @@ export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', e
     } catch {}
   }
 
-  // 3. Try Jupiter Adapter
-  if (exLower.includes('jupiter')) {
+  // 3. Try Jupiter
+  if (exLower === 'jupiter') {
     try {
       const candles = await jupiterAdapter.getOHLCV(symbol, interval, limit);
       if (Array.isArray(candles) && candles.length > 0) {
@@ -157,11 +214,132 @@ export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', e
     } catch {}
   }
 
-  // 4. Try Binance Adapter Fallback
+  // 4. Try Bybit
+  if (exLower === 'bybit') {
+    try {
+      const candles = await bybitAdapter.getOHLCV(symbol, interval, limit);
+      if (Array.isArray(candles) && candles.length > 0) {
+        return candles.map(c => ({
+          ...c,
+          timestamp: new Date(c.time).getTime(),
+          takerBuyVolume: c.volume * 0.52,
+          takerSellVolume: c.volume * 0.48,
+          typicalPrice: (c.high + c.low + c.close) / 3
+        }));
+      }
+    } catch {}
+  }
+
+  // 5. Try Pionex
+  if (exLower === 'pionex') {
+    try {
+      const candles = await pionexAdapter.getOHLCV(symbol, interval, limit);
+      if (Array.isArray(candles) && candles.length > 0) {
+        return candles.map(c => ({
+          ...c,
+          timestamp: new Date(c.time).getTime(),
+          takerBuyVolume: c.volume * 0.52,
+          takerSellVolume: c.volume * 0.48,
+          typicalPrice: (c.high + c.low + c.close) / 3
+        }));
+      }
+    } catch {}
+  }
+
+  // 6. Try Kraken
+  if (exLower === 'kraken') {
+    try {
+      const candles = await krakenAdapter.getOHLCV(symbol, interval, limit);
+      if (Array.isArray(candles) && candles.length > 0) {
+        return candles.map(c => ({
+          ...c,
+          timestamp: new Date(c.time).getTime(),
+          takerBuyVolume: c.volume * 0.52,
+          takerSellVolume: c.volume * 0.48,
+          typicalPrice: (c.high + c.low + c.close) / 3
+        }));
+      }
+    } catch {}
+  }
+
+  // 7. Try Indian Brokers (Upstox, AngelOne, NSE, BSE)
+  if (['upstox', 'angelone', 'nse', 'bse'].includes(exLower)) {
+    try {
+      if (exLower === 'upstox') {
+        const candles = await upstoxAdapter.getOHLCV(symbol, interval, limit).catch(() => null);
+        if (Array.isArray(candles) && candles.length > 0) {
+          return candles.map(c => ({
+            ...c,
+            timestamp: new Date(c.time).getTime(),
+            takerBuyVolume: c.volume * 0.52,
+            takerSellVolume: c.volume * 0.48,
+            typicalPrice: (c.high + c.low + c.close) / 3
+          }));
+        }
+      }
+
+      if (exLower === 'angelone') {
+        const candles = await angeloneAdapter.getOHLCV(symbol, interval, limit).catch(() => null);
+        if (Array.isArray(candles) && candles.length > 0) {
+          return candles.map(c => ({
+            ...c,
+            timestamp: new Date(c.time).getTime(),
+            takerBuyVolume: c.volume * 0.52,
+            takerSellVolume: c.volume * 0.48,
+            typicalPrice: (c.high + c.low + c.close) / 3
+          }));
+        }
+      }
+
+      // Yahoo Finance for Indian Stocks fallback (e.g. RELIANCE.NS)
+      const yahooCandles = await yahooAdapter.getOHLCV(symbol, interval, limit, 'NSE').catch(() => null);
+      if (Array.isArray(yahooCandles) && yahooCandles.length > 0) {
+        return yahooCandles.map(c => ({
+          ...c,
+          timestamp: new Date(c.time).getTime(),
+          takerBuyVolume: c.volume * 0.52,
+          takerSellVolume: c.volume * 0.48,
+          typicalPrice: (c.high + c.low + c.close) / 3
+        }));
+      }
+    } catch {}
+  }
+
+  // 8. Try US Stock Brokers (Alpaca, NASDAQ, NYSE)
+  if (['alpaca', 'nasdaq', 'nyse'].includes(exLower)) {
+    try {
+      if (exLower === 'alpaca') {
+        const candles = await alpacaAdapter.getOHLCV(symbol, interval, limit).catch(() => null);
+        if (Array.isArray(candles) && candles.length > 0) {
+          return candles.map(c => ({
+            ...c,
+            timestamp: new Date(c.time).getTime(),
+            takerBuyVolume: c.volume * 0.52,
+            takerSellVolume: c.volume * 0.48,
+            typicalPrice: (c.high + c.low + c.close) / 3
+          }));
+        }
+      }
+
+      // Yahoo Finance for US Stocks fallback
+      const yahooCandles = await yahooAdapter.getOHLCV(symbol, interval, limit, 'NASDAQ').catch(() => null);
+      if (Array.isArray(yahooCandles) && yahooCandles.length > 0) {
+        return yahooCandles.map(c => ({
+          ...c,
+          timestamp: new Date(c.time).getTime(),
+          takerBuyVolume: c.volume * 0.52,
+          takerSellVolume: c.volume * 0.48,
+          typicalPrice: (c.high + c.low + c.close) / 3
+        }));
+      }
+    } catch {}
+  }
+
+  // 9. Generic Exchange Service fallback
   try {
-    const fallback = await binanceAdapter.getOHLCV(symbol, interval, limit);
-    if (Array.isArray(fallback) && fallback.length > 0) {
-      return fallback.map(c => ({
+    const candles = await exchangeService.getHistory(symbol, exchange, interval, limit);
+    if (Array.isArray(candles) && candles.length > 0) {
+      return candles.map(c => ({
         ...c,
         timestamp: new Date(c.time).getTime(),
         takerBuyVolume: c.volume * 0.52,
@@ -171,10 +349,10 @@ export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', e
     }
   } catch {}
 
-  // 5. Infallible Price Anchor + Synthetic Generator
+  // 10. Infallible Price Anchor + Synthetic Generator
   let anchorPrice = 100;
   try {
-    const quote = await binanceAdapter.getQuote(symbol).catch(() => null);
+    const quote = await exchangeService.getQuote(symbol, exchange).catch(() => null);
     if (quote?.price && quote.price > 0) {
       anchorPrice = quote.price;
     }
