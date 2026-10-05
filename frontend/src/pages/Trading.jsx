@@ -98,6 +98,18 @@ export default function Trading() {
     paperMode: false
   });
 
+  // Jupiter Solana DEX State
+  const [jupiterStatus, setJupiterStatus] = useState({ configured: false, authenticated: false, balances: [] });
+  const [jupiterInputToken, setJupiterInputToken] = useState('SOL');
+  const [jupiterOutputToken, setJupiterOutputToken] = useState('USDC');
+  const [jupiterInputAmount, setJupiterInputAmount] = useState('1');
+  const [jupiterSlippageBps, setJupiterSlippageBps] = useState(50); // 0.5%
+  const [jupiterQuote, setJupiterQuote] = useState(null);
+  const [jupiterQuoteLoading, setJupiterQuoteLoading] = useState(false);
+  const [jupiterSwapping, setJupiterSwapping] = useState(false);
+  const [jupiterSwapResult, setJupiterSwapResult] = useState(null);
+  const [showJupiterConnectModal, setShowJupiterConnectModal] = useState(false);
+
   // Order confirmation modal
   const [showOrderConfirm, setShowOrderConfirm] = useState(false);
   const [pendingOrder, setPendingOrder] = useState(null);
@@ -121,12 +133,14 @@ export default function Trading() {
   const isIndianExchange = ['NSE', 'BSE'].includes(exchangeName);
   const isPionexExchange = exchangeName.toLowerCase() === 'pionex';
   const isCoindcxExchange = exchangeName.toLowerCase() === 'coindcx';
+  const isJupiterExchange = exchangeName.toLowerCase() === 'jupiter';
   const currencySymbol = isIndianExchange ? '₹' : '$';
 
   const isAngelConnected = !!(angeloneStatus.authenticated || angeloneStatus.configured);
   const isUpstoxConnected = !!upstoxStatus.authenticated;
   const isPionexConnected = !!(pionexStatus.authenticated || pionexStatus.configured || brokerStatus.pionex?.connected);
   const isCoindcxConnected = !!(coindcxStatus.authenticated || coindcxStatus.configured || brokerStatus.coindcx?.connected);
+  const isJupiterConnected = !!(jupiterStatus.authenticated || jupiterStatus.configured);
   const isSelectedIndianBrokerConnected = isIndianExchange && (
     (selectedIndianBroker === 'AngelOne' && isAngelConnected) ||
     (selectedIndianBroker === 'Upstox' && isUpstoxConnected)
@@ -221,6 +235,11 @@ export default function Trading() {
       loadCoindcxFunds();
     }
   }, [coindcxStatus.authenticated, coindcxStatus.configured]);
+
+  // Load Jupiter wallet data when mounted or exchange changed
+  useEffect(() => {
+    loadJupiterStatus();
+  }, [exchangeName]);
 
   // Load quote when symbol changes
   useEffect(() => {
@@ -663,6 +682,108 @@ export default function Trading() {
     };
 
     poll();
+  }
+
+  // ============ JUPITER SOLANA DEX METHODS ============
+  const POPULAR_SOLANA_TOKENS = [
+    { symbol: 'SOL', name: 'Solana', decimals: 9, mint: 'So11111111111111111111111111111111111111112' },
+    { symbol: 'USDC', name: 'USD Coin', decimals: 6, mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+    { symbol: 'USDT', name: 'Tether USD', decimals: 6, mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
+    { symbol: 'JUP', name: 'Jupiter', decimals: 6, mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN' },
+    { symbol: 'RAY', name: 'Raydium', decimals: 6, mint: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R' },
+    { symbol: 'BONK', name: 'Bonk', decimals: 5, mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' },
+    { symbol: 'WIF', name: 'dogwifhat', decimals: 6, mint: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' },
+    { symbol: 'PYTH', name: 'Pyth Network', decimals: 6, mint: 'HZ1JovNiDcZvKhVkW1dhB5ySsTrkyqqJf4ZXRJUFH44' },
+    { symbol: 'JTO', name: 'Jito', decimals: 9, mint: 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL' },
+    { symbol: 'ORCA', name: 'Orca', decimals: 6, mint: 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE' },
+    { symbol: 'RENDER', name: 'Render Token', decimals: 8, mint: 'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof' }
+  ];
+
+  async function loadJupiterStatus() {
+    try {
+      const res = await api.get('/api/jupiter/wallet');
+      if (res.data?.success) {
+        setJupiterStatus(res.data);
+      }
+    } catch (err) {
+      console.warn('[Trading] Failed to load Jupiter wallet:', err);
+    }
+  }
+
+  function switchJupiterTokens() {
+    const prevIn = jupiterInputToken;
+    const prevOut = jupiterOutputToken;
+    setJupiterInputToken(prevOut);
+    setJupiterOutputToken(prevIn);
+  }
+
+  // Live Jupiter Quote Poller
+  useEffect(() => {
+    if (!isJupiterExchange || !jupiterInputToken || !jupiterOutputToken || !jupiterInputAmount || Number(jupiterInputAmount) <= 0) {
+      return;
+    }
+
+    let isSubscribed = true;
+    const timer = setTimeout(async () => {
+      setJupiterQuoteLoading(true);
+      try {
+        const symbolPair = `${jupiterInputToken}/${jupiterOutputToken}`;
+        const res = await api.get(`/api/jupiter/quote?symbol=${encodeURIComponent(symbolPair)}`);
+        if (isSubscribed && res.data?.success && res.data.quote) {
+          const q = res.data.quote;
+          setJupiterQuote(q);
+          const outEst = (Number(jupiterInputAmount) * (q.price || 1)).toFixed(4);
+          setJupiterOutputAmount(outEst);
+        }
+      } catch (err) {
+        console.warn('[Trading] Jupiter quote error:', err.message);
+      } finally {
+        if (isSubscribed) setJupiterQuoteLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [isJupiterExchange, jupiterInputToken, jupiterOutputToken, jupiterInputAmount, jupiterSlippageBps]);
+
+  async function handleJupiterSwap() {
+    if (!jupiterInputAmount || Number(jupiterInputAmount) <= 0) {
+      setMessage({ text: 'Please enter a valid swap amount', type: 'error' });
+      return;
+    }
+
+    setJupiterSwapping(true);
+    setJupiterSwapResult(null);
+    setMessage({ text: '', type: '' });
+
+    try {
+      const res = await api.post('/api/jupiter/swap/execute', {
+        inputToken: jupiterInputToken,
+        outputToken: jupiterOutputToken,
+        quantity: Number(jupiterInputAmount),
+        slippageBps: jupiterSlippageBps,
+        dryRun: mode === 'paper'
+      });
+
+      if (res.data?.success && res.data.order) {
+        const order = res.data.order;
+        setJupiterSwapResult(order);
+        setMessage({
+          text: `⚡ Swap successful! ${order.quantity} ${jupiterInputToken} → ${jupiterOutputToken} (${order.isLive ? 'LIVE on Solana' : 'Paper Simulation'})`,
+          type: 'success'
+        });
+        loadJupiterStatus();
+        loadWallet();
+      } else {
+        setMessage({ text: res.data?.error || 'Swap execution failed', type: 'error' });
+      }
+    } catch (err) {
+      setMessage({ text: errorMessage(err), type: 'error' });
+    } finally {
+      setJupiterSwapping(false);
+    }
   }
 
   // ============ GENERAL TRADING METHODS ============
@@ -1386,6 +1507,46 @@ export default function Trading() {
         </div>
       )}
 
+      {/* Jupiter Solana DEX Toolbar (Shown when Jupiter exchange is selected) */}
+      {isJupiterExchange && (
+        <div className="indian-broker-toolbar jupiter-toolbar" style={{ background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.1) 0%, rgba(6, 182, 212, 0.08) 100%)', borderColor: 'rgba(147, 51, 234, 0.3)' }}>
+          <div className="broker-toolbar-label">
+            <span style={{ color: '#c084fc', fontWeight: '800' }}>⚡ Jupiter DEX (Solana V6):</span>
+          </div>
+
+          <div className="broker-pills-list">
+            <div
+              className={`broker-pill-item ${isJupiterConnected ? 'connected' : ''} active`}
+              style={{ border: isJupiterConnected ? '1px solid #10b981' : '1px solid rgba(147, 51, 234, 0.4)' }}
+            >
+              <div className="broker-pill-header">
+                <strong>Solana Wallet</strong>
+                {jupiterStatus.authenticated ? (
+                  <Badge tone="green" small><CheckCircle size={10} /> Active ({jupiterStatus.walletAddress?.slice(0, 4)}...{jupiterStatus.walletAddress?.slice(-4)})</Badge>
+                ) : jupiterStatus.configured ? (
+                  <Badge tone="blue" small><CheckCircle size={10} /> Configured</Badge>
+                ) : (
+                  <Badge tone="yellow" small><KeyRound size={10} /> Connect Wallet</Badge>
+                )}
+              </div>
+              <span className="broker-pill-desc">Decentralized V6 Aggregator</span>
+              <div className="broker-pill-actions" onClick={e => e.stopPropagation()}>
+                <Link to="/exchanges" className="btn-connect-pill pionex" style={{ textDecoration: 'none', background: 'linear-gradient(135deg, #ab9ff2 0%, #7962e6 100%)' }}>
+                  <Wallet size={11} /> Manage Wallet & RPC
+                </Link>
+              </div>
+            </div>
+
+            {jupiterStatus.solBalance !== undefined && (
+              <div className="broker-balance-chip" style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+                <span className="chip-label" style={{ color: '#10b981' }}>SOL Gas Balance:</span>
+                <span className="chip-val" style={{ color: '#ffffff', fontWeight: '700' }}>{Number(jupiterStatus.solBalance || 0).toFixed(4)} SOL</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search Section */}
       <div className="search-section">
         <div className="search-wrapper" onClick={() => setShowSearch(true)}>
@@ -1401,9 +1562,14 @@ export default function Trading() {
                 {isPionexExchange && (
                   <span className="search-broker-tag">via Pionex</span>
                 )}
+                {isJupiterExchange && (
+                  <span className="search-broker-tag">via Jupiter DEX</span>
+                )}
               </>
             ) : (
-              isPionexExchange
+              isJupiterExchange
+                ? 'Select Solana DEX pair (e.g. SOL/USDC, JUP/USDC, BONK/USDC, WIF/USDC)...'
+                : isPionexExchange
                 ? 'Search Pionex crypto pairs (e.g. BTC/USDT, ETH/USDT, SOL/USDT)...'
                 : `Search for ${exchangeName} stocks...`
             )}
@@ -1433,7 +1599,7 @@ export default function Trading() {
               <Search size={18} />
               <input
                 type="text"
-                placeholder={`Search ${exchangeName} stocks (e.g. RELIANCE, TCS, INFY)...`}
+                placeholder={isJupiterExchange ? 'Search Solana SPL tokens (e.g. SOL, JUP, RAY, BONK)...' : `Search ${exchangeName} stocks (e.g. RELIANCE, TCS, INFY)...`}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 autoFocus
@@ -1457,9 +1623,9 @@ export default function Trading() {
                 <div className="search-empty">No results found for "{searchQuery}" on {exchangeName}</div>
               ) : (
                 <div className="search-hints">
-                  <span className="hints-title">Popular {exchangeName} Stocks:</span>
+                  <span className="hints-title">Popular {exchangeName} Pairs:</span>
                   <div className="quick-tags">
-                    {(isIndianExchange ? ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'ITC'] : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA']).map(tag => (
+                    {(isJupiterExchange ? ['SOL/USDC', 'JUP/USDC', 'RAY/USDC', 'BONK/USDC', 'WIF/USDC', 'PYTH/USDC', 'ORCA/USDC'] : isIndianExchange ? ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'ITC'] : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA']).map(tag => (
                       <button key={tag} onClick={() => selectSymbol({ symbol: tag })}>{tag}</button>
                     ))}
                   </div>
@@ -1470,8 +1636,311 @@ export default function Trading() {
         </div>
       )}
 
-      {/* Symbol Loaded View */}
-      {symbol ? (
+      {/* Jupiter Dedicated DEX Swap Terminal OR Symbol Loaded View */}
+      {isJupiterExchange ? (
+        <div className="trading-content-grid jupiter-dex-grid">
+          {/* Main Chart & Trading Panel */}
+          <div className="trading-main">
+            <div className="symbol-header-card" style={{ background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.8) 100%)', border: '1px solid rgba(147, 51, 234, 0.4)' }}>
+              <div className="symbol-meta">
+                <div className="title-row">
+                  <h2>{jupiterInputToken} / {jupiterOutputToken}</h2>
+                  <Badge tone="purple">Jupiter V6 DEX</Badge>
+                  <span style={{ fontSize: '0.8rem', color: '#c084fc', fontWeight: '700' }}>⚡ Solana Low-Fee DEX</span>
+                </div>
+                <span className="company-name">Decentralized Automated Routing across Raydium, Orca, Meteora & Phoenix</span>
+              </div>
+
+              <div className="symbol-pricing">
+                <div className="price-main">
+                  <span className="current-price" style={{ color: '#38bdf8' }}>
+                    1 {jupiterInputToken} ≈ {jupiterQuote?.price ? formatPrice(jupiterQuote.price) : '...'} {jupiterOutputToken}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Token Selector Chips */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '1rem 0' }}>
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8', alignSelf: 'center', fontWeight: '700' }}>Quick Pairs:</span>
+              {['SOL', 'JUP', 'RAY', 'BONK', 'WIF', 'PYTH', 'ORCA', 'RENDER'].map(tok => (
+                <button
+                  key={tok}
+                  onClick={() => {
+                    setJupiterInputToken(tok);
+                    setJupiterOutputToken('USDC');
+                  }}
+                  style={{
+                    background: jupiterInputToken === tok ? 'rgba(147, 51, 234, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                    border: jupiterInputToken === tok ? '1px solid #c084fc' : '1px solid rgba(255, 255, 255, 0.1)',
+                    color: jupiterInputToken === tok ? '#f8fafc' : '#94a3b8',
+                    padding: '5px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {tok}/USDC
+                </button>
+              ))}
+            </div>
+
+            {/* Interactive Candlestick Chart Area */}
+            <div className="chart-card">
+              <CandlestickChart
+                candles={chartData}
+                detectedPatterns={stockPatterns}
+                symbol={`${jupiterInputToken}/USDC`}
+                exchange="Jupiter"
+                interval={chartInterval}
+                onIntervalChange={setChartInterval}
+                currencySymbol="$"
+                height={400}
+                showControls={true}
+              />
+            </div>
+          </div>
+
+          {/* Right Side: DEX Swap Widget */}
+          <div className="trading-sidebar">
+            <div className="order-entry-card" style={{ border: '1px solid rgba(147, 51, 234, 0.4)', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 20, 40, 0.95) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Zap size={18} color="#c084fc" />
+                  <span>Jupiter DEX Swap</span>
+                </h3>
+                <Badge tone={mode === 'live' ? 'green' : 'blue'} small>
+                  {mode === 'live' ? '⚡ LIVE SOLANA' : '🧪 PAPER SIM'}
+                </Badge>
+              </div>
+
+              {/* From Token Card */}
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '12px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: '700' }}>YOU PAY</span>
+                  <span style={{ fontSize: '0.78rem', color: '#38bdf8' }}>
+                    Balance: {Number(jupiterStatus.balances?.find(b => b.asset === jupiterInputToken)?.total || (jupiterInputToken === 'SOL' ? jupiterStatus.solBalance : 0) || 0).toFixed(4)} {jupiterInputToken}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="0.00"
+                    value={jupiterInputAmount}
+                    onChange={e => setJupiterInputAmount(e.target.value)}
+                    style={{ flex: 1, fontSize: '1.25rem', fontWeight: '800', background: 'transparent', border: 'none', color: '#f8fafc', outline: 'none' }}
+                  />
+                  <select
+                    value={jupiterInputToken}
+                    onChange={e => setJupiterInputToken(e.target.value)}
+                    style={{ background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#ffffff', borderRadius: '8px', padding: '6px 10px', fontWeight: '800', fontSize: '0.9rem', cursor: 'pointer' }}
+                  >
+                    {POPULAR_SOLANA_TOKENS.map(t => (
+                      <option key={t.symbol} value={t.symbol} style={{ background: '#0f172a', color: '#ffffff' }}>
+                        {t.symbol} - {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {/* Quick Percentages */}
+                <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
+                  {[25, 50, 75, 100].map(pct => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => {
+                        const bal = Number(jupiterStatus.balances?.find(b => b.asset === jupiterInputToken)?.total || (jupiterInputToken === 'SOL' ? Math.max(0, (jupiterStatus.solBalance || 0) - 0.005) : 0) || 10);
+                        setJupiterInputAmount(((bal * pct) / 100).toFixed(4));
+                      }}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '6px',
+                        color: '#94a3b8',
+                        fontSize: '0.72rem',
+                        padding: '3px 0',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {pct === 100 ? 'MAX' : `${pct}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Switch Tokens Button */}
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '-4px 0' }}>
+                <button
+                  type="button"
+                  onClick={switchJupiterTokens}
+                  style={{
+                    background: 'rgba(147, 51, 234, 0.2)',
+                    border: '1px solid rgba(147, 51, 234, 0.4)',
+                    color: '#c084fc',
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'transform 0.15s ease'
+                  }}
+                  title="Switch Token Direction"
+                >
+                  ↕
+                </button>
+              </div>
+
+              {/* To Token Card */}
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '12px', marginTop: '4px', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: '700' }}>YOU RECEIVE (ESTIMATED)</span>
+                  <span style={{ fontSize: '0.78rem', color: '#38bdf8' }}>
+                    Balance: {Number(jupiterStatus.balances?.find(b => b.asset === jupiterOutputToken)?.total || (jupiterOutputToken === 'SOL' ? jupiterStatus.solBalance : 0) || 0).toFixed(4)} {jupiterOutputToken}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder={jupiterQuoteLoading ? 'Calculating...' : '0.00'}
+                    value={jupiterOutputAmount}
+                    style={{ flex: 1, fontSize: '1.25rem', fontWeight: '800', background: 'transparent', border: 'none', color: '#10b981', outline: 'none' }}
+                  />
+                  <select
+                    value={jupiterOutputToken}
+                    onChange={e => setJupiterOutputToken(e.target.value)}
+                    style={{ background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#ffffff', borderRadius: '8px', padding: '6px 10px', fontWeight: '800', fontSize: '0.9rem', cursor: 'pointer' }}
+                  >
+                    {POPULAR_SOLANA_TOKENS.map(t => (
+                      <option key={t.symbol} value={t.symbol} style={{ background: '#0f172a', color: '#ffffff' }}>
+                        {t.symbol} - {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Slippage Selector */}
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.78rem', color: '#94a3b8' }}>
+                  <span>Slippage Tolerance</span>
+                  <span style={{ color: '#f8fafc', fontWeight: '700' }}>{(jupiterSlippageBps / 100).toFixed(1)}%</span>
+                </div>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {[10, 50, 100, 250].map(bps => (
+                    <button
+                      key={bps}
+                      type="button"
+                      onClick={() => setJupiterSlippageBps(bps)}
+                      style={{
+                        flex: 1,
+                        padding: '5px 0',
+                        borderRadius: '6px',
+                        border: jupiterSlippageBps === bps ? '1px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                        background: jupiterSlippageBps === bps ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                        color: jupiterSlippageBps === bps ? '#38bdf8' : '#94a3b8',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {(bps / 100).toFixed(1)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Routing & Price Impact Breakdown */}
+              <div style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '10px', padding: '10px', marginBottom: '14px', fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Rate</span>
+                  <span style={{ color: '#f8fafc', fontWeight: '700' }}>
+                    1 {jupiterInputToken} ≈ {jupiterQuote?.price ? formatPrice(jupiterQuote.price) : '...'} {jupiterOutputToken}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Price Impact</span>
+                  <span style={{ color: '#10b981', fontWeight: '700' }}>&lt; 0.05% (Negligible)</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Estimated Network Fee</span>
+                  <span style={{ color: '#f8fafc', fontWeight: '700' }}>&lt; 0.00005 SOL (~$0.001)</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Routing DEX Protocol</span>
+                  <span style={{ color: '#c084fc', fontWeight: '700' }}>Jupiter V6 Aggregator</span>
+                </div>
+              </div>
+
+              {/* Swap CTA Button */}
+              <button
+                type="button"
+                onClick={handleJupiterSwap}
+                disabled={jupiterSwapping || !jupiterInputAmount || Number(jupiterInputAmount) <= 0}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: '1rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 20px rgba(16, 185, 129, 0.4)'
+                }}
+              >
+                {jupiterSwapping ? (
+                  <><RefreshCw size={18} className="spin" /> Executing On-Chain Swap...</>
+                ) : (
+                  <><Zap size={18} /> Swap {jupiterInputToken} → {jupiterOutputToken}</>
+                )}
+              </button>
+
+              {/* Result Confirmation Banner */}
+              {jupiterSwapResult && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '10px 12px',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '8px',
+                  fontSize: '0.82rem',
+                  color: '#10b981'
+                }}>
+                  <div style={{ fontWeight: '800', marginBottom: '4px' }}>✅ Swap Confirmed!</div>
+                  {jupiterSwapResult.txid && (
+                    <a
+                      href={jupiterSwapResult.explorerUrl || `https://solscan.io/tx/${jupiterSwapResult.txid}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#38bdf8', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <span>View Transaction on Solscan</span>
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {message.text && (
+                <div className={`form-message ${message.type}`} style={{ marginTop: '10px' }}>{message.text}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : symbol ? (
         <div className="trading-content-grid">
           {/* Main Chart & Trading Panel */}
           <div className="trading-main">

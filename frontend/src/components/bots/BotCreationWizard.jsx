@@ -972,11 +972,13 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
                               setConfig(c => ({ ...c, exchangeName: ex.name, symbol: '' }));
                               setSymbolSearch('');
                               setSymbolInfo(null);
-                              const cryptoExchanges = ['demo', 'pionex', 'binance', 'bybit', 'kraken'];
-                              if (cryptoExchanges.includes(ex.name.toLowerCase())) {
-                                setSymbols(DEMO_SYMBOLS.map(s => ({ ...s, exchange: ex.name })));
+                              const exLower = ex.name.toLowerCase();
+                              if (['angelone', 'upstox'].includes(exLower)) {
+                                setSymbols(INDIAN_STOCK_SYMBOLS.map(s => ({ ...s, exchange: ex.name })));
+                              } else if (exLower === 'jupiter') {
+                                setSymbols(SOLANA_SYMBOLS.map(s => ({ ...s, exchange: ex.name })));
                               } else {
-                                setSymbols([]);
+                                setSymbols(DEMO_SYMBOLS.map(s => ({ ...s, exchange: ex.name })));
                               }
                             }}
                           >

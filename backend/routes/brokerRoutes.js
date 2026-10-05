@@ -88,6 +88,35 @@ router.get('/angelone/status', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/jupiter/status', requireAuth, async (req, res) => {
+  try {
+    const creds = await getUserBrokerCredentials(req.user.id, 'Jupiter');
+    const memoryConfig = jupiterAdapter.getConfig();
+
+    if (creds) {
+      return ok(res, {
+        configured: true,
+        authenticated: true,
+        walletAddress: creds.apiKey || memoryConfig.walletAddress,
+        rpcUrl: creds.rpcUrl || memoryConfig.rpcUrl,
+        paperMode: !!creds.paperMode,
+        source: 'database'
+      });
+    }
+
+    return ok(res, {
+      configured: memoryConfig.configured,
+      authenticated: memoryConfig.hasWallet,
+      walletAddress: memoryConfig.walletAddress,
+      rpcUrl: memoryConfig.rpcUrl,
+      paperMode: false,
+      source: memoryConfig.hasWallet ? 'memory' : 'none'
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+});
+
 router.get('/alpaca/status', requireAuth, async (req, res) => {
   try {
     const creds = await getUserBrokerCredentials(req.user.id, 'Alpaca');

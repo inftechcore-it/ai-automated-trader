@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   KeyRound, Trash2, RefreshCw, CheckCircle, XCircle, Wallet,
   ToggleLeft, ToggleRight, Search, TrendingUp, TrendingDown,
-  ArrowLeft, BarChart2, Clock, DollarSign, Activity, ExternalLink, Link2, AlertTriangle
+  ArrowLeft, BarChart2, Clock, DollarSign, Activity, ExternalLink, Link2, AlertTriangle,
+  Copy, Check, Zap, Globe, Layers, ShieldCheck, Sparkles
 } from 'lucide-react';
 import { api, errorMessage } from '../api.js';
 import Badge from '../components/Badge.jsx';
@@ -48,7 +49,15 @@ export default function Exchanges() {
   const [upstoxStatus, setUpstoxStatus] = useState({ configured: false, authenticated: false });
   const [alpacaStatus, setAlpacaStatus] = useState({ configured: false, paperMode: false });
   const [angeloneStatus, setAngeloneStatus] = useState({ configured: false, authenticated: false });
-  const [jupiterStatus, setJupiterStatus] = useState({ configured: false });
+  const [jupiterStatus, setJupiterStatus] = useState({ configured: false, authenticated: false, balances: [] });
+
+  // Solana & Jupiter Dedicated UI State
+  const [jupiterTab, setJupiterTab] = useState('phantom'); // 'phantom' | 'privateKey' | 'rpc'
+  const [rpcEndpoints, setRpcEndpoints] = useState([]);
+  const [testingRpc, setTestingRpc] = useState(false);
+  const [rpcTestResult, setRpcTestResult] = useState(null);
+  const [copiedAddress, setCopiedAddress] = useState(false);
+  const [phantomConnecting, setPhantomConnecting] = useState(false);
 
   async function loadSupported() {
     try {
@@ -118,10 +127,84 @@ export default function Exchanges() {
 
   async function loadJupiterStatus() {
     try {
-      const response = await api.get('/api/broker/jupiter/status');
-      setJupiterStatus(response.data);
+      const [statusRes, walletRes, rpcsRes] = await Promise.all([
+        api.get('/api/broker/jupiter/status').catch(() => ({ data: {} })),
+        api.get('/api/jupiter/wallet').catch(() => ({ data: {} })),
+        api.get('/api/jupiter/rpcs').catch(() => ({ data: { rpcs: [] } }))
+      ]);
+
+      const merged = {
+        ...statusRes.data,
+        ...walletRes.data,
+        configured: statusRes.data.configured || walletRes.data.configured,
+        authenticated: statusRes.data.authenticated || walletRes.data.authenticated,
+        walletAddress: statusRes.data.walletAddress || walletRes.data.walletAddress,
+        solBalance: walletRes.data.solBalance || 0,
+        balances: walletRes.data.balances || []
+      };
+
+      setJupiterStatus(merged);
+      if (rpcsRes.data?.rpcs) {
+        setRpcEndpoints(rpcsRes.data.rpcs);
+      }
     } catch {
-      setJupiterStatus({ configured: false });
+      setJupiterStatus({ configured: false, authenticated: false, balances: [] });
+    }
+  }
+
+  async function connectPhantomWallet() {
+    setMessage({ text: '', type: '' });
+    setPhantomConnecting(true);
+
+    try {
+      const isPhantom = window.solana && window.solana.isPhantom;
+      const isSolflare = window.solflare && window.solflare.isSolflare;
+      const provider = isPhantom ? window.solana : isSolflare ? window.solflare : window.solana;
+
+      if (!provider) {
+        window.open('https://phantom.app/', '_blank');
+        throw new Error('Phantom or Solflare wallet extension not detected in your browser. Opening Phantom install page...');
+      }
+
+      const resp = await provider.connect();
+      const pubkey = resp.publicKey.toString();
+
+      // Save public key to backend
+      await api.post('/api/broker/connect', {
+        exchange: 'Jupiter',
+        apiKey: pubkey,
+        apiSecret: 'phantom_injected_wallet',
+        rpcUrl: form.rpcUrl || 'https://api.mainnet-beta.solana.com',
+        paperMode: false
+      });
+
+      setMessage({ text: `Solana Wallet (${pubkey.slice(0, 4)}...${pubkey.slice(-4)}) connected successfully!`, type: 'success' });
+      await loadJupiterStatus();
+      setShowConnectForm(false);
+      setConnectExchange(null);
+    } catch (err) {
+      setMessage({ text: err.message || 'Failed to connect Phantom wallet', type: 'error' });
+    } finally {
+      setPhantomConnecting(false);
+    }
+  }
+
+  async function testSolanaRpc(url) {
+    const targetUrl = url || form.rpcUrl;
+    if (!targetUrl) return;
+    setTestingRpc(true);
+    setRpcTestResult(null);
+    try {
+      const res = await api.post('/api/jupiter/test-rpc', { url: targetUrl });
+      if (res.data?.success && res.data.result) {
+        setRpcTestResult(res.data.result);
+      } else {
+        setRpcTestResult({ success: false, error: res.data?.error || 'Test failed' });
+      }
+    } catch (err) {
+      setRpcTestResult({ success: false, error: errorMessage(err) });
+    } finally {
+      setTestingRpc(false);
     }
   }
 
@@ -688,25 +771,67 @@ export default function Exchanges() {
                 <span>Solana Decentralized Exchange Aggregator (Price V3, Live Swaps, Emulated Limit Bots)</span>
 
                 {jupiterStatus.walletAddress && (
-                  <div className="broker-detail-stats">
-                    <div className="stat-chip">
-                      <span className="chip-label">Wallet:</span>
-                      <span className="chip-val mono">
-                        {jupiterStatus.walletAddress.slice(0, 4)}...{jupiterStatus.walletAddress.slice(-4)}
-                      </span>
+                  <>
+                    <div className="broker-detail-stats">
+                      <div className="stat-chip">
+                        <span className="chip-label">Wallet:</span>
+                        <span className="chip-val mono">
+                          {jupiterStatus.walletAddress.slice(0, 4)}...{jupiterStatus.walletAddress.slice(-4)}
+                        </span>
+                        <a
+                          href={`https://solscan.io/account/${jupiterStatus.walletAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{ color: '#38bdf8', marginLeft: '4px', display: 'inline-flex', alignItems: 'center' }}
+                        >
+                          <ExternalLink size={12} />
+                        </a>
+                      </div>
+                      <div className="stat-chip">
+                        <span className="chip-label">SOL Gas:</span>
+                        <span className={`chip-val ${jupiterStatus.solBalance < 0.005 ? 'text-warn' : 'text-success'}`}>
+                          {Number(jupiterStatus.solBalance || 0).toFixed(4)} SOL
+                        </span>
+                      </div>
+                      {jupiterStatus.solBalance < 0.005 && (
+                        <div className="gas-warning-chip">
+                          <AlertTriangle size={12} /> Low gas (min 0.005 SOL needed for live on-chain swaps)
+                        </div>
+                      )}
                     </div>
-                    <div className="stat-chip">
-                      <span className="chip-label">SOL Gas:</span>
-                      <span className={`chip-val ${jupiterStatus.solBalance < 0.005 ? 'text-warn' : 'text-success'}`}>
-                        {Number(jupiterStatus.solBalance || 0).toFixed(4)} SOL
-                      </span>
-                    </div>
-                    {jupiterStatus.solBalance < 0.005 && (
-                      <div className="gas-warning-chip">
-                        <AlertTriangle size={12} /> Low gas (min 0.005 SOL needed for live on-chain swaps)
+
+                    {/* SPL Token Balances List */}
+                    {Array.isArray(jupiterStatus.balances) && jupiterStatus.balances.filter(b => b.asset !== 'SOL' && b.total > 0).length > 0 && (
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        marginTop: '8px',
+                        padding: '6px 8px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(255, 255, 255, 0.05)'
+                      }}>
+                        {jupiterStatus.balances.filter(b => b.asset !== 'SOL' && b.total > 0).map(token => (
+                          <span
+                            key={token.asset}
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'rgba(56, 189, 248, 0.1)',
+                              border: '1px solid rgba(56, 189, 248, 0.2)',
+                              color: '#38bdf8',
+                              fontWeight: '600'
+                            }}
+                          >
+                            {token.asset}: {token.total >= 1 ? token.total.toLocaleString() : token.total.toFixed(4)}
+                          </span>
+                        ))}
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
 
                 {jupiterStatus.configured || jupiterStatus.authenticated ? (
@@ -964,45 +1089,289 @@ export default function Exchanges() {
                     </div>
                   </>
                 ) : connectExchange.name === 'Jupiter' ? (
-                  <>
-                    <div className="form-group">
-                      <label>Solana RPC URL</label>
-                      <input
-                        type="text"
-                        placeholder="https://api.mainnet-beta.solana.com"
-                        value={form.rpcUrl}
-                        onChange={(e) => setForm({ ...form, rpcUrl: e.target.value })}
-                      />
-                      <small className="form-hint">Official Solana RPC: <code>https://api.mainnet-beta.solana.com</code> or Helius / QuickNode</small>
+                  <div className="jupiter-connect-container" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {/* Tab Selection */}
+                    <div style={{
+                      display: 'flex',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      padding: '4px',
+                      borderRadius: '10px',
+                      gap: '4px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => setJupiterTab('phantom')}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: jupiterTab === 'phantom' ? 'linear-gradient(135deg, #ab9ff2 0%, #7962e6 100%)' : 'transparent',
+                          color: jupiterTab === 'phantom' ? '#ffffff' : '#94a3b8',
+                          fontWeight: '700',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>🦊 Phantom / Solflare</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setJupiterTab('privateKey')}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: jupiterTab === 'privateKey' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'transparent',
+                          color: jupiterTab === 'privateKey' ? '#ffffff' : '#94a3b8',
+                          fontWeight: '700',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <KeyRound size={14} />
+                        <span>Private Key</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setJupiterTab('rpc')}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: jupiterTab === 'rpc' ? 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)' : 'transparent',
+                          color: jupiterTab === 'rpc' ? '#ffffff' : '#94a3b8',
+                          fontWeight: '700',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Zap size={14} />
+                        <span>RPC & Failover</span>
+                      </button>
                     </div>
-                    <div className="form-group">
-                      <label>Solana Wallet Private Key (Base58)</label>
-                      <input
-                        type="password"
-                        placeholder="Base58 private key from Phantom/Solflare (e.g. 5K... or JSON array)"
-                        value={form.privateKey}
-                        onChange={(e) => setForm({ ...form, privateKey: e.target.value })}
-                        autoComplete="off"
-                      />
-                      <small className="form-hint">
-                        Required for live on-chain swaps. Leave blank if only paper trading.
-                      </small>
-                    </div>
-                    <div className="form-group">
-                      <label>Jupiter API Key (Optional)</label>
-                      <input
-                        type="password"
-                        placeholder="Optional: jup_..."
-                        value={form.apiKey}
-                        onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                        autoComplete="off"
-                      />
-                    </div>
+
+                    {/* Tab 1: Phantom / Browser Wallet Connect */}
+                    {jupiterTab === 'phantom' && (
+                      <div style={{
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(147, 51, 234, 0.3)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🦊</div>
+                        <h4 style={{ margin: '0 0 0.5rem 0', color: '#f8fafc', fontSize: '1.05rem', fontWeight: '800' }}>
+                          Connect Solana Browser Wallet
+                        </h4>
+                        <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.85rem', color: '#94a3b8' }}>
+                          Connect your Phantom or Solflare wallet for 1-click live on-chain swaps and Super Zee Bot execution on Jupiter DEX.
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={connectPhantomWallet}
+                          disabled={phantomConnecting}
+                          style={{
+                            width: '100%',
+                            padding: '12px 20px',
+                            background: 'linear-gradient(135deg, #ab9ff2 0%, #7962e6 100%)',
+                            border: 'none',
+                            borderRadius: '10px',
+                            color: '#ffffff',
+                            fontWeight: '800',
+                            fontSize: '0.95rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            boxShadow: '0 4px 15px rgba(121, 98, 230, 0.4)'
+                          }}
+                        >
+                          {phantomConnecting ? (
+                            <><RefreshCw size={16} className="spin" /> Connecting Phantom...</>
+                          ) : (
+                            <><Wallet size={16} /> 1-Click Connect Phantom / Solflare</>
+                          )}
+                        </button>
+
+                        {jupiterStatus.walletAddress && (
+                          <div style={{
+                            marginTop: '1rem',
+                            padding: '8px 12px',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            fontSize: '0.85rem',
+                            color: '#10b981'
+                          }}>
+                            <span>Connected: {jupiterStatus.walletAddress.slice(0, 6)}...{jupiterStatus.walletAddress.slice(-6)}</span>
+                            <span style={{ fontWeight: '700' }}>{Number(jupiterStatus.solBalance || 0).toFixed(4)} SOL</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tab 2: Private Key Import */}
+                    {jupiterTab === 'privateKey' && (
+                      <div>
+                        <div className="form-group">
+                          <label>Solana Wallet Private Key (Base58 / Secret Key)</label>
+                          <input
+                            type="password"
+                            placeholder="Base58 private key from Phantom/Solflare (e.g. 5K... or JSON array)"
+                            value={form.privateKey}
+                            onChange={(e) => setForm({ ...form, privateKey: e.target.value })}
+                            autoComplete="off"
+                          />
+                          <small className="form-hint">
+                            Allows automated autonomous bots (like Super Zee Bot) to execute live swaps without manual popup confirmations.
+                          </small>
+                        </div>
+                        <div className="form-group">
+                          <label>Jupiter API Key (Optional)</label>
+                          <input
+                            type="password"
+                            placeholder="Optional: jup_..."
+                            value={form.apiKey}
+                            onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                            autoComplete="off"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 3: RPC & Failover Configuration */}
+                    {jupiterTab === 'rpc' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div className="form-group">
+                          <label>Active Solana RPC URL</label>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <input
+                              type="text"
+                              placeholder="https://api.mainnet-beta.solana.com"
+                              value={form.rpcUrl}
+                              onChange={(e) => setForm({ ...form, rpcUrl: e.target.value })}
+                              style={{ flex: 1 }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => testSolanaRpc(form.rpcUrl)}
+                              disabled={testingRpc}
+                              style={{
+                                background: 'rgba(56, 189, 248, 0.15)',
+                                border: '1px solid rgba(56, 189, 248, 0.4)',
+                                color: '#38bdf8',
+                                padding: '8px 14px',
+                                borderRadius: '8px',
+                                fontWeight: '700',
+                                fontSize: '0.8rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {testingRpc ? <RefreshCw size={14} className="spin" /> : <Zap size={14} />}
+                              <span>Test Latency</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Test Result Indicator */}
+                        {rpcTestResult && (
+                          <div style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: rpcTestResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            border: `1px solid ${rpcTestResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                            color: rpcTestResult.success ? '#10b981' : '#ef4444',
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <span>
+                              {rpcTestResult.success ? `🟢 RPC Healthy (Slot: ${rpcTestResult.slot?.toLocaleString()})` : `🔴 RPC Error: ${rpcTestResult.error}`}
+                            </span>
+                            {rpcTestResult.latencyMs && (
+                              <span style={{ fontWeight: '800' }}>{rpcTestResult.latencyMs} ms</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Preset RPC Selector */}
+                        <div>
+                          <label style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px', display: 'block' }}>
+                            Fast RPC Failover Pool:
+                          </label>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {[
+                              { name: 'Solana Official (Mainnet Beta)', url: 'https://api.mainnet-beta.solana.com' },
+                              { name: 'Ankr Solana Public RPC', url: 'https://rpc.ankr.com/solana' },
+                              { name: 'PublicNode Solana RPC', url: 'https://solana-rpc.publicnode.com' },
+                              { name: 'dRPC Decentralized RPC', url: 'https://solana.drpc.org' }
+                            ].map(rpc => (
+                              <div
+                                key={rpc.url}
+                                onClick={() => {
+                                  setForm({ ...form, rpcUrl: rpc.url });
+                                  testSolanaRpc(rpc.url);
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '8px 12px',
+                                  background: form.rpcUrl === rpc.url ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                                  border: `1px solid ${form.rpcUrl === rpc.url ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.82rem',
+                                  color: form.rpcUrl === rpc.url ? '#38bdf8' : '#e2e8f0'
+                                }}
+                              >
+                                <span>{rpc.name}</span>
+                                <span style={{ color: '#64748b', fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                                  {rpc.url.replace('https://', '')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="form-note info">
                       <AlertTriangle size={14} />
-                      <span><strong>Live On-Chain Trading Notice:</strong> Live bot orders execute real swaps on Solana DEX via Jupiter Aggregator. Please ensure your wallet has at least 0.01 SOL to cover transaction network fees.</span>
+                      <span><strong>High-Availability RPC Failover:</strong> TradePilot automatically rotates requests across our Solana RPC pool on any rate limit or network congestion event.</span>
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <div className="form-group">
                     <label>API Secret</label>

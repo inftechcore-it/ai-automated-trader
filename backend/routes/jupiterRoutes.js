@@ -82,6 +82,96 @@ router.post('/swap/order', async (req, res) => {
   }
 });
 
+// GET /api/jupiter/tokens
+router.get('/tokens', (req, res) => {
+  res.json({
+    success: true,
+    tokens: Object.values(jupiterAdapter.SOLANA_TOKENS)
+  });
+});
+
+// GET /api/jupiter/rpcs
+router.get('/rpcs', (req, res) => {
+  res.json({
+    success: true,
+    rpcs: jupiterAdapter.getRpcEndpoints()
+  });
+});
+
+// POST /api/jupiter/test-rpc
+router.post('/test-rpc', async (req, res) => {
+  try {
+    const { url } = req.body;
+    const result = await jupiterAdapter.testRpcConnection(url);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/jupiter/swap/execute
+router.post('/swap/execute', async (req, res) => {
+  try {
+    const {
+      inputToken,
+      outputToken,
+      quantity,
+      price,
+      side = 'buy',
+      dryRun = false,
+      slippageBps = 50,
+      customPrivateKey = null,
+      customRpc = null
+    } = req.body;
+
+    if (!inputToken || !outputToken || !quantity) {
+      return res.status(400).json({
+        success: false,
+        error: 'inputToken, outputToken, and quantity are required'
+      });
+    }
+
+    const symbol = `${inputToken}/${outputToken}`;
+    const result = await jupiterAdapter.placeOrder(
+      {
+        symbol,
+        side,
+        orderType: 'market',
+        quantity,
+        price,
+        dryRun: !!dryRun,
+        slippageBps
+      },
+      customPrivateKey,
+      customRpc
+    );
+
+    res.json({
+      success: true,
+      order: result
+    });
+  } catch (err) {
+    console.error('[JupiterRoutes] Swap execute error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+// POST /api/jupiter/wallet/disconnect
+router.post('/wallet/disconnect', (req, res) => {
+  try {
+    jupiterAdapter.setCredentials(null, null, '');
+    res.json({
+      success: true,
+      message: 'Solana wallet disconnected'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/jupiter/wallet
 router.get('/wallet', async (req, res) => {
   try {

@@ -9,12 +9,57 @@ let apiKey = env.jupiter?.apiKey || process.env.JUPITER_API_KEY || 'jup_e2548893
 let rpcUrl = 'https://api.mainnet-beta.solana.com';
 let privateKey = '';
 
-// RPC list with official first
-const RPC_ENDPOINTS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://rpc.ankr.com/solana',
-  'https://solana-rpc.publicnode.com'
+// Verified High-Throughput Solana RPC Pool for Automatic Failover
+export const DEFAULT_RPC_ENDPOINTS = [
+  { name: 'Solana Official (Mainnet Beta)', url: 'https://api.mainnet-beta.solana.com', priority: 1 },
+  { name: 'Ankr Solana Public RPC', url: 'https://rpc.ankr.com/solana', priority: 2 },
+  { name: 'PublicNode Solana RPC', url: 'https://solana-rpc.publicnode.com', priority: 3 },
+  { name: 'dRPC Decentralized RPC', url: 'https://solana.drpc.org', priority: 4 }
 ];
+
+const RPC_ENDPOINTS = DEFAULT_RPC_ENDPOINTS.map(r => r.url);
+
+// In-memory RPC latency and health tracker
+const rpcHealth = new Map();
+
+export function getRpcEndpoints() {
+  const currentRpc = rpcUrl || 'https://api.mainnet-beta.solana.com';
+  const endpoints = DEFAULT_RPC_ENDPOINTS.map(ep => ({
+    ...ep,
+    isCurrent: ep.url === currentRpc,
+    latencyMs: rpcHealth.get(ep.url)?.latencyMs || null,
+    isHealthy: rpcHealth.get(ep.url)?.isHealthy !== false
+  }));
+
+  // If user has a custom RPC not in defaults, prepend it
+  if (!endpoints.some(ep => ep.url === currentRpc)) {
+    endpoints.unshift({
+      name: 'Custom User RPC',
+      url: currentRpc,
+      priority: 0,
+      isCurrent: true,
+      latencyMs: rpcHealth.get(currentRpc)?.latencyMs || null,
+      isHealthy: rpcHealth.get(currentRpc)?.isHealthy !== false
+    });
+  }
+  return endpoints;
+}
+
+export async function testRpcConnection(endpointUrl) {
+  const target = (endpointUrl || rpcUrl || 'https://api.mainnet-beta.solana.com').trim();
+  const start = Date.now();
+  try {
+    const conn = new Connection(target, { commitment: 'confirmed' });
+    const slot = await conn.getSlot();
+    const latency = Date.now() - start;
+    rpcHealth.set(target, { latencyMs: latency, isHealthy: true, lastChecked: Date.now() });
+    return { success: true, url: target, slot, latencyMs: latency, isHealthy: true };
+  } catch (err) {
+    const latency = Date.now() - start;
+    rpcHealth.set(target, { latencyMs: latency, isHealthy: false, error: err.message, lastChecked: Date.now() });
+    return { success: false, url: target, latencyMs: latency, isHealthy: false, error: err.message };
+  }
+}
 
 export function getKeypair(customPrivateKey = null) {
   const pk = (customPrivateKey || privateKey || '').trim();
@@ -42,6 +87,47 @@ export function getConnection(customRpc = null) {
       return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
     }
   });
+}
+
+/**
+ * Execute a Solana Web3 action with automatic multi-RPC failover and rate-limit retries
+ */
+export async function executeWithRpcFailover(actionFn, customRpc = null) {
+  const candidates = [];
+  if (customRpc) candidates.push(customRpc);
+  if (rpcUrl && !candidates.includes(rpcUrl)) candidates.push(rpcUrl);
+  for (const ep of RPC_ENDPOINTS) {
+    if (!candidates.includes(ep)) candidates.push(ep);
+  }
+
+  let lastError = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const endpoint = candidates[i];
+    try {
+      const conn = getConnection(endpoint);
+      const res = await actionFn(conn, endpoint);
+      // Mark healthy
+      rpcHealth.set(endpoint, { isHealthy: true, lastSuccess: Date.now() });
+      return res;
+    } catch (err) {
+      lastError = err;
+      const isRateLimited = err?.message?.includes('429') || err?.message?.includes('rate limit') || err?.message?.includes('Too Many Requests');
+      const isNetworkErr = err?.message?.includes('timeout') || err?.message?.includes('aborted') || err?.message?.includes('fetch failed') || err?.name === 'AbortError';
+
+      console.warn(`[JupiterAdapter] RPC error on ${endpoint} (Attempt ${i + 1}/${candidates.length}): ${err.message}`);
+      rpcHealth.set(endpoint, { isHealthy: false, lastError: err.message, lastFailed: Date.now() });
+
+      // If there are more candidates, continue loop to next RPC immediately
+      if (i < candidates.length - 1) {
+        if (isRateLimited) {
+          await new Promise(r => setTimeout(r, 200)); // small delay
+        }
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error('All Solana RPC endpoints failed to respond');
 }
 
 export function getTokenDecimals(symbolOrMint) {
@@ -560,87 +646,90 @@ export async function placeOrder(orderParams, customPrivateKey = null, customRpc
       throw new Error('Cannot execute LIVE order on Jupiter: Solana wallet private key is missing. Please configure your Solana Private Key in the Exchanges settings.');
     }
 
-    // LIVE ON-CHAIN SWAP EXECUTION
-    const connection = getConnection(customRpc);
+    // LIVE ON-CHAIN SWAP EXECUTION VIA MULTI-RPC FAILOVER
+    const result = await executeWithRpcFailover(async (connection, endpoint) => {
+      // 1. Check wallet SOL balance for network gas fees
+      const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
+        console.warn(`[JupiterAdapter] [${endpoint}] Failed to fetch SOL balance:`, err.message);
+        return 0;
+      });
 
-    // 1. Check wallet SOL balance for network gas fees
-    const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
-      console.warn('[JupiterAdapter] Failed to fetch SOL balance:', err.message);
-      return 0;
-    });
-
-    const MIN_GAS_LAMPORTS = 5000000; // 0.005 SOL buffer for gas & rent
-    if (lamports < MIN_GAS_LAMPORTS) {
-      throw new Error(`Insufficient SOL in wallet (${(lamports / 1e9).toFixed(5)} SOL) for Solana transaction fees. Minimum 0.005 SOL required. Please fund your wallet or switch to Paper mode.`);
-    }
-
-    // 2. Check input token balance
-    const isInputSol = inputToken === resolveMint('SOL') || inputToken === 'SOL' || inputToken === 'So11111111111111111111111111111111111111112';
-    if (isInputSol) {
-      if (lamports < inAmountRaw + MIN_GAS_LAMPORTS) {
-        throw new Error(`Insufficient SOL in wallet. Need ${(inAmountRaw / 1e9).toFixed(4)} SOL + 0.005 SOL gas, but wallet has ${(lamports / 1e9).toFixed(4)} SOL.`);
+      const MIN_GAS_LAMPORTS = 5000000; // 0.005 SOL buffer for gas & rent
+      if (lamports < MIN_GAS_LAMPORTS) {
+        throw new Error(`Insufficient SOL in wallet (${(lamports / 1e9).toFixed(5)} SOL) for Solana transaction fees. Minimum 0.005 SOL required. Please fund your wallet or switch to Paper mode.`);
       }
-    } else {
-      try {
-        const inputMintPubkey = resolveMint(inputToken) || inputToken;
-        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
-          mint: new PublicKey(inputMintPubkey)
-        });
-        const currentAmount = tokenAccounts.value.reduce((sum, a) => sum + (a.account.data.parsed.info.tokenAmount.amount || 0), 0);
-        if (Number(currentAmount) < inAmountRaw) {
-          const neededUi = inAmountRaw / Math.pow(10, inDecimals);
-          const haveUi = Number(currentAmount) / Math.pow(10, inDecimals);
-          throw new Error(`Insufficient balance for ${isBuy ? quote : base}. Needed ${neededUi.toFixed(4)}, but wallet has ${haveUi.toFixed(4)}.`);
+
+      // 2. Check input token balance
+      const isInputSol = inputToken === resolveMint('SOL') || inputToken === 'SOL' || inputToken === 'So11111111111111111111111111111111111111112';
+      if (isInputSol) {
+        if (lamports < inAmountRaw + MIN_GAS_LAMPORTS) {
+          throw new Error(`Insufficient SOL in wallet. Need ${(inAmountRaw / 1e9).toFixed(4)} SOL + 0.005 SOL gas, but wallet has ${(lamports / 1e9).toFixed(4)} SOL.`);
         }
-      } catch (tokenErr) {
-        if (tokenErr.message.includes('Insufficient balance')) throw tokenErr;
+      } else {
+        try {
+          const inputMintPubkey = resolveMint(inputToken) || inputToken;
+          const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
+            mint: new PublicKey(inputMintPubkey)
+          });
+          const currentAmount = tokenAccounts.value.reduce((sum, a) => sum + (a.account.data.parsed.info.tokenAmount.amount || 0), 0);
+          if (Number(currentAmount) < inAmountRaw) {
+            const neededUi = inAmountRaw / Math.pow(10, inDecimals);
+            const haveUi = Number(currentAmount) / Math.pow(10, inDecimals);
+            throw new Error(`Insufficient balance for ${isBuy ? quote : base}. Needed ${neededUi.toFixed(4)}, but wallet has ${haveUi.toFixed(4)}.`);
+          }
+        } catch (tokenErr) {
+          if (tokenErr.message.includes('Insufficient balance')) throw tokenErr;
+        }
       }
-    }
 
-    console.log(`[JupiterAdapter] [LIVE] Executing on-chain swap: ${side} ${quantity} ${symbol} via Wallet ${kp.publicKey.toBase58()}`);
+      console.log(`[JupiterAdapter] [LIVE] Executing on-chain swap: ${side} ${quantity} ${symbol} via RPC ${endpoint} & Wallet ${kp.publicKey.toBase58()}`);
 
-    const swapOrder = await createSwapOrder({
-      inputMint: inputToken,
-      outputMint: outputToken,
-      amount: inAmountRaw,
-      userPublicKey: kp.publicKey.toBase58()
-    });
+      const swapOrder = await createSwapOrder({
+        inputMint: inputToken,
+        outputMint: outputToken,
+        amount: inAmountRaw,
+        userPublicKey: kp.publicKey.toBase58()
+      });
 
-    if (!swapOrder.swapTransaction) {
-      throw new Error('Jupiter failed to generate executable swap transaction');
-    }
+      if (!swapOrder.swapTransaction) {
+        throw new Error('Jupiter failed to generate executable swap transaction');
+      }
 
-    // Deserialize and sign
-    const txBuf = Buffer.from(swapOrder.swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(txBuf);
-    transaction.sign([kp]);
+      // Deserialize and sign
+      const txBuf = Buffer.from(swapOrder.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(txBuf);
+      transaction.sign([kp]);
 
-    // Send raw transaction to Solana network
-    const rawTx = transaction.serialize();
-    const txid = await connection.sendRawTransaction(rawTx, {
-      skipPreflight: false,
-      maxRetries: 3
-    });
+      // Send raw transaction to Solana network
+      const rawTx = transaction.serialize();
+      const txid = await connection.sendRawTransaction(rawTx, {
+        skipPreflight: false,
+        maxRetries: 3
+      });
 
-    console.log(`[JupiterAdapter] [LIVE] Swap broadcasted! TXID: ${txid} | Explorer: https://solscan.io/tx/${txid}`);
+      console.log(`[JupiterAdapter] [LIVE] Swap broadcasted! TXID: ${txid} | Explorer: https://solscan.io/tx/${txid}`);
 
-    return {
-      orderId: txid,
-      exchangeOrderId: txid,
-      symbol: `${base}/${quote}`,
-      side: (side || 'buy').toUpperCase(),
-      type: (orderType || 'market').toUpperCase(),
-      status: 'FILLED',
-      price: parseFloat(price) || outPrice,
-      avgFillPrice: parseFloat(price) || outPrice,
-      quantity: parseFloat(quantity),
-      filledQuantity: parseFloat(quantity),
-      explorerUrl: `https://solscan.io/tx/${txid}`,
-      txid,
-      exchange: 'Jupiter',
-      isLive: true,
-      timestamp: Date.now()
-    };
+      return {
+        orderId: txid,
+        exchangeOrderId: txid,
+        symbol: `${base}/${quote}`,
+        side: (side || 'buy').toUpperCase(),
+        type: (orderType || 'market').toUpperCase(),
+        status: 'FILLED',
+        price: parseFloat(price) || outPrice,
+        avgFillPrice: parseFloat(price) || outPrice,
+        quantity: parseFloat(quantity),
+        filledQuantity: parseFloat(quantity),
+        explorerUrl: `https://solscan.io/tx/${txid}`,
+        txid,
+        exchange: 'Jupiter',
+        isLive: true,
+        rpcEndpoint: endpoint,
+        timestamp: Date.now()
+      };
+    }, customRpc);
+
+    return result;
   }
 
   // Paper Mode: explicitly marked simulation
@@ -676,50 +765,51 @@ export async function getBalances(customPrivateKey = null, customRpc = null) {
   }
 
   try {
-    const connection = getConnection(customRpc);
-    const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
-      console.warn('[JupiterAdapter] Solana RPC getBalance warning:', err.message);
-      return 0;
-    });
-
-    const solBalance = lamports / 1e9;
-    const solPriceObj = await getPrice('SOL').catch(() => ({ price: 0 }));
-    const solPrice = solPriceObj.price || 0;
-
-    const balances = [
-      { asset: 'SOL', free: solBalance, locked: 0, total: solBalance, usdValue: solBalance * solPrice }
-    ];
-
-    // Query SPL token accounts (USDC, JUP, etc.) with timeout
-    try {
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
-        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+    return await executeWithRpcFailover(async (connection, endpoint) => {
+      const lamports = await connection.getBalance(kp.publicKey).catch((err) => {
+        console.warn(`[JupiterAdapter] [${endpoint}] Solana RPC getBalance warning:`, err.message);
+        return 0;
       });
 
-      for (const { account } of tokenAccounts.value) {
-        const parsedInfo = account.data.parsed.info;
-        const mintAddress = parsedInfo.mint;
-        const tokenAmount = parsedInfo.tokenAmount.uiAmount || 0;
-        if (tokenAmount > 0) {
-          const symbol = Object.keys(SOLANA_TOKENS).find(k => SOLANA_TOKENS[k].mint === mintAddress) || mintAddress.substring(0, 6);
-          const priceObj = await getPrice(mintAddress).catch(() => ({ price: 0 }));
-          const price = priceObj.price || 0;
-          balances.push({
-            asset: symbol,
-            free: tokenAmount,
-            locked: 0,
-            total: tokenAmount,
-            usdValue: tokenAmount * price
-          });
-        }
-      }
-    } catch (tokenErr) {
-      console.warn('[JupiterAdapter] Error querying SPL token accounts:', tokenErr.message);
-    }
+      const solBalance = lamports / 1e9;
+      const solPriceObj = await getPrice('SOL').catch(() => ({ price: 0 }));
+      const solPrice = solPriceObj.price || 0;
 
-    return balances;
+      const balances = [
+        { asset: 'SOL', free: solBalance, locked: 0, total: solBalance, usdValue: solBalance * solPrice }
+      ];
+
+      // Query SPL token accounts (USDC, JUP, etc.) with timeout
+      try {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(kp.publicKey, {
+          programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+        });
+
+        for (const { account } of tokenAccounts.value) {
+          const parsedInfo = account.data.parsed.info;
+          const mintAddress = parsedInfo.mint;
+          const tokenAmount = parsedInfo.tokenAmount.uiAmount || 0;
+          if (tokenAmount > 0) {
+            const symbol = Object.keys(SOLANA_TOKENS).find(k => SOLANA_TOKENS[k].mint === mintAddress) || mintAddress.substring(0, 6);
+            const priceObj = await getPrice(mintAddress).catch(() => ({ price: 0 }));
+            const price = priceObj.price || 0;
+            balances.push({
+              asset: symbol,
+              free: tokenAmount,
+              locked: 0,
+              total: tokenAmount,
+              usdValue: tokenAmount * price
+            });
+          }
+        }
+      } catch (tokenErr) {
+        console.warn(`[JupiterAdapter] [${endpoint}] Error querying SPL token accounts:`, tokenErr.message);
+      }
+
+      return balances;
+    }, customRpc);
   } catch (err) {
-    console.error('[JupiterAdapter] Error querying on-chain balances:', err.message);
+    console.error('[JupiterAdapter] Error querying on-chain balances with RPC failover:', err.message);
     return [{ asset: 'SOL', free: 0, locked: 0, total: 0, usdValue: 0 }];
   }
 }
