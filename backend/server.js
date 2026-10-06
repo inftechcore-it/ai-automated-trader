@@ -86,11 +86,13 @@ setBotSocket(io);
 server.listen(env.port, () => {
   logger.info(`API listening on http://localhost:${env.port}`);
 
-  // Auto-migrate BotConfig strategyType column to support all strategies seamlessly
+  // Auto-migrate BotConfig and Exchange table columns safely
   import('./config/db.js').then(({ query }) => {
     query("ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` VARCHAR(64) NOT NULL").catch(() => {
       query("ALTER TABLE `BotConfig` MODIFY COLUMN `strategyType` ENUM('GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE', 'DYNAMIC_GRID', 'PRECISION_GRID', 'JARVIS', 'SUPER_ZEE') NOT NULL").catch(() => {});
     });
+    query("ALTER TABLE `exchange_accounts` MODIFY COLUMN `exchange_type` VARCHAR(32) NOT NULL DEFAULT 'crypto'").catch(() => {});
+    query("ALTER TABLE `exchange_connections` MODIFY COLUMN `exchange_type` VARCHAR(32) NOT NULL DEFAULT 'crypto'").catch(() => {});
   }).catch(() => {});
 
   // Preload instruments caches for fast search

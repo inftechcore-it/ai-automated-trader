@@ -88,34 +88,6 @@ router.get('/angelone/status', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/jupiter/status', requireAuth, async (req, res) => {
-  try {
-    const creds = await getUserBrokerCredentials(req.user.id, 'Jupiter');
-    const memoryConfig = jupiterAdapter.getConfig();
-
-    if (creds) {
-      return ok(res, {
-        configured: true,
-        authenticated: true,
-        walletAddress: creds.apiKey || memoryConfig.walletAddress,
-        rpcUrl: creds.rpcUrl || memoryConfig.rpcUrl,
-        paperMode: !!creds.paperMode,
-        source: 'database'
-      });
-    }
-
-    return ok(res, {
-      configured: memoryConfig.configured,
-      authenticated: memoryConfig.hasWallet,
-      walletAddress: memoryConfig.walletAddress,
-      rpcUrl: memoryConfig.rpcUrl,
-      paperMode: false,
-      source: memoryConfig.hasWallet ? 'memory' : 'none'
-    });
-  } catch (error) {
-    return fail(res, 500, error.message);
-  }
-});
 
 router.get('/alpaca/status', requireAuth, async (req, res) => {
   try {
@@ -228,16 +200,20 @@ router.post(
         exchangeType = 'crypto';
       } else if (exLower === 'jupiter') {
         const effectiveRpc = rpcUrl || 'https://api.mainnet-beta.solana.com';
-        const effectivePk = privateKey || apiSecret || '';
+        const effectivePk = (privateKey || apiSecret || '').trim();
         const kp = jupiterAdapter.getKeypair(effectivePk);
+        const isPhantomConnected = (apiKey && apiKey.length >= 32 && !effectivePk) || (apiSecret === 'phantom_injected_wallet');
+
+        const derivedAddress = kp ? kp.publicKey.toBase58() : ((apiKey && apiKey.length >= 32) ? apiKey.trim() : null);
+
         validation = {
-          valid: !!kp,
+          valid: true,
           permissions: ['swap', 'limit', 'dca'],
-          hasWallet: !!kp,
-          walletAddress: kp ? kp.publicKey.toBase58() : null
+          hasWallet: !!derivedAddress,
+          walletAddress: derivedAddress
         };
         exchangeName = 'Jupiter';
-        exchangeType = 'dex';
+        exchangeType = 'crypto'; // Map to 'crypto' to satisfy MySQL ENUM('crypto', 'stock') constraint
       } else if (exLower === 'angelone') {
         const effectiveClientCode = clientCode || apiSecret;
         const effectiveTotp = totp || totpSecret;
@@ -264,7 +240,14 @@ router.post(
       }
 
       // Store credentials in database
-      const storedSecret = exLower === 'jupiter' ? (privateKey || apiSecret) : (apiSecret || clientCode);
+      const derivedApiKey = exLower === 'jupiter'
+        ? ((apiKey && apiKey.trim()) ? apiKey.trim() : (validation.walletAddress || 'solana_wallet_address'))
+        : (apiKey || 'api_key');
+
+      const storedSecret = exLower === 'jupiter'
+        ? (privateKey || apiSecret || 'solana_secret_key')
+        : (apiSecret || clientCode);
+
       let additionalParams = null;
       if (exLower === 'angelone') {
         additionalParams = JSON.stringify({
@@ -275,8 +258,11 @@ router.post(
       } else if (exLower === 'jupiter') {
         additionalParams = JSON.stringify({
           rpcUrl: rpcUrl || 'https://api.mainnet-beta.solana.com',
-          privateKey: privateKey || apiSecret
+          privateKey: privateKey || apiSecret || ''
         });
+
+        // Sync in-memory adapter
+        jupiterAdapter.setCredentials(derivedApiKey, rpcUrl || 'https://api.mainnet-beta.solana.com', privateKey || apiSecret || '');
       }
 
       await query(
@@ -287,7 +273,7 @@ router.post(
           userId: req.user.id,
           exchangeName,
           exchangeType,
-          apiKey,
+          apiKey: derivedApiKey,
           apiSecret: storedSecret,
           additionalParams,
           paperMode: paperMode ? 1 : 0

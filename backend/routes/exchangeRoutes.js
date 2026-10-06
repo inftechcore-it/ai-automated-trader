@@ -24,9 +24,9 @@ router.post(
   '/connect',
   requireAuth,
   body('exchangeName').trim().notEmpty(),
-  body('exchangeType').isIn(['stock', 'crypto']),
-  body('apiKey').trim().notEmpty(),
-  body('apiSecret').trim().notEmpty(),
+  body('exchangeType').optional().isIn(['stock', 'crypto', 'dex']),
+  body('apiKey').optional().trim(),
+  body('apiSecret').optional().trim(),
   validate,
   connectExchange
 );

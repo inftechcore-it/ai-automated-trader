@@ -61,16 +61,17 @@ export async function validateCredentials(exchangeName, apiKey, apiSecret, extra
       return await angeloneAdapter.validateCredentials(apiKey, clientCode, extraParams.password, totp);
     }
     if (name === 'jupiter') {
-      const pk = apiSecret || apiKey;
+      const pk = apiSecret || apiKey || extraParams.privateKey;
       const kp = jupiterAdapter.getKeypair(pk);
-      if (!kp) {
-        return { valid: false, error: 'Invalid Solana private key' };
+      const isWalletAddress = (apiKey && apiKey.length >= 32 && !kp) || (extraParams.isPhantom);
+      if (!kp && !isWalletAddress) {
+        return { valid: false, error: 'Invalid Solana private key or wallet address' };
       }
       return {
         valid: true,
         permissions: ['swap', 'limit', 'dca'],
         hasWallet: true,
-        walletAddress: kp.publicKey.toBase58()
+        walletAddress: kp ? kp.publicKey.toBase58() : (apiKey || extraParams.walletAddress)
       };
     }
     if (name === 'coinbase') {

@@ -22,6 +22,8 @@ export async function connectExchange(req, res) {
     return fail(res, 400, validation.error || 'Invalid API credentials', 'INVALID_CREDENTIALS');
   }
 
+  const sanitizedType = (exchangeType === 'dex' || !['crypto', 'stock'].includes(exchangeType)) ? 'crypto' : exchangeType;
+
   const result = await query(
     `INSERT INTO exchange_connections
       (user_id, exchange_name, exchange_type, api_key_encrypted, api_secret_encrypted, last_verified)
@@ -29,9 +31,9 @@ export async function connectExchange(req, res) {
     {
       userId: req.user.id,
       exchangeName,
-      exchangeType,
-      apiKey: encrypt(apiKey),
-      apiSecret: encrypt(apiSecret)
+      exchangeType: sanitizedType,
+      apiKey: encrypt(apiKey || 'solana_wallet_address'),
+      apiSecret: encrypt(apiSecret || 'solana_secret_key')
     }
   );
 
