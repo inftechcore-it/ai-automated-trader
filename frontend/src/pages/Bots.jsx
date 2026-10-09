@@ -407,7 +407,7 @@ export default function Bots() {
   , null);
 
   const uniqueExchanges = [...new Set(bots.map(b => b.exchangeName))];
-  const strategies = ['GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE'];
+  const strategies = ['SUPER_ZEE', 'JARVIS', 'PRECISION_GRID', 'DYNAMIC_GRID', 'GRID', 'INFINITY_GRID', 'DCA', 'SMART_TRADE', 'TRAILING', 'MARTINGALE', 'REBALANCING', 'ARBITRAGE'];
 
   return (
     <div className="bots-page">

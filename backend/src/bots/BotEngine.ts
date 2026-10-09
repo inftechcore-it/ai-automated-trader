@@ -122,6 +122,18 @@ export class BotEngine extends EventEmitter {
 
   private async loadActiveBots(): Promise<void> {
     try {
+      // Auto-migrate any legacy 'default-user' bots to the primary active user
+      try {
+        const { query } = await import('../../config/db.js');
+        const [firstUser] = await query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (firstUser?.id) {
+          await this.prisma.botConfig.updateMany({
+            where: { userId: 'default-user' },
+            data: { userId: String(firstUser.id) }
+          });
+        }
+      } catch {}
+
       const activeBots = await this.prisma.botConfig.findMany({
         where: { status: { in: ['RUNNING', 'PAUSED'] } },
       });
@@ -169,9 +181,21 @@ export class BotEngine extends EventEmitter {
   }
 
   async createBot(params: CreateBotParams): Promise<BotConfig> {
+    let effectiveUserId = params.userId;
+    if (!effectiveUserId || effectiveUserId === 'default-user') {
+      try {
+        const { query } = await import('../../config/db.js');
+        const [activeUser] = await query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (activeUser?.id) {
+          effectiveUserId = String(activeUser.id);
+        }
+      } catch {}
+    }
+    effectiveUserId = effectiveUserId || 'default-user';
+
     // Validate limits
     const userBotCount = await this.prisma.botConfig.count({
-      where: { userId: params.userId, status: { notIn: ['STOPPED'] } },
+      where: { userId: effectiveUserId, status: { notIn: ['STOPPED'] } },
     });
 
     if (userBotCount >= this.config.maxBotsPerUser) {
@@ -206,7 +230,7 @@ export class BotEngine extends EventEmitter {
     try {
       dbBot = await this.prisma.botConfig.create({
         data: {
-          userId: params.userId,
+          userId: effectiveUserId,
           name: params.name,
           strategyType: params.strategyType,
           exchangeName: params.exchangeName,
@@ -419,8 +443,9 @@ export class BotEngine extends EventEmitter {
   }
 
   async getUserBots(userId: string): Promise<any[]> {
+    const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
     const dbBots = await this.prisma.botConfig.findMany({
-      where: { userId },
+      where: { userId: { in: userIds } },
       orderBy: { createdAt: 'desc' },
     });
 

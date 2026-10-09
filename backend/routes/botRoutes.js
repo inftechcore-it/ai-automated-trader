@@ -171,8 +171,17 @@ router.post('/create', requireAuth, async (req, res) => {
       return fail(res, 500, 'Bot Engine not available');
     }
 
-    const { name, strategyType, exchangeName, symbol, mode, params, investedAmount } = req.body;
-    const userId = String(req.user?.id || 'default-user');
+    let userId = req.user?.id || req.body?.userId;
+    if (!userId || userId === 'default-user') {
+      try {
+        const { query: dbQuery } = await import('../config/db.js');
+        const [activeUser] = await dbQuery('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (activeUser?.id) {
+          userId = String(activeUser.id);
+        }
+      } catch {}
+    }
+    userId = String(userId || 'default-user');
 
     const config = await engine.createBot({
       userId,
@@ -202,8 +211,9 @@ router.get('/', requireAuth, async (req, res) => {
         const { PrismaClient } = await import('@prisma/client');
         const prisma = new PrismaClient();
         const userId = String(req.user?.id || 'default-user');
+        const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
         const bots = await prisma.botConfig.findMany({
-          where: { userId },
+          where: { userId: { in: userIds } },
           orderBy: { createdAt: 'desc' }
         });
         await prisma.$disconnect();
@@ -243,9 +253,10 @@ router.get('/:id', requireAuth, async (req, res) => {
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient();
     const userId = String(req.user?.id || 'default-user');
+    const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
 
     const dbBot = await prisma.botConfig.findFirst({
-      where: { id: req.params.id, userId }
+      where: { id: req.params.id, userId: { in: userIds } }
     });
     await prisma.$disconnect();
 
@@ -981,11 +992,12 @@ router.post('/:id/share', requireAuth, async (req, res) => {
   try {
     const prisma = await getPrisma();
     const userId = String(req.user?.id || 'default-user');
+    const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
     const { name, description, tags } = req.body;
 
     // Get the original bot
     const originalBot = await prisma.botConfig.findFirst({
-      where: { id: req.params.id, userId },
+      where: { id: req.params.id, userId: { in: userIds } },
     });
 
     if (!originalBot) {

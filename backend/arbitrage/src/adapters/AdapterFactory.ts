@@ -72,12 +72,17 @@ class AdapterFactory {
   }
 
   private async loadExchangeConfig(exchangeName: string): Promise<ExchangeConfig> {
-    const exchange = await this.prisma.exchange.findFirst({
-      where: {
-        name: exchangeName,
-        isActive: true,
-      },
-    });
+    let exchange = null;
+    try {
+      exchange = await this.prisma.exchange.findFirst({
+        where: {
+          name: exchangeName,
+          isActive: true,
+        },
+      });
+    } catch (err: any) {
+      console.warn(`[AdapterFactory] Could not load config from DB for ${exchangeName}: ${err.message}`);
+    }
 
     const useTestnet = process.env.USE_TESTNET !== 'false';
 

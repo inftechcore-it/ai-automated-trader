@@ -118,7 +118,7 @@ router.post('/simulate', async (req, res) => {
  * POST /api/predictive/launch-super-zee
  * Instant 1-Click launcher for autonomous Super Zee Bot with active predictive brain link.
  */
-router.post('/launch-super-zee', async (req, res) => {
+router.post('/launch-super-zee', requireAuth, async (req, res) => {
   try {
     const {
       symbol = 'SOL/USDT',
@@ -140,7 +140,17 @@ router.post('/launch-super-zee', async (req, res) => {
       return fail(res, 500, 'Bot Engine is not initialized');
     }
 
-    const userId = String(req.user?.id || req.body.userId || 'default-user');
+    let userId = req.user?.id || req.body?.userId;
+    if (!userId || userId === 'default-user') {
+      try {
+        const { query: dbQuery } = await import('../config/db.js');
+        const [activeUser] = await dbQuery('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (activeUser?.id) {
+          userId = String(activeUser.id);
+        }
+      } catch {}
+    }
+    userId = String(userId || 'default-user');
 
     // Fetch fresh quantitative calibration
     const analytics = await predictiveService.getQuantAnalytics(symbol, '15m', exchange, method);
@@ -212,7 +222,7 @@ router.post('/launch-super-zee', async (req, res) => {
  * POST /api/predictive/vision-analyze
  * Pillar 3 & 4: Analyzes chart snap -> generates Pine Script v5 & Python -> runs backtest -> auto-saves to Script Vault
  */
-router.post('/vision-analyze', async (req, res) => {
+router.post('/vision-analyze', requireAuth, async (req, res) => {
   try {
     const {
       image = '',
@@ -247,7 +257,7 @@ router.post('/vision-analyze', async (req, res) => {
  * GET /api/predictive/scripts
  * Pillar 4: Fetches saved strategy scripts from user's vault
  */
-router.get('/scripts', async (req, res) => {
+router.get('/scripts', requireAuth, async (req, res) => {
   try {
     const {
       search = '',
@@ -281,7 +291,7 @@ router.get('/scripts', async (req, res) => {
  * GET /api/predictive/scripts/:id
  * Pillar 4: Fetches single saved strategy script by ID
  */
-router.get('/scripts/:id', async (req, res) => {
+router.get('/scripts/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = String(req.user?.id || 'default-user');
@@ -302,7 +312,7 @@ router.get('/scripts/:id', async (req, res) => {
  * DELETE /api/predictive/scripts/:id
  * Pillar 4: Deletes a saved strategy script from vault
  */
-router.delete('/scripts/:id', async (req, res) => {
+router.delete('/scripts/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = String(req.user?.id || 'default-user');
@@ -319,7 +329,7 @@ router.delete('/scripts/:id', async (req, res) => {
  * POST /api/predictive/run-saved-script
  * Pillar 4: 1-Click launcher to immediately execute / deploy a saved strategy script with Super Zee Bot
  */
-router.post('/run-saved-script', async (req, res) => {
+router.post('/run-saved-script', requireAuth, async (req, res) => {
   try {
     const {
       scriptId,
@@ -328,7 +338,17 @@ router.post('/run-saved-script', async (req, res) => {
       exchange: overrideExchange
     } = req.body;
 
-    const userId = String(req.user?.id || 'default-user');
+    let userId = req.user?.id || req.body?.userId;
+    if (!userId || userId === 'default-user') {
+      try {
+        const { query: dbQuery } = await import('../config/db.js');
+        const [activeUser] = await dbQuery('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (activeUser?.id) {
+          userId = String(activeUser.id);
+        }
+      } catch {}
+    }
+    userId = String(userId || 'default-user');
 
     if (!scriptId) {
       return fail(res, 400, 'scriptId is required');
