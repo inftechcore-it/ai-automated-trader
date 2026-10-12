@@ -350,13 +350,38 @@ export async function fetchMarketKlines(symbol = 'SOL/USDT', interval = '15m', e
   } catch {}
 
   // 10. Infallible Price Anchor + Synthetic Generator
-  let anchorPrice = 100;
+  let anchorPrice = 0;
   try {
     const quote = await exchangeService.getQuote(symbol, exchange).catch(() => null);
-    if (quote?.price && quote.price > 0) {
+    if (quote?.price && quote.price > 0 && quote.price !== 100) {
       anchorPrice = quote.price;
     }
   } catch {}
+
+  // Fallback: Try Jupiter adapter directly for Solana tokens
+  if (anchorPrice <= 0 || exLower === 'jupiter') {
+    try {
+      const jupQuote = await jupiterAdapter.getQuote(symbol).catch(() => null);
+      if (jupQuote?.price && jupQuote.price > 0) {
+        anchorPrice = jupQuote.price;
+      }
+    } catch {}
+  }
+
+  // Fallback: Try Binance public ticker
+  if (anchorPrice <= 0) {
+    try {
+      const cleanSym = symbol.replace(/[\/\-_]/g, '').toUpperCase();
+      const binanceRes = await axios.get(`${BINANCE_BASE}/api/v3/ticker/price?symbol=${cleanSym}`, { timeout: 3000 }).catch(() => null);
+      if (binanceRes?.data?.price) {
+        anchorPrice = parseFloat(binanceRes.data.price);
+      }
+    } catch {}
+  }
+
+  if (anchorPrice <= 0) {
+    anchorPrice = 0.41;
+  }
 
   return generateFallbackCandles(symbol, anchorPrice, limit);
 }

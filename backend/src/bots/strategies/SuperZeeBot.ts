@@ -68,6 +68,7 @@ export class SuperZeeBot extends BaseBotStrategy {
   // Symbols
   private asset = 'SOL';
   private quote = 'USDT';
+  private exchange = 'Jupiter';
 
   validate(params: BotParams): ValidationResult {
     const p = params as SuperZeeParams;
@@ -103,6 +104,7 @@ export class SuperZeeBot extends BaseBotStrategy {
     this.quantScore = toNum(p.quantScore, 75);
     this.lastPrice = toNum(p.currentPrice) || (this.dynamicLower > 0 ? (this.dynamicLower + this.dynamicUpper) / 2 : 0);
     this.lastStatusLog = 0;
+    this.exchange = (p as any).exchange || (p as any).exchangeName || (this.adapter as any)?.exchangeName || 'Jupiter';
 
     if (p.initialDirective?.thought) {
       this.lastThought = p.initialDirective.thought;
@@ -118,17 +120,50 @@ export class SuperZeeBot extends BaseBotStrategy {
     const currentPrice = tick.price;
     const now = Date.now();
 
-    if (!currentPrice || currentPrice <= 0) return actions;
+    if (!currentPrice || currentPrice <= 0) {
+      if (now - this.lastStatusLog > 10000) {
+        this.lastStatusLog = now;
+        this.log(`⚠️ [Super Zee Waiting] Waiting for valid price tick from ${this.exchange || 'exchange'} (Received: $${currentPrice || 0}). Check symbol or price feed.`, 'warn');
+      }
+      return actions;
+    }
     this.lastPrice = currentPrice;
 
     // Parse symbols from tick if present
     if (tick.symbol) {
-      const parts = tick.symbol.includes('/') ? tick.symbol.split('/') : [tick.symbol.slice(0, -4), tick.symbol.slice(-4)];
-      if (parts[0]) this.asset = parts[0];
-      if (parts[1]) this.quote = parts[1];
+      const clean = tick.symbol.replace('-', '/').replace('_', '/');
+      if (clean.includes('/')) {
+        const parts = clean.split('/');
+        if (parts[0]) this.asset = parts[0];
+        if (parts[1]) this.quote = parts[1];
+      } else {
+        for (const q of ['USDC', 'USDT', 'USD', 'SOL']) {
+          if (clean.endsWith(q) && clean.length > q.length) {
+            this.asset = clean.slice(0, -q.length);
+            this.quote = q;
+            break;
+          }
+        }
+      }
     }
 
-    const currentHoldings = (state.holdings || []).reduce((sum, h) => sum + (h.quantity || 0), 0) + this.activeHoldingsQuantity;
+    // Resolve holdings strictly from single authoritative source:
+    // 1. If state.holdings has an entry for this asset, that is authoritative.
+    // 2. If state.holdings is populated but has no entry for this asset, holdings are 0.
+    // 3. Fall back to local in-memory activeHoldingsQuantity only if state.holdings is empty.
+    const stateHolding = (state.holdings || []).find(
+      (h) => (h.asset || '').toUpperCase() === (this.asset || '').toUpperCase()
+    );
+    const hasStateHoldings = Array.isArray(state.holdings) && state.holdings.length > 0;
+    const currentHoldings = hasStateHoldings
+      ? (stateHolding ? (stateHolding.quantity || 0) : 0)
+      : this.activeHoldingsQuantity;
+
+    // Keep local activeHoldingsQuantity aligned with authoritative state
+    if (hasStateHoldings) {
+      this.activeHoldingsQuantity = currentHoldings;
+    }
+
     const availableCash = state.availableBalance || this.baseInvestment;
 
     // 📡 0. TELEMETRY STATUS LOG (Heartbeat every 18s for active telemetry feed)
@@ -302,7 +337,8 @@ export class SuperZeeBot extends BaseBotStrategy {
   private async refreshPredictiveDirective(symbol: string, currentPrice: number): Promise<void> {
     try {
       const { getQuantAnalytics } = await import('../../../services/predictiveService.js');
-      const data = await getQuantAnalytics(symbol, '15m', 'Binance', this.methodology);
+      const targetExchange = this.exchange || 'Jupiter';
+      const data = await getQuantAnalytics(symbol || `${this.asset}/${this.quote}`, '15m', targetExchange, this.methodology);
 
       if (data && data.agentDirective) {
         const d = data.agentDirective;

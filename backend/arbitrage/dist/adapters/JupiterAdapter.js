@@ -40,7 +40,21 @@ export class JupiterAdapter extends BaseAdapter {
         return headers;
     }
     normalizeSymbol(symbol) {
-        return symbol.replace('-', '/').toUpperCase();
+        const { base, quote } = this.parsePair(symbol);
+        return `${base}/${quote}`;
+    }
+    parsePair(symbol) {
+        let clean = (symbol || 'SOL/USDC').toUpperCase().trim().replace('-', '/').replace('_', '/');
+        if (clean.includes('/')) {
+            const parts = clean.split('/');
+            return { base: parts[0], quote: parts[1] || 'USDC' };
+        }
+        for (const q of ['USDC', 'USDT', 'USD', 'SOL']) {
+            if (clean.endsWith(q) && clean.length > q.length) {
+                return { base: clean.slice(0, -q.length), quote: q };
+            }
+        }
+        return { base: clean, quote: 'USDC' };
     }
     resolveMint(token) {
         const upper = token.toUpperCase().trim();
@@ -61,8 +75,8 @@ export class JupiterAdapter extends BaseAdapter {
         ];
     }
     async getTicker(symbol) {
-        const norm = this.normalizeSymbol(symbol);
-        const [base, quote = 'USDC'] = norm.split('/');
+        const { base, quote } = this.parsePair(symbol);
+        const norm = `${base}/${quote}`;
         const baseMint = this.resolveMint(base);
         const quoteMint = this.resolveMint(quote);
         try {
@@ -72,9 +86,21 @@ export class JupiterAdapter extends BaseAdapter {
                 timeout: 6000
             });
             const payload = data?.data || data || {};
-            const basePrice = parseFloat(payload[baseMint]?.usdPrice || payload[baseMint]?.price || 0);
+            let basePrice = parseFloat(payload[baseMint]?.usdPrice || payload[baseMint]?.price || 0);
             const quotePrice = parseFloat(payload[quoteMint]?.usdPrice || payload[quoteMint]?.price || (quote === 'USDC' || quote === 'USDT' ? 1.0 : 0));
-            const finalPrice = quotePrice > 0 ? basePrice / quotePrice : basePrice;
+            let finalPrice = quotePrice > 0 ? basePrice / quotePrice : basePrice;
+            if (finalPrice <= 0 && baseMint !== base) {
+                // Fallback: try single query for base mint
+                try {
+                    const singleUrl = `${JUPITER_BASE_URL}/price/v3?ids=${encodeURIComponent(baseMint)}`;
+                    const singleRes = await axios.get(singleUrl, { headers: this.getHeaders(), timeout: 4000 });
+                    const singlePayload = singleRes.data?.data || singleRes.data || {};
+                    if (singlePayload[baseMint]?.usdPrice) {
+                        finalPrice = parseFloat(singlePayload[baseMint].usdPrice);
+                    }
+                }
+                catch { }
+            }
             if (finalPrice > 0) {
                 return {
                     symbol: norm,

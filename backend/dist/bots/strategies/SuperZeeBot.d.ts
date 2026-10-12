@@ -38,6 +38,7 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     private lastDirectiveFetchTime;
     private asset;
     private quote;
+    private exchange;
     validate(params: BotParams): ValidationResult;
     protected onInitialize(initialState?: Partial<BotState>): Promise<void>;
     evaluate(tick: PriceTick, state: BotState): Promise<BotAction[]>;

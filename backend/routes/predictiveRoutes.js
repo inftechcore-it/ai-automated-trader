@@ -176,6 +176,8 @@ router.post('/launch-super-zee', requireAuth, async (req, res) => {
       actionCooldownMs: 20000,
       baseInvestment: Number(investedAmount),
       isPredictiveControlled: true,
+      exchange,
+      exchangeName: exchange,
       lastDirectiveTime: new Date().toISOString()
     };
 
@@ -395,6 +397,8 @@ router.post('/run-saved-script', requireAuth, async (req, res) => {
       baseInvestment: Number(investedAmount),
       isPredictiveControlled: true,
       deployedFromScriptId: script.id,
+      exchange: targetExchange,
+      exchangeName: targetExchange,
       lastDirectiveTime: new Date().toISOString()
     };
 

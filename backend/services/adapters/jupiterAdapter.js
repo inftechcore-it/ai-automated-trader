@@ -526,24 +526,28 @@ export async function executeSwap({ signedTransaction }) {
 
 // ============ UNIFIED EXCHANGE ADAPTER INTERFACE ============
 
+export function parseJupiterPair(symbol) {
+  const clean = (symbol || 'SOL/USDC').toUpperCase().trim().replace('-', '/').replace('_', '/');
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    return { base: parts[0], quote: parts[1] || 'USDC' };
+  }
+  for (const q of ['USDC', 'USDT', 'USD', 'SOL']) {
+    if (clean.endsWith(q) && clean.length > q.length) {
+      return { base: clean.slice(0, -q.length), quote: q };
+    }
+  }
+  return { base: clean, quote: 'USDC' };
+}
+
 export function supportsSymbol(symbol) {
   if (!symbol) return false;
-  const upper = symbol.toUpperCase().replace('-', '/');
-  if (upper.includes('/')) {
-    const [base, quote] = upper.split('/');
-    return !!(resolveMint(base) || SOLANA_TOKENS[base]);
-  }
-  return !!(resolveMint(upper) || SOLANA_TOKENS[upper]);
+  const { base } = parseJupiterPair(symbol);
+  return !!(resolveMint(base) || SOLANA_TOKENS[base]);
 }
 
 export async function getQuote(symbol, exchange = 'Jupiter') {
-  const pair = symbol.toUpperCase().replace('-', '/');
-  let base = pair;
-  let quote = 'USDC';
-
-  if (pair.includes('/')) {
-    [base, quote] = pair.split('/');
-  }
+  const { base, quote } = parseJupiterPair(symbol);
 
   const baseMint = resolveMint(base) || base;
   const quoteMint = resolveMint(quote) || quote;
@@ -554,7 +558,20 @@ export async function getQuote(symbol, exchange = 'Jupiter') {
   const basePrice = basePriceObj.price || 0;
   const quotePrice = quotePriceObj.price || (quote === 'USDC' || quote === 'USDT' ? 1.0 : 0);
 
-  const finalPrice = quotePrice > 0 ? basePrice / quotePrice : basePrice;
+  let finalPrice = quotePrice > 0 ? basePrice / quotePrice : basePrice;
+
+  // Fallback: If price is still 0, try searching token mint by symbol
+  if (finalPrice <= 0 && base) {
+    try {
+      const searchResults = await searchTokens(base);
+      if (searchResults && searchResults.length > 0 && searchResults[0].mint) {
+        const foundPrice = await getPrice(searchResults[0].mint);
+        if (foundPrice.price > 0) {
+          finalPrice = quotePrice > 0 ? foundPrice.price / quotePrice : foundPrice.price;
+        }
+      }
+    } catch {}
+  }
 
   return {
     symbol: `${base}/${quote}`,
@@ -575,12 +592,31 @@ export async function getQuote(symbol, exchange = 'Jupiter') {
 
 export async function getOHLCV(symbol, interval = '1h', limit = 100, exchange = 'Jupiter') {
   const quote = await getQuote(symbol, exchange);
-  const currentPrice = quote.price || 100;
+  let currentPrice = quote.price || 0;
+
+  // Fallback if price is 0: try to get price from base token directly
+  if (currentPrice <= 0) {
+    const { base } = parseJupiterPair(symbol);
+    const basePriceObj = await getPrice(base).catch(() => ({ price: 0 }));
+    currentPrice = basePriceObj.price || 0;
+  }
+
+  // If still 0, try Binance ticker for cross-reference (e.g. JUP/USDT)
+  if (currentPrice <= 0) {
+    try {
+      const { base } = parseJupiterPair(symbol);
+      const binancePrice = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbol=${base}USDT`, { timeout: 3000 });
+      if (binancePrice.data?.price) {
+        currentPrice = parseFloat(binancePrice.data.price);
+      }
+    } catch {}
+  }
+
   const candles = [];
   const now = Date.now();
   const intervalMs = parseInterval(interval);
 
-  let price = currentPrice;
+  let price = currentPrice > 0 ? currentPrice : 0.41;
   for (let i = limit - 1; i >= 0; i--) {
     const time = now - i * intervalMs;
     const volatility = 0.008;
@@ -595,7 +631,7 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100, exchange = 
     price = close;
   }
 
-  if (candles.length > 0) {
+  if (candles.length > 0 && currentPrice > 0) {
     candles[candles.length - 1].close = currentPrice;
   }
 

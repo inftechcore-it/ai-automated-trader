@@ -8,6 +8,7 @@ export declare class JupiterAdapter extends BaseAdapter {
     initialize(config: ExchangeConfig): Promise<void>;
     private getHeaders;
     protected normalizeSymbol(symbol: string): string;
+    private parsePair;
     private resolveMint;
     getMarkets(): Promise<string[]>;
     getTicker(symbol: string): Promise<Ticker>;
