@@ -36,6 +36,8 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     private actionCooldownMs;
     private lastActionTimestamp;
     private lastDirectiveFetchTime;
+    private lastEmergencyFloorActionTime;
+    private lastTakeProfitCeilingActionTime;
     private asset;
     private quote;
     private exchange;
@@ -51,6 +53,7 @@ export declare class SuperZeeBot extends BaseBotStrategy {
     protected getMetrics(): Record<string, number>;
     getCustomState(): Record<string, any>;
     restoreState(customState: Record<string, any>): void;
+    onOrderError(error: string): void;
     cleanup(): Promise<void>;
 }
 export default SuperZeeBot;

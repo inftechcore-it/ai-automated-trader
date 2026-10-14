@@ -211,8 +211,22 @@ export class PionexAdapter extends BaseAdapter {
                 side: params.side.toUpperCase(),
                 type: params.type.toUpperCase(),
             };
+            let basePrecision = 4;
+            try {
+                const symbolsRes = await axios.get(`${PIONEX_BASE_URL}/api/v1/common/symbols`, {
+                    params: { symbols: this.normalizeSymbol(params.symbol) },
+                    timeout: 5000,
+                });
+                const symInfo = symbolsRes.data?.data?.symbols?.[0];
+                if (symInfo?.basePrecision !== undefined) {
+                    basePrecision = Number(symInfo.basePrecision);
+                }
+            }
+            catch { }
+            const factor = Math.pow(10, basePrecision);
+            const flooredSize = (Math.floor(Number(params.quantity) * factor) / factor).toFixed(basePrecision);
             if (params.type === 'limit') {
-                body.size = params.quantity.toString();
+                body.size = flooredSize;
                 body.price = params.price?.toString();
             }
             else if (params.type === 'market') {
@@ -220,7 +234,7 @@ export class PionexAdapter extends BaseAdapter {
                     body.amount = ((params.quantity * (params.price || 0)) || params.quantity).toString();
                 }
                 else {
-                    body.size = params.quantity.toString();
+                    body.size = flooredSize;
                 }
             }
             if (params.clientOrderId) {

@@ -766,9 +766,80 @@ export class BotInstance extends EventEmitter {
       this.log(`${prefix} Converting $${action.quantity.toFixed(2)} to ${quantity.toFixed(6)} coins @ $${tick.price}`);
     }
 
-    // Auto-truncate quantity to exchange market precision (e.g. 0 decimals for XLM/DOGE, 1 for XRP on CoinDCX)
+    // Check if we have enough holdings for sell
+    if (side === 'SELL') {
+      const parts = this.config.symbol?.split('/') || [];
+      const asset = (parts[0] || '').toUpperCase();
+      let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+
+      // In LIVE mode, ALWAYS query live wallet directly before placing a SELL order to prevent fee-drag desync
+      if (!isPaper) {
+        try {
+          const liveBalances: any[] = await this.getUserLiveBalances();
+          if (Array.isArray(liveBalances)) {
+            const baseBalObj = liveBalances.find((b: any) => (b.asset || '').toUpperCase() === asset);
+            const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
+            if (baseFree > 0) {
+              quantity = (quantity > 0 && !action.metadata?.sweepAll) ? Math.min(quantity, baseFree) : baseFree;
+              if (holding) {
+                holding.quantity = baseFree;
+              } else {
+                holding = {
+                  asset,
+                  quantity: baseFree,
+                  avgEntryPrice: tick.price,
+                  currentPrice: tick.price,
+                  value: baseFree * tick.price,
+                  unrealizedPnl: 0,
+                };
+                this.state.holdings.push(holding);
+              }
+            } else if (baseBalObj && Number(baseBalObj.free ?? 0) <= 0) {
+              this.log(`${prefix} Live wallet has 0 free ${asset} balance to sell. Skipping order.`, 'warn');
+              if (holding) {
+                holding.quantity = 0;
+              }
+              return;
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[Bot ${this.config.name}] Error checking live balance for sell:`, e.message);
+        }
+      }
+
+      if (!holding || holding.quantity <= 0) {
+        this.log(`${prefix} No ${asset} holdings available to sell.`, 'info');
+        return;
+      }
+
+      if (quantity <= 0 || quantity > holding.quantity) {
+        quantity = holding.quantity;
+      }
+    }
+
+    // Auto-truncate quantity to exchange market precision (Pionex & CoinDCX lot step size)
     const exName = (this.config.exchangeName || '').toLowerCase();
-    if (exName === 'coindcx') {
+    if (exName === 'pionex') {
+      try {
+        const pionex = await import('../../services/adapters/pionexAdapter.js');
+        const filters = await pionex.getSymbolFilters(this.config.symbol);
+        if (filters && typeof filters.basePrecision === 'number') {
+          const factor = Math.pow(10, filters.basePrecision);
+          quantity = Math.floor(quantity * factor) / factor;
+        }
+      } catch {
+        const parts = (this.config.symbol || '').split('/');
+        const baseAsset = (parts[0] || '').toUpperCase();
+        const pionexPrecisions: Record<string, number> = {
+          BTC: 6, ETH: 5, SOL: 3, XRP: 2, ADA: 4, DOGE: 0,
+          DOT: 3, LINK: 2, MATIC: 2, POL: 2, AVAX: 2, NEAR: 2,
+          TRX: 1, SHIB: 0, PEPE: 0, BONK: 0, WIF: 2, SUI: 2
+        };
+        const prec = pionexPrecisions[baseAsset] !== undefined ? pionexPrecisions[baseAsset] : 4;
+        const factor = Math.pow(10, prec);
+        quantity = Math.floor(quantity * factor) / factor;
+      }
+    } else if (exName === 'coindcx') {
       const parts = (this.config.symbol || '').split('/');
       const baseAsset = (parts[0] || '').toUpperCase();
       const coindcxPrecisions: Record<string, number> = {
@@ -869,6 +940,11 @@ export class BotInstance extends EventEmitter {
       }
     }
 
+    if (quantity <= 0) {
+      this.log(`${prefix} Quantity floored to 0 after precision truncation. Skipping.`, 'warn');
+      return;
+    }
+
     // Check minimum notional value
     const MIN_NOTIONAL = 0.50;
     const orderValue = quantity * (price || tick.price);
@@ -888,51 +964,6 @@ export class BotInstance extends EventEmitter {
           this.log(`${prefix} Insufficient balance for buy order (need $${cost.toFixed(2)}, have $${this.state.availableBalance.toFixed(2)}). Pausing API calls until balance is restored.`, 'warn');
         }
         return; // Skip hitting the exchange API
-      }
-    }
-
-    // Check if we have enough holdings for sell
-    if (side === 'SELL') {
-      const parts = this.config.symbol?.split('/') || [];
-      const asset = (parts[0] || '').toUpperCase();
-      let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
-
-      // In LIVE mode, if holding is not in state, zero, or sweepAll is set, verify live wallet directly
-      if (!isPaper && (!holding || holding.quantity <= 0 || action.metadata?.sweepAll)) {
-        try {
-          const balances: any[] = await this.getUserLiveBalances();
-          if (Array.isArray(balances)) {
-            const baseBalObj = balances.find((b: any) => (b.asset || '').toUpperCase() === asset);
-            const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
-            if (baseFree > 0) {
-              quantity = (quantity > 0 && !action.metadata?.sweepAll) ? Math.min(quantity, baseFree) : baseFree;
-              if (holding) {
-                holding.quantity = baseFree;
-              } else {
-                holding = {
-                  asset,
-                  quantity: baseFree,
-                  avgEntryPrice: tick.price,
-                  currentPrice: tick.price,
-                  value: baseFree * tick.price,
-                  unrealizedPnl: 0,
-                };
-                this.state.holdings.push(holding);
-              }
-            }
-          }
-        } catch (e: any) {
-          console.warn(`[Bot ${this.config.name}] Error checking live balance for sell:`, e.message);
-        }
-      }
-
-      if (!holding || holding.quantity <= 0) {
-        this.log(`${prefix} No ${asset} holdings available to sell.`, 'info');
-        return;
-      }
-
-      if (quantity <= 0 || quantity > holding.quantity) {
-        quantity = holding.quantity;
       }
     }
 
@@ -1034,12 +1065,36 @@ export class BotInstance extends EventEmitter {
       const isBalanceError = errMsg.toLowerCase().includes('insufficient') ||
                              errMsg.toLowerCase().includes('balance') ||
                              errMsg.toLowerCase().includes('notional') ||
-                             errMsg.toLowerCase().includes('funds');
+                             errMsg.toLowerCase().includes('funds') ||
+                             errMsg.toLowerCase().includes('size filter') ||
+                             errMsg.toLowerCase().includes('filter dendied');
 
       if (isBalanceError) {
-        this.isPausedForBalance = true;
-        this.state.availableBalance = 0;
-        this.log(`${prefix} Order rejected by exchange due to insufficient balance. Pausing API order execution until new funds arrive.`, 'warn');
+        if (side === 'BUY') {
+          this.isPausedForBalance = true;
+          this.state.availableBalance = 0;
+          this.log(`${prefix} Order rejected by exchange due to insufficient balance. Pausing API buy orders until new funds arrive.`, 'warn');
+        } else {
+          this.log(`${prefix} Sell order rejected due to balance or size filter (${errMsg}). Re-syncing holdings with live wallet...`, 'warn');
+          if (!isPaper) {
+            try {
+              const liveBalances = await this.getUserLiveBalances();
+              const [baseAsset] = this.config.symbol.replace(/USDT$|USD$|BUSD$|USDC$|INR$/, '').split(/[/_-]/);
+              const asset = (baseAsset || '').toUpperCase();
+              const baseBal = liveBalances.find((b: any) => (b.asset || '').toUpperCase() === asset);
+              const freeQty = baseBal ? Number(baseBal.free ?? 0) : 0;
+              const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+              if (holding) {
+                holding.quantity = freeQty;
+                if (freeQty <= 0) {
+                  this.state.holdings = this.state.holdings.filter(h => h !== holding);
+                }
+              }
+            } catch (syncErr: any) {
+              this.log(`${prefix} Failed to re-sync live balance after sell failure: ${syncErr.message}`, 'warn');
+            }
+          }
+        }
       } else {
         this.log(`${prefix} Order failed: ${errMsg}`, 'error');
         this.deps.onError(this.id, `Order failed: ${errMsg}`, 'error');

@@ -386,26 +386,57 @@ export async function placeOrder(apiKey, apiSecret, { symbol, side, orderType, q
     type: upperType
   };
 
+  // Query symbol details / cache from /api/v1/common/symbols for basePrecision and minTradeSize
+  let basePrecision = 4;
+  let quotePrecision = 4;
+  let minTradeSize = 0;
+  try {
+    const filters = await getSymbolFilters(symbol);
+    if (filters) {
+      if (typeof filters.basePrecision === 'number') {
+        basePrecision = filters.basePrecision;
+      }
+      if (typeof filters.quotePrecision === 'number') {
+        quotePrecision = filters.quotePrecision;
+      }
+      if (filters.minTradeSize) {
+        minTradeSize = parseFloat(filters.minTradeSize);
+      }
+    }
+  } catch (err) {
+    console.warn(`[Pionex] Could not fetch filters for ${symbol}, using default precision ${basePrecision}:`, err.message);
+  }
+
+  // Floor quantity to basePrecision to prevent "size filter dendied"
+  const factor = Math.pow(10, basePrecision);
+  const flooredSize = (Math.floor(Number(quantity) * factor) / factor).toFixed(basePrecision);
+
+  if (minTradeSize > 0 && Number(flooredSize) < minTradeSize) {
+    throw new Error(`[Pionex] Order size ${flooredSize} is below minTradeSize ${minTradeSize}`);
+  }
+
   if (upperType === 'LIMIT') {
-    body.size = quantity.toString();
+    body.size = flooredSize;
     body.price = price ? price.toString() : '0';
   } else if (upperType === 'MARKET') {
     if (upperSide === 'BUY') {
       if (amount) {
         body.amount = amount.toString();
       } else if (price && quantity) {
-        body.amount = (Number(quantity) * Number(price)).toFixed(4);
+        const qFactor = Math.pow(10, quotePrecision);
+        body.amount = (Math.floor(Number(quantity) * Number(price) * qFactor) / qFactor).toFixed(quotePrecision);
       } else {
         // Fetch current price to calculate quote amount
         try {
           const q = await getQuote(symbol);
-          body.amount = (Number(quantity) * (q.price || 1)).toFixed(4);
+          const qFactor = Math.pow(10, quotePrecision);
+          body.amount = (Math.floor(Number(quantity) * (q.price || 1) * qFactor) / qFactor).toFixed(quotePrecision);
         } catch {
-          body.size = quantity.toString();
+          body.size = flooredSize;
         }
       }
     } else {
-      body.size = quantity.toString();
+      body.size = flooredSize;
     }
   }
 

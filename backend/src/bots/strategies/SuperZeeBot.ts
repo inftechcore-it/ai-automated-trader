@@ -64,6 +64,8 @@ export class SuperZeeBot extends BaseBotStrategy {
   private actionCooldownMs = 20000; // 20s minimum between regular actions
   private lastActionTimestamp = 0;
   private lastDirectiveFetchTime = 0;
+  private lastEmergencyFloorActionTime = 0;
+  private lastTakeProfitCeilingActionTime = 0;
 
   // Symbols
   private asset = 'SOL';
@@ -177,7 +179,9 @@ export class SuperZeeBot extends BaseBotStrategy {
     // 🛡️ 1. LOCAL MICROSECOND GUARD (<50ms execution without AI latency)
     // ══════════════════════════════════════════════════════════════════
     if (this.emergencyFloorPrice > 0 && currentPrice <= this.emergencyFloorPrice) {
-      if (currentHoldings > 0) {
+      const isFloorCoolingDown = (now - this.lastEmergencyFloorActionTime) < 20000;
+      if (currentHoldings > 0 && !isFloorCoolingDown) {
+        this.lastEmergencyFloorActionTime = now;
         this.lastThought = `🚨 [Super Zee Microsecond Guard] Emergency Stop Floor breached at $${currentPrice.toFixed(4)} (Floor: $${this.emergencyFloorPrice.toFixed(4)}). Liquidating position immediately to preserve capital.`;
         this.log(this.lastThought, 'error');
 
@@ -186,6 +190,7 @@ export class SuperZeeBot extends BaseBotStrategy {
           orderType: 'MARKET',
           quantity: currentHoldings,
           metadata: {
+            sweepAll: true,
             reason: `Microsecond Guard: Emergency Floor breached at $${currentPrice.toFixed(4)}`,
           },
         });
@@ -198,7 +203,9 @@ export class SuperZeeBot extends BaseBotStrategy {
     }
 
     if (this.takeProfitCeilingPrice > 0 && currentPrice >= this.takeProfitCeilingPrice) {
-      if (currentHoldings > 0) {
+      const isCeilingCoolingDown = (now - this.lastTakeProfitCeilingActionTime) < 20000;
+      if (currentHoldings > 0 && !isCeilingCoolingDown) {
+        this.lastTakeProfitCeilingActionTime = now;
         this.lastThought = `🎯 [Super Zee Microsecond Guard] Take-Profit Ceiling triggered at $${currentPrice.toFixed(4)} (Ceiling: $${this.takeProfitCeilingPrice.toFixed(4)}). Securing maximum gain.`;
         this.log(this.lastThought, 'info');
 
@@ -207,6 +214,7 @@ export class SuperZeeBot extends BaseBotStrategy {
           orderType: 'MARKET',
           quantity: currentHoldings,
           metadata: {
+            sweepAll: true,
             reason: `Microsecond Guard: Take-Profit Ceiling triggered at $${currentPrice.toFixed(4)}`,
           },
         });
@@ -483,6 +491,22 @@ export class SuperZeeBot extends BaseBotStrategy {
     if (customState.lastStatusLog) this.lastStatusLog = toNum(customState.lastStatusLog);
 
     this.log(`🔄 [Super Zee Restore] Resumed state seamlessly from database (${this.methodology}). Dynamic corridor: $${this.dynamicLower.toFixed(4)} - $${this.dynamicUpper.toFixed(4)}. Floor: $${this.emergencyFloorPrice.toFixed(4)}. Kelly: ${this.kellyAllocPercent}%.`, 'info');
+  }
+
+  onOrderError(error: string): void {
+    const err = (error || '').toLowerCase();
+    const isBalanceOrFilter = err.includes('size filter') ||
+                              err.includes('filter dendied') ||
+                              err.includes('insufficient') ||
+                              err.includes('balance') ||
+                              err.includes('min_trade_size');
+    if (isBalanceOrFilter) {
+      const now = Date.now();
+      this.lastEmergencyFloorActionTime = now;
+      this.lastTakeProfitCeilingActionTime = now;
+      this.lastActionTimestamp = now;
+      this.log(`⚠️ [Super Zee Backoff] Order rejected (${error}). Applying 20s cooldown before retrying Microsecond Guard actions.`, 'warn');
+    }
   }
 
   async cleanup(): Promise<void> {
