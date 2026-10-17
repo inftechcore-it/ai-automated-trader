@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middlewares/auth.js';
 import { ok, fail } from '../utils/apiResponse.js';
-import { getConnectedExchanges, getSupportedExchanges } from '../services/exchangeService.js';
+import { getConnectedExchanges, getSupportedExchanges, getQuote } from '../services/exchangeService.js';
 import { ragService } from '../services/ragService.js';
 
 const router = Router();
@@ -233,6 +233,485 @@ router.get('/', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[BotRoutes] GET /bots error:', error.message);
     return ok(res, { bots: [], error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ADVANCED BOT ANALYTICS & FINANCIAL AUDIT HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+let prismaSharedInstance = null;
+async function getPrisma() {
+  if (!prismaSharedInstance) {
+    const { PrismaClient } = await import('@prisma/client');
+    prismaSharedInstance = new PrismaClient();
+  }
+  return prismaSharedInstance;
+}
+
+function getExchangeFeeMeta(exchangeName) {
+  const ex = (exchangeName || '').toLowerCase();
+  if (ex === 'jupiter') {
+    return { rate: 0.0025, fixedFee: 0.000005, feeAsset: 'SOL', type: 'DEX LP Pool + Gas' };
+  }
+  if (['binance', 'bybit', 'pionex', 'coindcx', 'kraken'].includes(ex)) {
+    return { rate: 0.001, fixedFee: 0, feeAsset: 'USDT', type: 'Spot Standard 0.1%' };
+  }
+  if (['angelone', 'upstox', 'nse', 'bse'].includes(ex)) {
+    return { rate: 0.0005, fixedFee: 0, feeAsset: 'INR', type: 'Brokerage & STT' };
+  }
+  if (['alpaca', 'nasdaq', 'nyse'].includes(ex)) {
+    return { rate: 0.0002, fixedFee: 0.005, feeAsset: 'USD', type: 'SEC & Turnover' };
+  }
+  return { rate: 0.001, fixedFee: 0, feeAsset: 'USDT', type: 'Standard Fee' };
+}
+
+function getCurrencySymbol(exchangeName, symbol) {
+  const ex = (exchangeName || '').toLowerCase();
+  if (['angelone', 'upstox', 'nse', 'bse'].includes(ex) || (symbol && symbol.includes('INR'))) return '₹';
+  if (ex === 'jupiter' && (symbol && symbol.includes('SOL'))) return 'SOL ';
+  return '$';
+}
+
+function extractBaseAsset(symbol) {
+  if (!symbol) return 'ASSET';
+  if (symbol.includes('/')) return symbol.split('/')[0].toUpperCase();
+  if (symbol.includes('-')) return symbol.split('-')[0].toUpperCase();
+  return symbol.replace(/(USDT|USDC|BUSD|INR|USD)$/i, '').toUpperCase();
+}
+
+async function calculateBotFinancials(botConfig, engine, prisma) {
+  const botId = botConfig.id;
+  const exchangeName = botConfig.exchangeName || 'Binance';
+  const symbol = botConfig.symbol || 'BTC/USDT';
+  const feeMeta = getExchangeFeeMeta(exchangeName);
+  const currencySymbol = getCurrencySymbol(exchangeName, symbol);
+
+  // 1. Fetch live market price
+  let livePrice = 0;
+  try {
+    const quote = await getQuote(symbol, exchangeName);
+    livePrice = Number(quote?.price || quote?.last || quote?.close || 0);
+  } catch (err) {
+    // Keep 0 if failed
+  }
+
+  // 2. Fetch orders from database
+  let orders = [];
+  try {
+    orders = await prisma.botOrder.findMany({
+      where: { botConfigId: botId },
+      orderBy: { createdAt: 'desc' }
+    });
+  } catch (err) {
+    console.warn(`[BotFinancials] Could not load orders for ${botId}:`, err.message);
+  }
+
+  // 3. Process orders & fees
+  let totalFeeDeducted = 0;
+  let totalGrossProfit = 0;
+  let totalGrossLoss = 0;
+  let winningTrades = 0;
+  let losingTrades = 0;
+  let totalBuyQty = 0;
+  let totalBuyCost = 0;
+  let totalSellQty = 0;
+  let totalSellProceeds = 0;
+  let filledOrdersCount = 0;
+
+  for (const order of orders) {
+    const isFilled = order.status === 'FILLED' || Number(order.filledQuantity || 0) > 0;
+    if (!isFilled) continue;
+
+    filledOrdersCount++;
+    const qty = Number(order.filledQuantity || order.quantity || 0);
+    const price = Number(order.filledPrice || order.price || livePrice || 0);
+    const orderVal = qty * price;
+
+    // Fee resolution: use recorded fee if > 0, otherwise compute standard realistic fee
+    let fee = Number(order.fee || 0);
+    if (fee <= 0 && qty > 0) {
+      fee = (orderVal * feeMeta.rate) + feeMeta.fixedFee;
+    }
+    totalFeeDeducted += fee;
+
+    if (order.side === 'BUY') {
+      totalBuyQty += qty;
+      totalBuyCost += orderVal;
+    } else if (order.side === 'SELL') {
+      totalSellQty += qty;
+      totalSellProceeds += orderVal;
+    }
+
+    // Profit and Loss resolution
+    if (order.profit != null && Number(order.profit) !== 0) {
+      const p = Number(order.profit);
+      if (p > 0) {
+        totalGrossProfit += p;
+        winningTrades++;
+      } else {
+        totalGrossLoss += Math.abs(p);
+        losingTrades++;
+      }
+    } else if (order.side === 'SELL' && totalBuyQty > 0) {
+      const avgBuy = totalBuyCost / totalBuyQty;
+      const pnl = (price - avgBuy) * qty;
+      if (pnl > 0) {
+        totalGrossProfit += pnl;
+        winningTrades++;
+      } else if (pnl < 0) {
+        totalGrossLoss += Math.abs(pnl);
+        losingTrades++;
+      }
+    }
+  }
+
+  // Fallback to botConfig.totalProfit if orders didn't record individual profits
+  if (totalGrossProfit === 0 && totalGrossLoss === 0 && Number(botConfig.totalProfit || 0) !== 0) {
+    const p = Number(botConfig.totalProfit || 0);
+    if (p > 0) {
+      totalGrossProfit = p;
+      winningTrades = Math.max(1, botConfig.totalTrades || 1);
+    } else {
+      totalGrossLoss = Math.abs(p);
+      losingTrades = Math.max(1, botConfig.totalTrades || 1);
+    }
+  }
+
+  // 4. Resolve exact holdings
+  let holdings = [];
+  const inMemoryInstance = engine?.getBot?.(botId);
+  if (inMemoryInstance?.state?.holdings && Array.isArray(inMemoryInstance.state.holdings) && inMemoryInstance.state.holdings.length > 0) {
+    holdings = inMemoryInstance.state.holdings.map(h => {
+      const qty = Number(h.quantity || h.amount || 0);
+      const entry = Number(h.avgEntryPrice || h.averagePrice || 0);
+      const current = livePrice > 0 ? livePrice : Number(h.currentPrice || entry);
+      const mVal = qty * current;
+      const uPnl = (current - entry) * qty;
+      const uPnlPct = entry > 0 ? ((current - entry) / entry) * 100 : 0;
+      return {
+        asset: h.asset || extractBaseAsset(symbol),
+        quantity: qty,
+        avgEntryPrice: entry,
+        currentPrice: current,
+        marketValue: mVal,
+        unrealizedPnl: uPnl,
+        unrealizedPnlPercent: uPnlPct,
+        allocationPercent: 0
+      };
+    });
+  } else {
+    // Reconstruct holdings from filled orders
+    const netQty = Math.max(0, totalBuyQty - totalSellQty);
+    if (netQty > 0) {
+      const avgEntry = totalBuyQty > 0 ? (totalBuyCost / totalBuyQty) : (livePrice || 1);
+      const current = livePrice > 0 ? livePrice : avgEntry;
+      const mVal = netQty * current;
+      const uPnl = (current - avgEntry) * netQty;
+      const uPnlPct = avgEntry > 0 ? ((current - avgEntry) / avgEntry) * 100 : 0;
+      holdings.push({
+        asset: extractBaseAsset(symbol),
+        quantity: netQty,
+        avgEntryPrice: avgEntry,
+        currentPrice: current,
+        marketValue: mVal,
+        unrealizedPnl: uPnl,
+        unrealizedPnlPercent: uPnlPct,
+        allocationPercent: 0
+      });
+    }
+  }
+
+  // 5. Portfolio & cash balances
+  const investedWithoutFee = Number(botConfig.investedAmount || 0);
+  const investedWithFee = investedWithoutFee + totalFeeDeducted;
+  const totalHoldingsMarketValue = holdings.reduce((sum, h) => sum + h.marketValue, 0);
+  const totalUnrealizedPnl = holdings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
+  const netRealizedProfit = totalGrossProfit - totalGrossLoss - totalFeeDeducted;
+
+  const quoteAsset = symbol?.includes('/') ? symbol.split('/')[1] : (feeMeta.feeAsset || 'USDT');
+  const availableCash = Math.max(0, investedWithoutFee + totalGrossProfit - totalGrossLoss - totalFeeDeducted - (totalBuyCost - totalSellProceeds));
+  const currentValue = Number(botConfig.currentValue || (totalHoldingsMarketValue + availableCash) || (investedWithoutFee + netRealizedProfit + totalUnrealizedPnl));
+
+  // Compute allocation %
+  const totalEquity = Math.max(investedWithoutFee, totalHoldingsMarketValue + availableCash);
+  for (const h of holdings) {
+    h.allocationPercent = totalEquity > 0 ? (h.marketValue / totalEquity) * 100 : 0;
+  }
+
+  // 6. Return comprehensive financials
+  const totalTrades = botConfig.totalTrades || (winningTrades + losingTrades) || filledOrdersCount;
+  const winRate = (winningTrades + losingTrades) > 0 ? (winningTrades / (winningTrades + losingTrades)) * 100 : (botConfig.winRate || 0);
+  const profitFactor = totalGrossLoss > 0 ? (totalGrossProfit / totalGrossLoss) : (totalGrossProfit > 0 ? 99.9 : 1.0);
+  const roiWithoutFee = investedWithoutFee > 0 ? (((totalGrossProfit - totalGrossLoss + totalUnrealizedPnl) / investedWithoutFee) * 100) : 0;
+  const roiWithFee = investedWithFee > 0 ? (((netRealizedProfit + totalUnrealizedPnl) / investedWithFee) * 100) : 0;
+
+  return {
+    // Core parameters requested
+    totalInvestmentWithoutFee: investedWithoutFee,
+    totalInvestmentWithFee: investedWithFee,
+    totalFeeDeducted,
+    totalGrossProfit,
+    totalGrossLoss,
+    netRealizedProfit,
+    totalUnrealizedPnl,
+    currentValue,
+    holdings,
+    availableCash,
+    quoteAsset,
+    currencySymbol,
+    livePrice,
+    // Fee breakdown
+    feeBreakdown: {
+      totalFee: totalFeeDeducted,
+      feeAsset: feeMeta.feeAsset,
+      feeRate: feeMeta.rate * 100,
+      feeType: feeMeta.type,
+      fixedFee: feeMeta.fixedFee,
+    },
+    // Metrics
+    roiWithoutFee,
+    roiWithFee,
+    winRate,
+    profitFactor,
+    totalTrades,
+    winningTrades,
+    losingTrades,
+    filledOrdersCount,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADVANCED BOT ANALYTICS ENDPOINTS
+// ═══════════════════════════════════════════════════════════════
+
+// Get comprehensive analytics summary across all user bots
+router.get('/analytics/summary', requireAuth, async (req, res) => {
+  try {
+    const prisma = await getPrisma();
+    const engine = await getBotEngine();
+
+    const userId = String(req.user?.id || 'default-user');
+    const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
+
+    const dbBots = await prisma.botConfig.findMany({
+      where: { userId: { in: userIds } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    let totalInvestedWithoutFee = 0;
+    let totalInvestedWithFee = 0;
+    let totalCurrentValue = 0;
+    let totalFeesDeducted = 0;
+    let totalGrossProfit = 0;
+    let totalGrossLoss = 0;
+    let netRealizedProfit = 0;
+    let totalUnrealizedPnl = 0;
+    let totalTrades = 0;
+    let totalWinningTrades = 0;
+    let totalLosingTrades = 0;
+
+    const exchangeMap = {};
+    const strategyMap = {};
+
+    const enrichedBots = [];
+
+    for (const bot of dbBots) {
+      const financials = await calculateBotFinancials(bot, engine, prisma);
+
+      totalInvestedWithoutFee += financials.totalInvestmentWithoutFee;
+      totalInvestedWithFee += financials.totalInvestmentWithFee;
+      totalCurrentValue += financials.currentValue;
+      totalFeesDeducted += financials.totalFeeDeducted;
+      totalGrossProfit += financials.totalGrossProfit;
+      totalGrossLoss += financials.totalGrossLoss;
+      netRealizedProfit += financials.netRealizedProfit;
+      totalUnrealizedPnl += financials.totalUnrealizedPnl;
+      totalTrades += financials.totalTrades;
+      totalWinningTrades += financials.winningTrades;
+      totalLosingTrades += financials.losingTrades;
+
+      // Group by exchange
+      const ex = bot.exchangeName || 'Other';
+      if (!exchangeMap[ex]) {
+        exchangeMap[ex] = { exchange: ex, count: 0, invested: 0, profit: 0, fees: 0, trades: 0 };
+      }
+      exchangeMap[ex].count++;
+      exchangeMap[ex].invested += financials.totalInvestmentWithoutFee;
+      exchangeMap[ex].profit += financials.netRealizedProfit;
+      exchangeMap[ex].fees += financials.totalFeeDeducted;
+      exchangeMap[ex].trades += financials.totalTrades;
+
+      // Group by strategy
+      const strat = bot.strategyType || 'Other';
+      if (!strategyMap[strat]) {
+        strategyMap[strat] = { strategy: strat, count: 0, invested: 0, profit: 0, fees: 0, trades: 0 };
+      }
+      strategyMap[strat].count++;
+      strategyMap[strat].invested += financials.totalInvestmentWithoutFee;
+      strategyMap[strat].profit += financials.netRealizedProfit;
+      strategyMap[strat].fees += financials.totalFeeDeducted;
+      strategyMap[strat].trades += financials.totalTrades;
+
+      enrichedBots.push({
+        id: bot.id,
+        name: bot.name,
+        strategyType: bot.strategyType,
+        exchangeName: bot.exchangeName,
+        symbol: bot.symbol,
+        mode: bot.mode,
+        status: bot.status,
+        createdAt: bot.createdAt,
+        startedAt: bot.startedAt,
+        stoppedAt: bot.stoppedAt,
+        financials,
+      });
+    }
+
+    const totalBots = enrichedBots.length;
+    const activeBots = enrichedBots.filter(b => b.status === 'RUNNING').length;
+    const pausedBots = enrichedBots.filter(b => b.status === 'PAUSED').length;
+    const stoppedBots = enrichedBots.filter(b => b.status === 'STOPPED' || b.status === 'CREATED').length;
+
+    const overallWinRate = (totalWinningTrades + totalLosingTrades) > 0
+      ? (totalWinningTrades / (totalWinningTrades + totalLosingTrades)) * 100
+      : 0;
+
+    const overallProfitFactor = totalGrossLoss > 0
+      ? (totalGrossProfit / totalGrossLoss)
+      : (totalGrossProfit > 0 ? 99.9 : 1.0);
+
+    const bestBot = enrichedBots.length > 0
+      ? enrichedBots.reduce((best, b) => (b.financials.netRealizedProfit > (best?.financials?.netRealizedProfit || -Infinity) ? b : best), null)
+      : null;
+
+    const worstBot = enrichedBots.length > 0
+      ? enrichedBots.reduce((worst, b) => (b.financials.netRealizedProfit < (worst?.financials?.netRealizedProfit || Infinity) ? b : worst), null)
+      : null;
+
+    return ok(res, {
+      summary: {
+        totalBots,
+        activeBots,
+        pausedBots,
+        stoppedBots,
+        totalInvestedWithoutFee,
+        totalInvestedWithFee,
+        totalCurrentValue,
+        totalFeesDeducted,
+        totalGrossProfit,
+        totalGrossLoss,
+        netRealizedProfit,
+        totalUnrealizedPnl,
+        netTotalProfit: netRealizedProfit + totalUnrealizedPnl,
+        totalTrades,
+        totalWinningTrades,
+        totalLosingTrades,
+        overallWinRate,
+        overallProfitFactor,
+        bestBot,
+        worstBot,
+      },
+      exchangeBreakdown: Object.values(exchangeMap),
+      strategyBreakdown: Object.values(strategyMap),
+      bots: enrichedBots,
+    });
+  } catch (error) {
+    console.error('[BotRoutes] GET /analytics/summary error:', error);
+    return fail(res, 500, error.message);
+  }
+});
+
+// Get deep drilldown performance and holdings for a single bot
+router.get('/:id/performance', requireAuth, async (req, res) => {
+  try {
+    const prisma = await getPrisma();
+    const engine = await getBotEngine();
+
+    const botId = req.params.id;
+    const userId = String(req.user?.id || 'default-user');
+    const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
+
+    const dbBot = await prisma.botConfig.findFirst({
+      where: { id: botId, userId: { in: userIds } }
+    });
+
+    if (!dbBot) {
+      return fail(res, 404, 'Bot not found');
+    }
+
+    const financials = await calculateBotFinancials(dbBot, engine, prisma);
+
+    // Fetch recent 50 orders
+    const rawOrders = await prisma.botOrder.findMany({
+      where: { botConfigId: botId },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+
+    const feeMeta = getExchangeFeeMeta(dbBot.exchangeName);
+
+    const recentOrders = rawOrders.map(o => {
+      const qty = Number(o.filledQuantity || o.quantity || 0);
+      const price = Number(o.filledPrice || o.price || financials.livePrice || 0);
+      let fee = Number(o.fee || 0);
+      if (fee <= 0 && qty > 0) {
+        fee = (qty * price * feeMeta.rate) + feeMeta.fixedFee;
+      }
+      return {
+        id: o.id,
+        exchangeOrderId: o.exchangeOrderId,
+        symbol: o.symbol,
+        side: o.side,
+        type: o.type,
+        quantity: qty,
+        price,
+        filledQuantity: Number(o.filledQuantity || 0),
+        filledPrice: Number(o.filledPrice || o.price || 0),
+        fee,
+        feeCoin: o.feeCoin || feeMeta.feeAsset,
+        profit: o.profit != null ? Number(o.profit) : null,
+        status: o.status,
+        createdAt: o.createdAt,
+        filledAt: o.filledAt,
+      };
+    });
+
+    // Fetch snapshots for equity curve
+    const snapshots = await prisma.botSnapshot.findMany({
+      where: { botConfigId: botId },
+      orderBy: { snapshotAt: 'asc' },
+      take: 100
+    });
+
+    return ok(res, {
+      bot: {
+        id: dbBot.id,
+        name: dbBot.name,
+        strategyType: dbBot.strategyType,
+        exchangeName: dbBot.exchangeName,
+        symbol: dbBot.symbol,
+        mode: dbBot.mode,
+        status: dbBot.status,
+        createdAt: dbBot.createdAt,
+        startedAt: dbBot.startedAt,
+        stoppedAt: dbBot.stoppedAt,
+        params: dbBot.params,
+      },
+      financials,
+      holdings: financials.holdings,
+      feeBreakdown: financials.feeBreakdown,
+      recentOrders,
+      snapshots: snapshots.map(s => ({
+        time: s.snapshotAt,
+        equity: Number(s.equity),
+        profit: Number(s.profit),
+        tradeCount: s.tradeCount,
+      })),
+    });
+  } catch (error) {
+    console.error('[BotRoutes] GET /:id/performance error:', error);
+    return fail(res, 500, error.message);
   }
 });
 
@@ -904,12 +1383,6 @@ router.get('/strategies', requireAuth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // COMMUNITY BOTS - Share & Copy Bot Configurations
 // ═══════════════════════════════════════════════════════════════
-
-// Helper to get Prisma client
-async function getPrisma() {
-  const { PrismaClient } = await import('@prisma/client');
-  return new PrismaClient();
-}
 
 // Get community bots (public shared configurations)
 router.get('/community', requireAuth, async (req, res) => {
