@@ -403,6 +403,9 @@ export async function getIntradayOHLCV(symbol, interval = '1minute', exchange = 
   return getOHLCV(symbol, interval === '1minute' ? '1m' : interval === '5minute' ? '5m' : '15m', 100, exchange);
 }
 
+export const getKlines = getOHLCV;
+
+
 // ============ FUNDS & PROFILE (ISSUE 3) ============
 
 export async function getFunds(customToken = null) {

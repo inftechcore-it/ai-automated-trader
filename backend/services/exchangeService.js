@@ -150,11 +150,34 @@ export async function getHistory(symbol, exchange = 'Binance', interval = '1h', 
 
   try {
     const ohlcv = await adapter.getOHLCV(symbol, interval, limit, exchange);
-    cache.set(cacheKey, ohlcv, 60 * 1000); // 1 minute cache for OHLCV
-    return ohlcv;
+    const sanitized = (ohlcv || [])
+      .map(c => ({
+        time: typeof c.time === 'string' ? c.time : (c.time ? new Date(c.time).toISOString() : new Date().toISOString()),
+        open: Number(c.open || 0),
+        high: Number(c.high || 0),
+        low: Number(c.low || 0),
+        close: Number(c.close || 0),
+        volume: Number(c.volume || 0)
+      }))
+      .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+    cache.set(cacheKey, sanitized, 60 * 1000); // 1 minute cache for OHLCV
+    return sanitized;
   } catch (err) {
     console.error(`[${exchange}] OHLCV error for ${symbol}:`, err.message);
-    return demoAdapter.getOHLCV(symbol, interval, limit, exchange);
+    const fallback = await demoAdapter.getOHLCV(symbol, interval, limit, exchange);
+    return (fallback || [])
+      .map(c => ({
+        time: typeof c.time === 'string' ? c.time : (c.time ? new Date(c.time).toISOString() : new Date().toISOString()),
+        open: Number(c.open || 0),
+        high: Number(c.high || 0),
+        low: Number(c.low || 0),
+        close: Number(c.close || 0),
+        volume: Number(c.volume || 0)
+      }))
+      .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   }
 }
 

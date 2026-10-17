@@ -167,18 +167,25 @@ export async function getOHLCV(symbol, interval = '1d', limit = 100) {
       }
     );
 
-    return (data.bars || []).map(bar => ({
-      time: bar.t,
-      open: bar.o,
-      high: bar.h,
-      low: bar.l,
-      close: bar.c,
-      volume: bar.v
-    }));
+    return (data.bars || [])
+      .map(bar => ({
+        time: new Date(bar.t).toISOString(),
+        open: Number(bar.o),
+        high: Number(bar.h),
+        low: Number(bar.l),
+        close: Number(bar.c),
+        volume: Number(bar.v)
+      }))
+      .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+      .slice(-limit);
   } catch (err) {
     return [];
   }
 }
+
+export const getKlines = getOHLCV;
+
 
 export async function searchSymbols(query, creds = null) {
   try {

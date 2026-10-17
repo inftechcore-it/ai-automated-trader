@@ -81,17 +81,42 @@ export async function getOHLCV(symbol, interval = '1d', limit = 100, exchange = 
   const timestamps = result.timestamp || [];
   const quote = result.indicators?.quote?.[0] || {};
 
-  const candles = timestamps.map((ts, i) => ({
-    time: new Date(ts * 1000).toISOString(),
-    open: Number((quote.open?.[i] || 0).toFixed(2)),
-    high: Number((quote.high?.[i] || 0).toFixed(2)),
-    low: Number((quote.low?.[i] || 0).toFixed(2)),
-    close: Number((quote.close?.[i] || 0).toFixed(2)),
-    volume: quote.volume?.[i] || 0
-  })).filter(c => c.open > 0);
+  let candles = timestamps
+    .map((ts, i) => ({
+      time: new Date(ts * 1000).toISOString(),
+      open: Number((quote.open?.[i] || 0).toFixed(2)),
+      high: Number((quote.high?.[i] || 0).toFixed(2)),
+      low: Number((quote.low?.[i] || 0).toFixed(2)),
+      close: Number((quote.close?.[i] || 0).toFixed(2)),
+      volume: quote.volume?.[i] || 0
+    }))
+    .filter(c => c.open > 0 && c.close > 0)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+  // Aggregate into 4h candles if 4h interval requested
+  if (interval === '4h' && candles.length > 0) {
+    const buckets = new Map();
+    const bucketMs = 4 * 60 * 60 * 1000;
+    for (const c of candles) {
+      const bTime = Math.floor(new Date(c.time).getTime() / bucketMs) * bucketMs;
+      if (!buckets.has(bTime)) buckets.set(bTime, []);
+      buckets.get(bTime).push(c);
+    }
+    candles = Array.from(buckets.entries()).map(([ts, group]) => ({
+      time: new Date(ts).toISOString(),
+      open: group[0].open,
+      high: Math.max(...group.map(x => x.high)),
+      low: Math.min(...group.map(x => x.low)),
+      close: group[group.length - 1].close,
+      volume: group.reduce((sum, x) => sum + x.volume, 0)
+    }));
+  }
 
   return candles.slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 export async function searchSymbols(query, exchange = null) {
   const { data } = await axios.get('https://query2.finance.yahoo.com/v1/finance/search', {

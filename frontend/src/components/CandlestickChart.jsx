@@ -77,23 +77,38 @@ export default function CandlestickChart({
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
+  // Standardize & guarantee strictly ascending chronological sort (oldest on left -> newest on right)
+  const sortedCandles = useMemo(() => {
+    if (!candles || !Array.isArray(candles) || candles.length === 0) return [];
+    const normalized = candles
+      .filter(c => c && typeof c === 'object')
+      .map(c => {
+        const rawTime = c.time ?? c.timestamp ?? c.t ?? c.date ?? c.time_str;
+        return {
+          ...c,
+          time: rawTime,
+          open: Number(c.open ?? 0),
+          high: Number(c.high ?? 0),
+          low: Number(c.low ?? 0),
+          close: Number(c.close ?? 0),
+          volume: Number(c.volume ?? 0)
+        };
+      })
+      .filter(c => c.time && !isNaN(c.close) && c.close > 0);
+
+    return normalized.sort((a, b) => {
+      const tA = parseTimestamp(a.time)?.getTime() ?? 0;
+      const tB = parseTimestamp(b.time)?.getTime() ?? 0;
+      return tA - tB;
+    });
+  }, [candles]);
+
   // Compute displayed candle data (regular or Heikin-Ashi) preserving exact raw values & timestamps
   const displayCandles = useMemo(() => {
-    if (!candles || candles.length === 0) return [];
-    const source = chartType === 'heikin' ? calculateHeikinAshi(candles) : candles;
-    return source.map(c => {
-      const rawTime = c.time ?? c.timestamp ?? c.t ?? c.date ?? c.time_str;
-      return {
-        ...c,
-        time: rawTime,
-        open: Number(c.open ?? 0),
-        high: Number(c.high ?? 0),
-        low: Number(c.low ?? 0),
-        close: Number(c.close ?? 0),
-        volume: Number(c.volume ?? 0)
-      };
-    });
-  }, [candles, chartType]);
+    if (sortedCandles.length === 0) return [];
+    return chartType === 'heikin' ? calculateHeikinAshi(sortedCandles) : sortedCandles;
+  }, [sortedCandles, chartType]);
+
 
   // Compute Moving Averages, Bollinger Bands, and RSI
   const technicals = useMemo(() => {

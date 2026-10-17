@@ -606,8 +606,14 @@ function getPriorTrend(candles, idx, lookback = 5) {
  */
 export function detectCandlestickPatterns(rawCandles) {
   if (!rawCandles || rawCandles.length < 2) return [];
-  const candles = rawCandles.map(normalizeCandle);
+  const sorted = [...rawCandles].sort((a, b) => {
+    const tA = new Date(a.time || a.timestamp || 0).getTime();
+    const tB = new Date(b.time || b.timestamp || 0).getTime();
+    return tA - tB;
+  });
+  const candles = sorted.map(normalizeCandle);
   const detected = [];
+
 
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
@@ -1277,11 +1283,17 @@ export function analyzeMarketBehavior(rawCandles, options = {}) {
     };
   }
 
-  const candles = rawCandles.map(normalizeCandle);
+  const sorted = [...rawCandles].sort((a, b) => {
+    const tA = new Date(a.time || a.timestamp || 0).getTime();
+    const tB = new Date(b.time || b.timestamp || 0).getTime();
+    return tA - tB;
+  });
+  const candles = sorted.map(normalizeCandle);
   const lastIndex = candles.length - 1;
   const currentPrice = candles[lastIndex].close;
   const indicators = calculateTechnicalMetrics(candles);
   const allPatterns = detectCandlestickPatterns(candles);
+
 
   // Look for patterns detected in the last 3 candles (active recent signals)
   const activePatterns = allPatterns.filter(p => p.index >= lastIndex - 2);

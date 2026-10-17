@@ -56,15 +56,22 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
     timeout: 10000
   });
 
-  return data.map(([openTime, open, high, low, close, volume]) => ({
-    time: new Date(openTime).toISOString(),
-    open: Number(open),
-    high: Number(high),
-    low: Number(low),
-    close: Number(close),
-    volume: Number(volume)
-  }));
+  return (data || [])
+    .map(([openTime, open, high, low, close, volume]) => ({
+      time: new Date(Number(openTime)).toISOString(),
+      open: Number(open),
+      high: Number(high),
+      low: Number(low),
+      close: Number(close),
+      volume: Number(volume)
+    }))
+    .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    .slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 let binanceSymbolsCache = null;
 let binanceSymbolsCacheTime = 0;

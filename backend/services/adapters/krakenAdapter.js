@@ -100,15 +100,22 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
   const ohlcKey = Object.keys(data.result).find(k => k !== 'last');
   const candles = data.result[ohlcKey] || [];
 
-  return candles.slice(-limit).map(([time, open, high, low, close, vwap, volume]) => ({
-    time: new Date(time * 1000).toISOString(),
-    open: Number(open),
-    high: Number(high),
-    low: Number(low),
-    close: Number(close),
-    volume: Number(volume)
-  }));
+  return (candles || [])
+    .map(([time, open, high, low, close, vwap, volume]) => ({
+      time: new Date(Number(time) * 1000).toISOString(),
+      open: Number(open),
+      high: Number(high),
+      low: Number(low),
+      close: Number(close),
+      volume: Number(volume)
+    }))
+    .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    .slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 export async function searchSymbols(query) {
   const url = `${BASE_URL}/0/public/AssetPairs`;

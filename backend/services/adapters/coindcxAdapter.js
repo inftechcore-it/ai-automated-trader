@@ -185,34 +185,94 @@ export async function getQuote(symbol) {
  */
 export async function getOHLCV(symbol, interval = '1h', limit = 100) {
   const pairSymbol = normalizeSymbol(symbol, 'pair');
-  
-  // CoinDCX supported intervals: 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 1d, 1w
-  const intervalMap = {
-    '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
-    '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h',
-    '1d': '1d', '1w': '1w'
-  };
-  const cdcxInterval = intervalMap[interval] || '1h';
+
+  // CoinDCX API natively supports ONLY: 1m, 15m, 1h, 1d.
+  // Other intervals like 5m, 30m, 4h, 1w must fetch the closest smaller base interval and aggregate.
+  let baseInterval = '1h';
+  let bucketMs = null;
+  let fetchMultiplier = 1;
+
+  switch (interval) {
+    case '1m':
+      baseInterval = '1m';
+      break;
+    case '5m':
+      baseInterval = '1m';
+      bucketMs = 5 * 60 * 1000;
+      fetchMultiplier = 5;
+      break;
+    case '15m':
+      baseInterval = '15m';
+      break;
+    case '30m':
+      baseInterval = '15m';
+      bucketMs = 30 * 60 * 1000;
+      fetchMultiplier = 2;
+      break;
+    case '1h':
+      baseInterval = '1h';
+      break;
+    case '4h':
+      baseInterval = '1h';
+      bucketMs = 4 * 60 * 60 * 1000;
+      fetchMultiplier = 4;
+      break;
+    case '1d':
+      baseInterval = '1d';
+      break;
+    case '1w':
+      baseInterval = '1d';
+      bucketMs = 7 * 24 * 60 * 60 * 1000;
+      fetchMultiplier = 7;
+      break;
+    default:
+      baseInterval = '1h';
+  }
 
   try {
     const { data } = await axios.get(`${PUBLIC_BASE_URL}/market_data/candles`, {
       params: {
         pair: pairSymbol,
-        interval: cdcxInterval,
-        limit: Math.min(limit, 500)
+        interval: baseInterval,
+        limit: Math.min(limit * fetchMultiplier, 500)
       },
       timeout: 10000
     });
 
-    if (Array.isArray(data)) {
-      return data.map(k => ({
-        time: new Date(k.time || k.timestamp || Date.now()).toISOString(),
-        open: parseFloat(k.open),
-        high: parseFloat(k.high),
-        low: parseFloat(k.low),
-        close: parseFloat(k.close),
-        volume: parseFloat(k.volume || 0)
-      })).reverse(); // CoinDCX returns latest first
+    if (Array.isArray(data) && data.length > 0) {
+      // CoinDCX returns candles in descending order (latest first).
+      // Standardize and sort strictly ascending (oldest first).
+      let candles = data
+        .map(k => ({
+          time: new Date(k.time || k.timestamp || Date.now()).toISOString(),
+          open: parseFloat(k.open),
+          high: parseFloat(k.high),
+          low: parseFloat(k.low),
+          close: parseFloat(k.close),
+          volume: parseFloat(k.volume || 0)
+        }))
+        .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+      // If aggregation is needed (e.g. 1m -> 5m, 1h -> 4h, 1d -> 1w)
+      if (bucketMs && candles.length > 0) {
+        const buckets = new Map();
+        for (const c of candles) {
+          const bTime = Math.floor(new Date(c.time).getTime() / bucketMs) * bucketMs;
+          if (!buckets.has(bTime)) buckets.set(bTime, []);
+          buckets.get(bTime).push(c);
+        }
+        candles = Array.from(buckets.entries()).map(([ts, group]) => ({
+          time: new Date(ts).toISOString(),
+          open: group[0].open,
+          high: Math.max(...group.map(x => x.high)),
+          low: Math.min(...group.map(x => x.low)),
+          close: group[group.length - 1].close,
+          volume: group.reduce((sum, x) => sum + x.volume, 0)
+        }));
+      }
+
+      return candles.slice(-limit);
     }
 
     return [];
@@ -221,6 +281,9 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
     return [];
   }
 }
+
+export const getKlines = getOHLCV;
+
 
 /**
  * Fetch Order Book (Level 2)

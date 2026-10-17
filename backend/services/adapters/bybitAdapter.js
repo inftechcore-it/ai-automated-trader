@@ -156,18 +156,24 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
     throw new Error(data.retMsg || `Failed to fetch OHLCV for ${symbol} on Bybit`);
   }
 
-  // Bybit returns candles in descending order (latest first), reverse to ascending
-  const rawCandles = [...data.result.list].reverse();
+  // Bybit returns candles in descending order (latest first). Standardize and sort strictly ascending.
+  const candles = data.result.list
+    .map(([startTime, open, high, low, close, volume]) => ({
+      time: new Date(Number(startTime)).toISOString(),
+      open: Number(open),
+      high: Number(high),
+      low: Number(low),
+      close: Number(close),
+      volume: Number(volume)
+    }))
+    .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-  return rawCandles.map(([startTime, open, high, low, close, volume]) => ({
-    time: new Date(Number(startTime)).toISOString(),
-    open: Number(open),
-    high: Number(high),
-    low: Number(low),
-    close: Number(close),
-    volume: Number(volume)
-  }));
+  return candles.slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 /**
  * Fetches real-time L2 order book from Bybit Spot

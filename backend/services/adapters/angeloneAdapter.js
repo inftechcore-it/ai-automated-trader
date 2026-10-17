@@ -738,14 +738,17 @@ export async function getOHLCV(symbol, interval = '1d', limit = 100, exchange = 
         );
 
         if (data.status && Array.isArray(data.data) && data.data.length > 0) {
-          const candles = data.data.map(item => ({
-            time: typeof item[0] === 'string' ? item[0] : new Date(item[0]).toISOString(),
-            open: parseFloat(item[1] || 0),
-            high: parseFloat(item[2] || 0),
-            low: parseFloat(item[3] || 0),
-            close: parseFloat(item[4] || 0),
-            volume: parseInt(item[5] || 0, 10)
-          }));
+          const candles = data.data
+            .map(item => ({
+              time: typeof item[0] === 'string' ? item[0] : new Date(item[0]).toISOString(),
+              open: parseFloat(item[1] || 0),
+              high: parseFloat(item[2] || 0),
+              low: parseFloat(item[3] || 0),
+              close: parseFloat(item[4] || 0),
+              volume: parseInt(item[5] || 0, 10)
+            }))
+            .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
           return candles.slice(-limit);
         }
       }
@@ -779,14 +782,17 @@ export async function getOHLCV(symbol, interval = '1d', limit = 100, exchange = 
     if (result) {
       const timestamps = result.timestamp || [];
       const quote = result.indicators?.quote?.[0] || {};
-      const candles = timestamps.map((ts, i) => ({
-        time: new Date(ts * 1000).toISOString(),
-        open: Number((quote.open?.[i] || 0).toFixed(2)),
-        high: Number((quote.high?.[i] || 0).toFixed(2)),
-        low: Number((quote.low?.[i] || 0).toFixed(2)),
-        close: Number((quote.close?.[i] || 0).toFixed(2)),
-        volume: quote.volume?.[i] || 0
-      })).filter(c => c.open > 0);
+      const candles = timestamps
+        .map((ts, i) => ({
+          time: new Date(ts * 1000).toISOString(),
+          open: Number((quote.open?.[i] || 0).toFixed(2)),
+          high: Number((quote.high?.[i] || 0).toFixed(2)),
+          low: Number((quote.low?.[i] || 0).toFixed(2)),
+          close: Number((quote.close?.[i] || 0).toFixed(2)),
+          volume: quote.volume?.[i] || 0
+        }))
+        .filter(c => c.open > 0 && c.close > 0)
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
       if (candles.length > 0) return candles.slice(-limit);
     }
@@ -796,3 +802,6 @@ export async function getOHLCV(symbol, interval = '1d', limit = 100, exchange = 
 
   return [];
 }
+
+export const getKlines = getOHLCV;
+

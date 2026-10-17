@@ -91,19 +91,21 @@ export async function getQuote(symbol) {
 }
 
 export async function getOHLCV(symbol, interval = '1h', limit = 100) {
-  // Map interval to Pionex format
+  // Map interval to Pionex format (Pionex natively supports 1M, 5M, 15M, 30M, 60M, 4H, 8H, 12H, 1D)
+  const isWeekly = interval === '1w';
   const intervalMap = {
     '1m': '1M', '5m': '5M', '15m': '15M', '30m': '30M',
-    '1h': '60M', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D', '1w': '1W'
+    '1h': '60M', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D', '1w': '1D'
   };
   const pionexInterval = intervalMap[interval] || '60M';
+  const fetchLimit = isWeekly ? Math.min(limit * 7, 500) : Math.min(limit, 500);
 
   const url = `${BASE_URL}/api/v1/market/klines`;
   const { data } = await axios.get(url, {
     params: {
       symbol: normalizeSymbol(symbol),
       interval: pionexInterval,
-      limit: Math.min(limit, 500)
+      limit: fetchLimit
     },
     timeout: 10000
   });
@@ -112,15 +114,44 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100) {
     return [];
   }
 
-  return data.data.klines.map(k => ({
-    time: new Date(k.time).toISOString(),
-    open: Number(k.open),
-    high: Number(k.high),
-    low: Number(k.low),
-    close: Number(k.close),
-    volume: Number(k.volume)
-  }));
+  // Pionex returns candles in reverse chronological order (newest first).
+  // Sort ascending (oldest first, newest last) to guarantee consistent chart timeline.
+  let candles = data.data.klines
+    .map(k => ({
+      time: new Date(Number(k.time)).toISOString(),
+      open: Number(k.open),
+      high: Number(k.high),
+      low: Number(k.low),
+      close: Number(k.close),
+      volume: Number(k.volume)
+    }))
+    .filter(c => c.time && !isNaN(c.close) && c.close > 0)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+  // Aggregate into 7-day weekly candles if 1w requested
+  if (isWeekly && candles.length > 0) {
+    const weeklyBuckets = new Map();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    for (const c of candles) {
+      const bucket = Math.floor(new Date(c.time).getTime() / weekMs) * weekMs;
+      if (!weeklyBuckets.has(bucket)) weeklyBuckets.set(bucket, []);
+      weeklyBuckets.get(bucket).push(c);
+    }
+    candles = Array.from(weeklyBuckets.entries()).map(([ts, group]) => ({
+      time: new Date(ts).toISOString(),
+      open: group[0].open,
+      high: Math.max(...group.map(x => x.high)),
+      low: Math.min(...group.map(x => x.low)),
+      close: group[group.length - 1].close,
+      volume: group.reduce((sum, x) => sum + x.volume, 0)
+    }));
+  }
+
+  return candles.slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 export async function getOrderBook(symbol, depth = 10) {
   const pionexSymbol = normalizeSymbol(symbol);

@@ -627,16 +627,28 @@ export async function getOHLCV(symbol, interval = '1h', limit = 100, exchange = 
     const low = Math.min(open, close) * (1 - Math.random() * 0.005);
     const volume = Math.floor(Math.random() * 50000 + 10000);
 
-    candles.push({ time, open, high, low, close, volume });
+    candles.push({
+      time: new Date(time).toISOString(),
+      open: Number(open.toFixed(6)),
+      high: Number(high.toFixed(6)),
+      low: Number(low.toFixed(6)),
+      close: Number(close.toFixed(6)),
+      volume
+    });
     price = close;
   }
 
   if (candles.length > 0 && currentPrice > 0) {
-    candles[candles.length - 1].close = currentPrice;
+    candles[candles.length - 1].close = Number(currentPrice.toFixed(6));
   }
 
-  return candles;
+  return candles
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    .slice(-limit);
 }
+
+export const getKlines = getOHLCV;
+
 
 export async function searchSymbols(query = '', exchange = 'Jupiter') {
   const tokens = await searchTokens(query);
