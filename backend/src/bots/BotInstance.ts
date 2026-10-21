@@ -3,7 +3,7 @@
  * States: CREATED → RUNNING ↔ PAUSED → STOPPED
  */
 import { EventEmitter } from 'events';
-import { parseSymbol, toNum } from './utils.js';
+import { parseSymbol, toNum, getExchangeFeeRate, calculateFeeBreakevenPrice, calculateNetProfit } from './utils.js';
 import type { IBotStrategy } from './IBotStrategy.js';
 import type {
   BotConfig,
@@ -91,6 +91,8 @@ export class BotInstance extends EventEmitter {
       openOrders: [],
       tradeHistory: [],
       customState: {},
+      currentCycleBuyFees: 0,
+      totalFeesPaid: 0,
     };
   }
 
@@ -145,6 +147,8 @@ export class BotInstance extends EventEmitter {
         openOrders: [],
         tradeHistory: [],
         customState: {},
+        currentCycleBuyFees: 0,
+        totalFeesPaid: 0,
       };
     }
 
@@ -300,14 +304,21 @@ export class BotInstance extends EventEmitter {
           this.log(`🚨 [TAKE ALL IN] Liquidated ${sellQty.toFixed(4)} ${holding.asset} @ $${fillPrice.toFixed(6)} (+${revenue.toFixed(2)} ${quote})`);
 
           // Record trade
+          const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
+          const fee = revenue * feeRate;
+          const grossProfit = revenue - (sellQty * (holding.avgEntryPrice || fillPrice));
+          const netProfit = grossProfit - (this.state.currentCycleBuyFees || 0) - fee;
           const trade: TradeRecord = {
             id: `trade_panic_${Date.now()}`,
             symbol: this.config.symbol,
             side: 'SELL',
             quantity: sellQty,
             price: fillPrice,
-            fee: revenue * 0.001,
-            profit: revenue - (sellQty * (holding.avgEntryPrice || fillPrice)),
+            fee,
+            feeRate,
+            profit: netProfit,
+            grossProfit,
+            netProfit,
             executedAt: new Date(),
           };
           this.state.tradeHistory.push(trade);
@@ -318,9 +329,10 @@ export class BotInstance extends EventEmitter {
       }
     }
 
-    // Reset holdings
+    // Reset holdings & cycle fees
     this.state.holdings = [];
     this.state.totalHoldingsValue = 0;
+    this.state.currentCycleBuyFees = 0;
     this.state.availableBalance += totalReceived;
     this.state.currentEquity = this.state.availableBalance;
 
@@ -683,6 +695,32 @@ export class BotInstance extends EventEmitter {
             this.log(`${prefix} Clamping SELL order ${order.id} quantity from ${order.quantity} to actual available ${freeBalance.toFixed(4)} ${asset}`);
             order.quantity = freeBalance;
           }
+
+          // 🛡️ Fee-Aware Gatekeeper for DEX Limit SELL orders: verify order covers buy fees + sell fee
+          const isEmergency = Boolean((order as any).isEmergencyStop || (order as any).bypassFeeGate);
+          if (!isEmergency) {
+            const avgEntry = holding?.avgEntryPrice || order.price || tick.price;
+            const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
+            const cycleBuyFees = this.state.currentCycleBuyFees || 0;
+            const check = calculateNetProfit({
+              sellPrice: tick.price,
+              avgEntryPrice: avgEntry,
+              quantity: order.quantity,
+              accumulatedBuyFees: cycleBuyFees,
+              feeRate,
+              minBuffer: 0,
+            });
+
+            if (!check.isProfitable) {
+              const grossSign = check.grossProfit >= 0 ? '+' : '';
+              const netSign = check.netProfit >= 0 ? '+' : '';
+              this.log(
+                `⏳ [Fee-Aware Protection] Holding DEX Limit SELL ${order.id}: Gross is ${grossSign}$${check.grossProfit.toFixed(4)}, but total cycle fees are $${check.totalCycleFees.toFixed(4)} (Net: ${netSign}$${check.netProfit.toFixed(4)}). Target breakeven price: $${check.breakevenPrice.toFixed(6)}.`,
+                'info'
+              );
+              continue; // Keep order active and waiting for true breakeven price
+            }
+          }
         }
 
         this.log(`${prefix} Triggering limit order ${order.id}: ${order.side} ${order.quantity} @ $${order.price.toFixed(5)} (market: $${tick.price.toFixed(5)})`);
@@ -967,6 +1005,72 @@ export class BotInstance extends EventEmitter {
       }
     }
 
+    // 🛡️ UNIVERSAL FEE-AWARE NET PROFIT GATEKEEPER
+    // Blocks premature / false-profit SELL orders if gross gain does not cover accumulated cycle buy fees + upcoming sell fee
+    if (side === 'SELL') {
+      const isEmergencyExit = Boolean(
+        action.metadata?.bypassFeeGate ||
+        action.metadata?.isEmergencyStop ||
+        action.metadata?.isExit ||
+        action.orderType === 'STOP_LOSS' ||
+        (action.metadata?.exitReason && String(action.metadata.exitReason).toLowerCase().includes('stop')) ||
+        (action.metadata?.exitReason && String(action.metadata.exitReason).toLowerCase().includes('floor')) ||
+        (action.metadata?.reason && String(action.metadata.reason).toLowerCase().includes('floor')) ||
+        (action.metadata?.reason && String(action.metadata.reason).toLowerCase().includes('emergency'))
+      );
+
+      if (!isEmergencyExit) {
+        const parts = this.config.symbol?.split('/') || [];
+        const asset = (parts[0] || '').toUpperCase();
+        const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+
+        const sellPrice = price || tick.price;
+        const avgEntryPrice = holding?.avgEntryPrice || sellPrice;
+        const cycleBuyFees = this.state.currentCycleBuyFees || 0;
+        const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
+        const minNetBuffer = Number(action.metadata?.minNetProfit || 0.0);
+
+        const check = calculateNetProfit({
+          sellPrice,
+          avgEntryPrice,
+          quantity,
+          accumulatedBuyFees: cycleBuyFees,
+          feeRate,
+          minBuffer: minNetBuffer,
+        });
+
+        if (!check.isProfitable) {
+          const grossSign = check.grossProfit >= 0 ? '+' : '';
+          const netSign = check.netProfit >= 0 ? '+' : '';
+          this.log(
+            `⏳ [Fee-Aware Protection] Blocked SELL: Gross profit is ${grossSign}$${check.grossProfit.toFixed(4)}, but total cycle fees (buys: $${cycleBuyFees.toFixed(4)} + upcoming sell: $${check.upcomingSellFee.toFixed(4)}) are $${check.totalCycleFees.toFixed(4)} (Net: ${netSign}$${check.netProfit.toFixed(4)}). Holding until price reaches $${check.breakevenPrice.toFixed(6)}.`,
+            'info'
+          );
+
+          // Update customState telemetry so UI and analytics immediately reflect active protection
+          this.state.customState = {
+            ...this.state.customState,
+            lastFeeGateProtection: {
+              timestamp: Date.now(),
+              blockedPrice: sellPrice,
+              avgEntryPrice,
+              quantity,
+              grossProfit: check.grossProfit,
+              totalCycleFees: check.totalCycleFees,
+              netProfit: check.netProfit,
+              breakevenPrice: check.breakevenPrice,
+              exchange: this.config.exchangeName,
+              symbol: this.config.symbol,
+            },
+          };
+
+          return; // 🛑 Block order placement and convert to HOLD & WAIT
+        }
+      } else {
+        this.log(`🛡️ [Fee-Aware Protection] Emergency liquidation bypass active for ${action.metadata?.exitReason || action.metadata?.reason || 'Stop-Loss'}.`);
+      }
+    }
+
     // Handle DEX Limit Orders (Jupiter):
     // If LIMIT buy order is placed below current market price, register locally as OPEN until price reaches it
     if (isDex && type === 'LIMIT' && price) {
@@ -1179,6 +1283,14 @@ export class BotInstance extends EventEmitter {
 
       this.state.availableBalance -= filledQuantity * filledPrice;
 
+      // Calculate dynamic fee
+      const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
+      const fee = filledQuantity * filledPrice * feeRate;
+
+      // Accumulate buy fees for the current holding cycle
+      this.state.currentCycleBuyFees = (this.state.currentCycleBuyFees || 0) + fee;
+      this.state.totalFeesPaid = (this.state.totalFeesPaid || 0) + fee;
+
       // Record BUY trade
       const trade: TradeRecord = {
         id: `trade_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1186,8 +1298,11 @@ export class BotInstance extends EventEmitter {
         side: 'BUY',
         quantity: filledQuantity,
         price: filledPrice,
-        fee: filledQuantity * filledPrice * 0.001,
+        fee,
+        feeRate,
         profit: 0,
+        grossProfit: 0,
+        netProfit: -fee,
         executedAt: new Date(),
       };
       this.state.tradeHistory.push(trade);
@@ -1207,25 +1322,45 @@ export class BotInstance extends EventEmitter {
       // Remove from holdings
       const holding = this.state.holdings.find(h => h.asset === asset);
       if (holding) {
-        const profit = (filledPrice - holding.avgEntryPrice) * filledQuantity;
-        this.state.realizedPnl += profit;
+        const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
+        const sellFee = filledQuantity * filledPrice * feeRate;
+        this.state.totalFeesPaid = (this.state.totalFeesPaid || 0) + sellFee;
+
+        // Calculate gross profit and allocate cycle buy fees proportionally
+        const grossProfit = (filledPrice - holding.avgEntryPrice) * filledQuantity;
+        const prevHoldingQty = holding.quantity;
+        const portion = prevHoldingQty > 0 ? Math.min(1, filledQuantity / prevHoldingQty) : 1;
+        const allocatedBuyFees = (this.state.currentCycleBuyFees || 0) * portion;
+        const totalCycleFees = allocatedBuyFees + sellFee;
+        const netProfit = grossProfit - totalCycleFees;
+
+        // Deduct allocated buy fees from active cycle
+        this.state.currentCycleBuyFees = Math.max(0, (this.state.currentCycleBuyFees || 0) - allocatedBuyFees);
+
+        // Realized PnL reflects TRUE NET PROFIT locked in wallet
+        this.state.realizedPnl += netProfit;
 
         holding.quantity -= filledQuantity;
         if (holding.quantity <= 0) {
           this.state.holdings = this.state.holdings.filter(h => h.asset !== asset);
+          // When full holding is liquidated, reset remaining cycle fees
+          this.state.currentCycleBuyFees = 0;
         }
 
         this.state.availableBalance += filledQuantity * filledPrice;
 
-        // Record SELL trade
+        // Record SELL trade with true net profit metrics
         const trade: TradeRecord = {
           id: `trade_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           symbol: order.symbol,
           side: 'SELL',
           quantity: filledQuantity,
           price: filledPrice,
-          fee: filledQuantity * filledPrice * 0.001,
-          profit,
+          fee: sellFee,
+          feeRate,
+          profit: netProfit,
+          grossProfit,
+          netProfit,
           executedAt: new Date(),
         };
         this.state.tradeHistory.push(trade);
@@ -1238,11 +1373,11 @@ export class BotInstance extends EventEmitter {
           side: 'SELL',
           entryPrice: holding.avgEntryPrice,
           exitPrice: filledPrice,
-          pnl: profit,
+          pnl: netProfit,
           pnlPercent: holding.avgEntryPrice > 0 ? ((filledPrice - holding.avgEntryPrice) / holding.avgEntryPrice) * 100 : 0,
           stageStatus: (this.state.customState as any)?.stageStatus,
           marketRegime: (this.state.customState as any)?.marketRegime,
-          notes: `SELL fill at level ${order.gridLevel !== undefined ? order.gridLevel : 'market'} with $${profit.toFixed(4)} profit`
+          notes: `SELL fill at level ${order.gridLevel !== undefined ? order.gridLevel : 'market'} with $${netProfit.toFixed(4)} true net profit ($${grossProfit.toFixed(4)} gross - $${totalCycleFees.toFixed(4)} fees)`
         });
 
         // Emit grid fill event if applicable
@@ -1251,7 +1386,7 @@ export class BotInstance extends EventEmitter {
             botId: this.id,
             gridLevel: order.gridLevel,
             side: 'SELL',
-            profit,
+            profit: netProfit,
           });
         }
       }
@@ -1380,6 +1515,13 @@ export class BotInstance extends EventEmitter {
       openOrdersCount: this.state.openOrders.length,
       tickCount: this.tickCount,
       strategyStatus: this.strategy.getStatus(),
+      feeGate: {
+        active: true,
+        currentCycleBuyFees: this.state.currentCycleBuyFees || 0,
+        totalFeesPaid: this.state.totalFeesPaid || 0,
+        feeRate: getExchangeFeeRate(this.config.exchangeName, this.config.symbol),
+        lastProtection: this.state.customState?.lastFeeGateProtection || null,
+      },
     };
 
     // Include grid data for DynamicGrid bots

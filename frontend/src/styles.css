@@ -11817,6 +11817,93 @@ th { color: #8d9aad; font-size: 12px; text-transform: uppercase; }
   color: #9ca3af;
 }
 
+.detail-header .bot-meta span.fee-guard-badge {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #10b981;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+/* Fee-Aware Net Profit Protection Alert Banner */
+.fee-guard-alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(13, 17, 23, 0.95) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-left: 4px solid #10b981;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.fee-guard-alert-icon {
+  color: #10b981;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.fee-guard-alert-body {
+  flex: 1;
+}
+
+.fee-guard-alert-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #10b981;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.fee-guard-alert-time {
+  font-size: 11px;
+  color: #718096;
+  font-weight: 400;
+}
+
+.fee-guard-alert-desc {
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin: 0 0 10px 0;
+}
+
+.fee-guard-alert-target {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px dashed rgba(16, 185, 129, 0.25);
+}
+
+.fee-guard-alert-target .target-label {
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.fee-guard-alert-target .breakeven-highlight {
+  color: #10b981;
+  font-size: 15px;
+  font-family: monospace;
+}
+
+.fee-guard-alert-target .target-note {
+  font-size: 11px;
+  color: #64748b;
+}
+
+
 .detail-header .header-actions {
   display: flex;
   gap: 10px;

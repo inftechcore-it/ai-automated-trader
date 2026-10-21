@@ -44,7 +44,10 @@ export interface TradeRecord {
     quantity: number;
     price: number;
     fee: number;
+    feeRate?: number;
     profit?: number;
+    grossProfit?: number;
+    netProfit?: number;
     executedAt: Date;
 }
 export interface BotState {
@@ -58,6 +61,8 @@ export interface BotState {
     openOrders: OpenOrder[];
     tradeHistory: TradeRecord[];
     customState: Record<string, any>;
+    currentCycleBuyFees?: number;
+    totalFeesPaid?: number;
 }
 export interface BotAction {
     action: 'hold' | 'buy' | 'sell' | 'cancel' | 'cancel_all';

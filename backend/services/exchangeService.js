@@ -714,3 +714,83 @@ function createError(message, status, code) {
 export async function connectBroker() {}
 export async function disconnectBroker() {}
 
+/**
+ * Universal Fee Rate Registry for all supported exchanges
+ * Returns taker/maker fee rate (e.g. 0.0010 for 0.10%)
+ */
+export function getExchangeFeeRate(exchange, symbol = '') {
+  if (!exchange) return 0.0010;
+  const ex = exchange.toLowerCase();
+  switch (ex) {
+    case 'pionex':
+      return 0.0005; // 0.05% maker/taker spot
+    case 'coindcx':
+      return 0.0020; // 0.20% spot taker
+    case 'jupiter':
+      return 0.0015; // ~0.15% (pool fee 0.10% + solana priority compute)
+    case 'kraken':
+      return 0.0020; // ~0.20% taker
+    case 'bybit':
+      return 0.0010; // 0.10%
+    case 'binance':
+      return 0.0010; // 0.10% standard spot (0.075% with BNB)
+    case 'angelone':
+    case 'upstox':
+    case 'nse':
+    case 'bse':
+      return 0.0010; // Brokerage (flat/0.03%) + STT & statutory taxes (~0.10%)
+    case 'alpaca':
+    case 'nasdaq':
+    case 'nyse':
+      return 0.0005; // US commission-free + regulatory fees (~0.05%)
+    default:
+      return 0.0010; // 0.10% default
+  }
+}
+
+/**
+ * Dynamic Minimum Breakeven Price Calculation
+ * P_breakeven = ((P_avgEntry * Q_sell) + Sum(F_buy) + MinNetBuffer) / (Q_sell * (1 - r_exchange))
+ */
+export function calculateFeeBreakevenPrice(avgEntryPrice, quantity, accumulatedBuyFees = 0, feeRate = 0.0010, minNetBuffer = 0) {
+  const q = Number(quantity || 0);
+  const pEntry = Number(avgEntryPrice || 0);
+  const buyFees = Number(accumulatedBuyFees || 0);
+  const rate = Number(feeRate || 0.0010);
+  const buffer = Number(minNetBuffer || 0);
+
+  if (q <= 0 || (1 - rate) <= 0) {
+    return pEntry;
+  }
+
+  const breakeven = ((pEntry * q) + buyFees + buffer) / (q * (1 - rate));
+  return Number.isFinite(breakeven) && breakeven > 0 ? breakeven : pEntry;
+}
+
+/**
+ * Universal Fee-Aware Net Profit Check
+ */
+export function calculateNetProfit({ sellPrice, avgEntryPrice, quantity, accumulatedBuyFees = 0, feeRate = 0.0010, minBuffer = 0 }) {
+  const pSell = Number(sellPrice || 0);
+  const pEntry = Number(avgEntryPrice || 0);
+  const q = Number(quantity || 0);
+  const buyFees = Number(accumulatedBuyFees || 0);
+  const rate = Number(feeRate || 0.0010);
+
+  const grossProfit = (pSell - pEntry) * q;
+  const upcomingSellFee = (pSell * q) * rate;
+  const totalCycleFees = buyFees + upcomingSellFee;
+  const netProfit = grossProfit - totalCycleFees;
+  const breakevenPrice = calculateFeeBreakevenPrice(pEntry, q, buyFees, rate, minBuffer);
+
+  return {
+    grossProfit,
+    upcomingSellFee,
+    totalCycleFees,
+    netProfit,
+    breakevenPrice,
+    isProfitable: netProfit > minBuffer,
+  };
+}
+
+

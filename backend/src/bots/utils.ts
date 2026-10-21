@@ -38,3 +38,104 @@ export const percentChange = (current: number, previous: number): number => {
   if (previous === 0) return 0;
   return ((current - previous) / previous) * 100;
 };
+
+/**
+ * Universal Fee Rate Registry for all supported exchanges
+ * Returns taker/maker fee rate (e.g. 0.0010 for 0.10%)
+ */
+export const getExchangeFeeRate = (exchange?: string, symbol?: string): number => {
+  if (!exchange) return 0.0010;
+  const ex = exchange.toLowerCase();
+  switch (ex) {
+    case 'pionex':
+      return 0.0005; // 0.05% maker/taker spot
+    case 'coindcx':
+      return 0.0020; // 0.20% spot taker
+    case 'jupiter':
+      return 0.0015; // ~0.15% (pool swap fee + solana priority compute)
+    case 'kraken':
+      return 0.0020; // ~0.20% taker
+    case 'bybit':
+      return 0.0010; // 0.10%
+    case 'binance':
+      return 0.0010; // 0.10% standard spot
+    case 'angelone':
+    case 'upstox':
+    case 'nse':
+    case 'bse':
+      return 0.0010; // Brokerage (₹20/0.03%) + STT & statutory taxes (~0.10%)
+    case 'alpaca':
+    case 'nasdaq':
+    case 'nyse':
+      return 0.0005; // US regulatory turnover + SEC (~0.05%)
+    default:
+      return 0.0010; // 0.10% default
+  }
+};
+
+/**
+ * Dynamic Minimum Breakeven Price Calculation
+ * P_breakeven = ((P_avgEntry * Q_sell) + Sum(F_buy) + MinNetBuffer) / (Q_sell * (1 - r_exchange))
+ */
+export const calculateFeeBreakevenPrice = (
+  avgEntryPrice: number,
+  quantity: number,
+  accumulatedBuyFees = 0,
+  feeRate = 0.0010,
+  minNetBuffer = 0
+): number => {
+  const q = Number(quantity || 0);
+  const pEntry = Number(avgEntryPrice || 0);
+  const buyFees = Number(accumulatedBuyFees || 0);
+  const rate = Number(feeRate || 0.0010);
+  const buffer = Number(minNetBuffer || 0);
+
+  if (q <= 0 || (1 - rate) <= 0) {
+    return pEntry;
+  }
+
+  const breakeven = ((pEntry * q) + buyFees + buffer) / (q * (1 - rate));
+  return Number.isFinite(breakeven) && breakeven > 0 ? breakeven : pEntry;
+};
+
+/**
+ * Universal Fee-Aware Net Profit Check
+ */
+export const calculateNetProfit = (params: {
+  sellPrice: number;
+  avgEntryPrice: number;
+  quantity: number;
+  accumulatedBuyFees?: number;
+  feeRate?: number;
+  minBuffer?: number;
+}): {
+  grossProfit: number;
+  upcomingSellFee: number;
+  totalCycleFees: number;
+  netProfit: number;
+  breakevenPrice: number;
+  isProfitable: boolean;
+} => {
+  const pSell = Number(params.sellPrice || 0);
+  const pEntry = Number(params.avgEntryPrice || 0);
+  const q = Number(params.quantity || 0);
+  const buyFees = Number(params.accumulatedBuyFees || 0);
+  const rate = Number(params.feeRate || 0.0010);
+  const minBuffer = Number(params.minBuffer || 0);
+
+  const grossProfit = (pSell - pEntry) * q;
+  const upcomingSellFee = (pSell * q) * rate;
+  const totalCycleFees = buyFees + upcomingSellFee;
+  const netProfit = grossProfit - totalCycleFees;
+  const breakevenPrice = calculateFeeBreakevenPrice(pEntry, q, buyFees, rate, minBuffer);
+
+  return {
+    grossProfit,
+    upcomingSellFee,
+    totalCycleFees,
+    netProfit,
+    breakevenPrice,
+    isProfitable: netProfit > minBuffer,
+  };
+};
+

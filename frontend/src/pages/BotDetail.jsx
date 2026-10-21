@@ -5,7 +5,8 @@ import {
   Bot, ArrowLeft, Play, Pause, Square, Edit2, Trash2, Share2,
   TrendingUp, TrendingDown, DollarSign, Activity, Clock, Target,
   BarChart3, Wallet, FlaskConical, RefreshCw, Loader2, AlertTriangle,
-  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar, Zap, Sparkles
+  ChevronDown, Grid3X3, Repeat, ArrowUpDown, Scale, Shuffle, Terminal, Radar, Zap, Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -292,6 +293,9 @@ export default function BotDetail() {
               {bot.mode === 'PAPER' ? <FlaskConical size={12} /> : <Wallet size={12} />}
               {bot.mode}
             </span>
+            <span className="fee-guard-badge" title="Universal Fee-Aware Net Profit Gatekeeper prevents premature false-profit sales by ensuring gross profit covers all cycle buy fees and upcoming sell fees">
+              <ShieldCheck size={12} /> Net Profit Guard: ACTIVE
+            </span>
             <span className="runtime-tag">
               <Clock size={12} />
               {formatDuration(bot.startedAt)}
@@ -356,7 +360,7 @@ export default function BotDetail() {
             {isPositive ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
           </div>
           <div className="perf-info">
-            <span className="perf-label">Profit/Loss</span>
+            <span className="perf-label">Net Profit/Loss</span>
             <span className={`perf-value ${isPositive ? 'positive' : 'negative'}`}>
               {isPositive ? '+' : ''}${profit.toFixed(2)} ({profitPercent.toFixed(2)}%)
             </span>
@@ -377,6 +381,32 @@ export default function BotDetail() {
           </div>
         </div>
       </div>
+
+      {/* Universal Fee-Aware Net Profit Protection Notice */}
+      {bot.feeGate?.lastProtection && (
+        <div className="fee-guard-alert-banner">
+          <div className="fee-guard-alert-icon">
+            <ShieldCheck size={22} />
+          </div>
+          <div className="fee-guard-alert-body">
+            <div className="fee-guard-alert-title">
+              <strong>Fee-Aware Net Profit Gatekeeper: HOLDING FOR BREAKEVEN</strong>
+              <span className="fee-guard-alert-time">
+                {new Date(bot.feeGate.lastProtection.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="fee-guard-alert-desc">
+              A strategy SELL signal at <strong>${Number(bot.feeGate.lastProtection.blockedPrice).toFixed(6)}</strong> was intercepted to prevent fee drag. While gross gain was +${Number(bot.feeGate.lastProtection.grossProfit).toFixed(4)}, accumulated cycle fees ($${Number(bot.feeGate.lastProtection.totalCycleFees).toFixed(4)}) would turn this trade into a net loss of <strong>-${Math.abs(Number(bot.feeGate.lastProtection.netProfit)).toFixed(4)}</strong>.
+            </p>
+            <div className="fee-guard-alert-target">
+              <span className="target-label">Target Fee-Adjusted Breakeven Price:</span>
+              <strong className="breakeven-highlight">${Number(bot.feeGate.lastProtection.breakevenPrice).toFixed(6)}</strong>
+              <span className="target-note">&mdash; Covers all buy dips + sell fee, securing guaranteed net profit</span>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Strategy Grid Sizing & Coin Allocation Insights */}
       <GridInsightsSection bot={bot} />

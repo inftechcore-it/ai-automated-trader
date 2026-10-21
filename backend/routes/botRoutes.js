@@ -252,19 +252,26 @@ async function getPrisma() {
 function getExchangeFeeMeta(exchangeName) {
   const ex = (exchangeName || '').toLowerCase();
   if (ex === 'jupiter') {
-    return { rate: 0.0025, fixedFee: 0.000005, feeAsset: 'SOL', type: 'DEX LP Pool + Gas' };
+    return { rate: 0.0015, fixedFee: 0.000005, feeAsset: 'SOL', type: 'DEX Swap & Gas (~0.15%)' };
   }
-  if (['binance', 'bybit', 'pionex', 'coindcx', 'kraken'].includes(ex)) {
-    return { rate: 0.001, fixedFee: 0, feeAsset: 'USDT', type: 'Spot Standard 0.1%' };
+  if (ex === 'pionex') {
+    return { rate: 0.0005, fixedFee: 0, feeAsset: 'USDT', type: 'Spot 0.05%' };
+  }
+  if (ex === 'coindcx' || ex === 'kraken') {
+    return { rate: 0.0020, fixedFee: 0, feeAsset: 'USDT', type: 'Spot 0.20%' };
+  }
+  if (['binance', 'bybit'].includes(ex)) {
+    return { rate: 0.0010, fixedFee: 0, feeAsset: 'USDT', type: 'Spot Standard 0.10%' };
   }
   if (['angelone', 'upstox', 'nse', 'bse'].includes(ex)) {
-    return { rate: 0.0005, fixedFee: 0, feeAsset: 'INR', type: 'Brokerage & STT' };
+    return { rate: 0.0010, fixedFee: 0, feeAsset: 'INR', type: 'Brokerage & STT (~0.10%)' };
   }
   if (['alpaca', 'nasdaq', 'nyse'].includes(ex)) {
-    return { rate: 0.0002, fixedFee: 0.005, feeAsset: 'USD', type: 'SEC & Turnover' };
+    return { rate: 0.0005, fixedFee: 0.005, feeAsset: 'USD', type: 'Regulatory & SEC (~0.05%)' };
   }
-  return { rate: 0.001, fixedFee: 0, feeAsset: 'USDT', type: 'Standard Fee' };
+  return { rate: 0.0010, fixedFee: 0, feeAsset: 'USDT', type: 'Standard Fee (0.10%)' };
 }
+
 
 function getCurrencySymbol(exchangeName, symbol) {
   const ex = (exchangeName || '').toLowerCase();
