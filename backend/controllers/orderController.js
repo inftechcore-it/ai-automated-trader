@@ -49,14 +49,15 @@ export async function listOrders(req, res) {
     exchange
   } = req.query;
 
-  const userId = String(req.user.id);
+  const userId = String(req.user?.id || 'default-user');
+  const userIds = userId === 'default-user' ? ['default-user'] : [userId, 'default-user'];
   const { PrismaClient } = await import('@prisma/client');
   const prisma = new PrismaClient();
 
   try {
     // 1. Fetch user's bots list for dropdown filtering
     const userBots = await prisma.botConfig.findMany({
-      where: { userId },
+      where: { userId: { in: userIds } },
       select: {
         id: true,
         name: true,
@@ -84,7 +85,7 @@ export async function listOrders(req, res) {
     if (source === 'all' || source === 'bot') {
       const whereClause = {
         botConfig: {
-          userId,
+          userId: { in: userIds },
           ...(botId ? { id: botId } : {})
         }
       };

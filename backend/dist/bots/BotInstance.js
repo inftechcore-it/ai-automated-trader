@@ -347,7 +347,40 @@ export class BotInstance extends EventEmitter {
             for (const order of this.state.openOrders) {
                 if (!exchangeOrderIds.has(order.exchangeOrderId || order.id)) {
                     removedOrders.push(order.id);
-                    console.log(`[Bot ${this.config.name}] Order ${order.id} no longer on exchange (cancelled/filled externally)`);
+                    console.log(`[Bot ${this.config.name}] Order ${order.id} no longer in exchange open orders. Checking fill status...`);
+                    let fillPrice = order.price || this.lastPrice || 0;
+                    let filledQty = order.quantity;
+                    let isFilled = false;
+                    try {
+                        const ccxtEx = adapter.exchange;
+                        const exOrderId = order.exchangeOrderId || order.id;
+                        let fetched = null;
+                        if (typeof adapter.getOrder === 'function') {
+                            fetched = await adapter.getOrder(exOrderId, this.config.symbol);
+                        }
+                        else if (ccxtEx && typeof ccxtEx.fetchOrder === 'function') {
+                            fetched = await ccxtEx.fetchOrder(exOrderId, this.config.symbol);
+                        }
+                        if (fetched) {
+                            const status = String(fetched.status || '').toLowerCase();
+                            if (status === 'closed' || status === 'filled' || (Number(fetched.filled || fetched.filledQuantity || 0) > 0)) {
+                                isFilled = true;
+                                fillPrice = Number(fetched.average || fetched.avgFillPrice || fetched.price || fillPrice);
+                                filledQty = Number(fetched.filled || fetched.filledQuantity || filledQty);
+                            }
+                        }
+                        else {
+                            // Market or crossed orders no longer open are treated as filled
+                            isFilled = true;
+                        }
+                    }
+                    catch {
+                        isFilled = true;
+                    }
+                    if (isFilled && fillPrice > 0 && filledQty > 0) {
+                        console.log(`[Bot ${this.config.name}] Synced filled order ${order.id}: ${order.side} ${filledQty} @ $${fillPrice}`);
+                        await this.processOrderFill(order, fillPrice, filledQty);
+                    }
                 }
             }
             // Remove orders that are no longer on exchange
@@ -420,9 +453,9 @@ export class BotInstance extends EventEmitter {
             else if (typeof adapter.getBalance === 'function') {
                 balances = await adapter.getBalance();
             }
-            const asset = (this.config.symbol.split('/')[0] || '').toUpperCase();
+            const { base: asset } = parseSymbol(this.config.symbol);
             const assetBalance = Array.isArray(balances)
-                ? balances.find((b) => (b.asset || '').toUpperCase() === asset)
+                ? balances.find((b) => (b.asset || '').toUpperCase() === asset.toUpperCase())
                 : null;
             if (assetBalance && Number(assetBalance.total ?? assetBalance.free ?? 0) > 0) {
                 const totalQty = Number(assetBalance.total ?? assetBalance.free ?? 0);
@@ -471,11 +504,9 @@ export class BotInstance extends EventEmitter {
             }
             if (!Array.isArray(balances))
                 return;
-            const symbolParts = (this.config.symbol || '').split('/');
-            const baseAsset = (symbolParts[0] || 'SOL').toUpperCase();
-            const quoteAsset = (symbolParts[1] || 'USDC').toUpperCase();
-            const quoteBalObj = balances.find((b) => (b.asset || '').toUpperCase() === quoteAsset);
-            const baseBalObj = balances.find((b) => (b.asset || '').toUpperCase() === baseAsset);
+            const { base: baseAsset, quote: quoteAsset } = parseSymbol(this.config.symbol);
+            const quoteBalObj = balances.find((b) => (b.asset || '').toUpperCase() === quoteAsset.toUpperCase());
+            const baseBalObj = balances.find((b) => (b.asset || '').toUpperCase() === baseAsset.toUpperCase());
             const freeAmount = quoteBalObj ? Number(quoteBalObj.free ?? quoteBalObj.total ?? 0) : 0;
             const baseFree = baseBalObj ? Number(baseBalObj.free ?? baseBalObj.total ?? 0) : 0;
             const previouslyPaused = this.isPausedForBalance;
@@ -559,9 +590,8 @@ export class BotInstance extends EventEmitter {
                 }
                 // In LIVE SELL mode: Validate actual user holdings to purge ghost / stale orders
                 if (!isPaper && order.side === 'SELL') {
-                    const parts = (this.config.symbol || '').split('/');
-                    const asset = (parts[0] || '').toUpperCase();
-                    let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+                    const { base: asset } = parseSymbol(this.config.symbol);
+                    let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
                     let freeBalance = holding?.quantity || 0;
                     if (freeBalance < order.quantity) {
                         try {
@@ -681,9 +711,8 @@ export class BotInstance extends EventEmitter {
         }
         // Check if we have enough holdings for sell
         if (side === 'SELL') {
-            const parts = this.config.symbol?.split('/') || [];
-            const asset = (parts[0] || '').toUpperCase();
-            let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+            const { base: asset } = parseSymbol(this.config.symbol);
+            let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
             // In LIVE mode, ALWAYS query live wallet directly before placing a SELL order to prevent fee-drag desync
             if (!isPaper) {
                 try {
@@ -885,9 +914,8 @@ export class BotInstance extends EventEmitter {
                 (action.metadata?.reason && String(action.metadata.reason).toLowerCase().includes('floor')) ||
                 (action.metadata?.reason && String(action.metadata.reason).toLowerCase().includes('emergency')));
             if (!isEmergencyExit) {
-                const parts = this.config.symbol?.split('/') || [];
-                const asset = (parts[0] || '').toUpperCase();
-                const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset);
+                const { base: asset } = parseSymbol(this.config.symbol);
+                const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
                 const sellPrice = price || tick.price;
                 const avgEntryPrice = holding?.avgEntryPrice || sellPrice;
                 const cycleBuyFees = this.state.currentCycleBuyFees || 0;
@@ -921,6 +949,10 @@ export class BotInstance extends EventEmitter {
                             symbol: this.config.symbol,
                         },
                     };
+                    // Notify strategy so it can release in-memory locks (e.g. SuperZee hasHarvestedUpperBand)
+                    if ('onOrderError' in this.strategy && typeof this.strategy.onOrderError === 'function') {
+                        this.strategy.onOrderError('FEE_GATE_BLOCKED');
+                    }
                     return; // 🛑 Block order placement and convert to HOLD & WAIT
                 }
             }
@@ -1109,10 +1141,10 @@ export class BotInstance extends EventEmitter {
         }
     }
     async processOrderFill(order, filledPrice, filledQuantity) {
-        const asset = this.config.symbol.split('/')[0];
+        const { base: asset } = parseSymbol(order.symbol || this.config.symbol);
         if (order.side === 'BUY') {
             // Add to holdings
-            let holding = this.state.holdings.find(h => h.asset === asset);
+            let holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
             if (holding) {
                 const totalQty = holding.quantity + filledQuantity;
                 holding.avgEntryPrice = (holding.avgEntryPrice * holding.quantity + filledPrice * filledQuantity) / totalQty;
@@ -1164,7 +1196,7 @@ export class BotInstance extends EventEmitter {
         }
         else if (order.side === 'SELL') {
             // Remove from holdings
-            const holding = this.state.holdings.find(h => h.asset === asset);
+            const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
             if (holding) {
                 const feeRate = getExchangeFeeRate(this.config.exchangeName, this.config.symbol);
                 const sellFee = filledQuantity * filledPrice * feeRate;
@@ -1182,7 +1214,7 @@ export class BotInstance extends EventEmitter {
                 this.state.realizedPnl += netProfit;
                 holding.quantity -= filledQuantity;
                 if (holding.quantity <= 0) {
-                    this.state.holdings = this.state.holdings.filter(h => h.asset !== asset);
+                    this.state.holdings = this.state.holdings.filter(h => (h.asset || '').toUpperCase() !== asset.toUpperCase());
                     // When full holding is liquidated, reset remaining cycle fees
                     this.state.currentCycleBuyFees = 0;
                 }
@@ -1235,8 +1267,8 @@ export class BotInstance extends EventEmitter {
         this.updateEquity();
     }
     updateHoldingsPrice(tick) {
-        const asset = tick.symbol.split('/')[0];
-        const holding = this.state.holdings.find(h => h.asset === asset);
+        const { base: asset } = parseSymbol(tick.symbol || this.config.symbol);
+        const holding = this.state.holdings.find(h => (h.asset || '').toUpperCase() === asset.toUpperCase());
         if (holding) {
             holding.currentPrice = tick.price;
             holding.value = holding.quantity * tick.price;

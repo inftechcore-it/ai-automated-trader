@@ -17,10 +17,26 @@ export const toNum = (v: unknown): number => {
  */
 export const parseSymbol = (symbol: string | undefined): { base: string; quote: string } => {
   if (!symbol) return { base: '', quote: '' };
-  const parts = symbol.split('/');
+  const clean = symbol.trim().toUpperCase().replace(/[-_]/g, '/');
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    return {
+      base: (parts[0] || '').toUpperCase(),
+      quote: (parts[1] || '').toUpperCase(),
+    };
+  }
+  const knownQuotes = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'USD', 'EUR', 'INR', 'SOL', 'BTC', 'ETH'];
+  for (const q of knownQuotes) {
+    if (clean.endsWith(q) && clean.length > q.length) {
+      return {
+        base: clean.slice(0, -q.length),
+        quote: q,
+      };
+    }
+  }
   return {
-    base: parts[0] || '',
-    quote: parts[1] || '',
+    base: clean,
+    quote: '',
   };
 };
 

@@ -84,6 +84,26 @@ export class SuperZeeBot extends BaseBotStrategy {
         this.lastPrice = toNum(p.currentPrice) || (this.dynamicLower > 0 ? (this.dynamicLower + this.dynamicUpper) / 2 : 0);
         this.lastStatusLog = 0;
         this.exchange = p.exchange || p.exchangeName || this.adapter?.exchangeName || 'Jupiter';
+        const rawSym = p.symbol || initialState?.openOrders?.[0]?.symbol || '';
+        if (rawSym) {
+            const clean = String(rawSym).replace('-', '/').replace('_', '/');
+            if (clean.includes('/')) {
+                const parts = clean.split('/');
+                if (parts[0])
+                    this.asset = parts[0].toUpperCase();
+                if (parts[1])
+                    this.quote = parts[1].toUpperCase();
+            }
+            else {
+                for (const q of ['USDC', 'USDT', 'USD', 'SOL', 'EUR', 'INR']) {
+                    if (clean.endsWith(q) && clean.length > q.length) {
+                        this.asset = clean.slice(0, -q.length).toUpperCase();
+                        this.quote = q;
+                        break;
+                    }
+                }
+            }
+        }
         if (p.initialDirective?.thought) {
             this.lastThought = p.initialDirective.thought;
         }
@@ -110,14 +130,14 @@ export class SuperZeeBot extends BaseBotStrategy {
             if (clean.includes('/')) {
                 const parts = clean.split('/');
                 if (parts[0])
-                    this.asset = parts[0];
+                    this.asset = parts[0].toUpperCase();
                 if (parts[1])
-                    this.quote = parts[1];
+                    this.quote = parts[1].toUpperCase();
             }
             else {
-                for (const q of ['USDC', 'USDT', 'USD', 'SOL']) {
+                for (const q of ['USDC', 'USDT', 'USD', 'SOL', 'EUR', 'INR']) {
                     if (clean.endsWith(q) && clean.length > q.length) {
-                        this.asset = clean.slice(0, -q.length);
+                        this.asset = clean.slice(0, -q.length).toUpperCase();
                         this.quote = q;
                         break;
                     }
@@ -159,6 +179,9 @@ export class SuperZeeBot extends BaseBotStrategy {
                     quantity: currentHoldings,
                     metadata: {
                         sweepAll: true,
+                        bypassFeeGate: true,
+                        isExit: true,
+                        isEmergencyStop: true,
                         reason: `Microsecond Guard: Emergency Floor breached at $${currentPrice.toFixed(4)}`,
                     },
                 });
@@ -180,6 +203,8 @@ export class SuperZeeBot extends BaseBotStrategy {
                     quantity: currentHoldings,
                     metadata: {
                         sweepAll: true,
+                        bypassFeeGate: true,
+                        isExit: true,
                         reason: `Microsecond Guard: Take-Profit Ceiling triggered at $${currentPrice.toFixed(4)}`,
                     },
                 });
@@ -459,6 +484,14 @@ export class SuperZeeBot extends BaseBotStrategy {
     }
     onOrderError(error) {
         const err = (error || '').toLowerCase();
+        // Rollback upper band harvest lock if blocked by Fee Gate or rejected
+        if (err.includes('fee_gate') || err.includes('fee-aware') || err.includes('blocked sell') || err.includes('held')) {
+            this.hasHarvestedUpperBand = false;
+            this.totalHarvests = Math.max(0, this.totalHarvests - 1);
+            this.lastActionTimestamp = Date.now();
+            this.log(`⏳ [Super Zee Fee Protection] Harvest lock reset. Ready to re-evaluate sell when price reaches profitable breakeven.`, 'info');
+            return;
+        }
         const isBalanceOrFilter = err.includes('size filter') ||
             err.includes('filter dendied') ||
             err.includes('insufficient') ||
@@ -466,6 +499,7 @@ export class SuperZeeBot extends BaseBotStrategy {
             err.includes('min_trade_size');
         if (isBalanceOrFilter) {
             const now = Date.now();
+            this.hasHarvestedUpperBand = false;
             this.lastEmergencyFloorActionTime = now;
             this.lastTakeProfitCeilingActionTime = now;
             this.lastActionTimestamp = now;
