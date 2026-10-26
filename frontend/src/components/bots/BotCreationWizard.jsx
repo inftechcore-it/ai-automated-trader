@@ -441,7 +441,7 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
       case 3:
         return Object.keys(config.params).length > 0;
       case 4:
-        return !!config.name && config.investedAmount > 0;
+        return config.investedAmount > 0;
       default:
         return false;
     }
@@ -452,9 +452,15 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
     setError('');
 
     try {
+      const defaultName = `${config.symbol || 'Auto'} ${STRATEGIES.find(s => s.type === config.strategyType)?.name || 'Trading'} Bot`;
+      const payload = {
+        ...config,
+        name: config.name?.trim() || defaultName,
+      };
+
       const res = await api('/bots/create', {
         method: 'POST',
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
 
       if (res.success) {
@@ -1404,7 +1410,13 @@ export default function BotCreationWizard({ onClose, onCreated, prefilledConfig 
             {step < 4 ? (
               <button
                 className="next-btn"
-                onClick={() => setStep(s => s + 1)}
+                onClick={() => {
+                  if (step === 3 && !config.name) {
+                    const defaultName = `${config.symbol || 'Auto'} ${STRATEGIES.find(s => s.type === config.strategyType)?.name || 'Trading'} Bot`;
+                    setConfig(c => ({ ...c, name: c.name || defaultName }));
+                  }
+                  setStep(s => s + 1);
+                }}
                 disabled={!validateStep()}
               >
                 Next <ChevronRight size={16} />

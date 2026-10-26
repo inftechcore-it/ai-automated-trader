@@ -171,6 +171,25 @@ router.post('/create', requireAuth, async (req, res) => {
       return fail(res, 500, 'Bot Engine not available');
     }
 
+    const {
+      name,
+      strategyType,
+      exchangeName,
+      symbol,
+      mode = 'PAPER',
+      params = {},
+      investedAmount = 100,
+    } = req.body;
+
+    if (!strategyType) {
+      return fail(res, 400, 'Strategy type is required');
+    }
+    if (!exchangeName) {
+      return fail(res, 400, 'Exchange name is required');
+    }
+
+    const botName = name?.trim() || `${symbol || 'Asset'} ${strategyType} Bot`;
+
     let userId = req.user?.id || req.body?.userId;
     if (!userId || userId === 'default-user') {
       try {
@@ -185,13 +204,13 @@ router.post('/create', requireAuth, async (req, res) => {
 
     const config = await engine.createBot({
       userId,
-      name,
+      name: botName,
       strategyType,
       exchangeName,
       symbol,
       mode: mode || 'PAPER',
       params,
-      investedAmount: Number(investedAmount),
+      investedAmount: Number(investedAmount) || 100,
     });
 
     return ok(res, { bot: config, message: 'Bot created successfully' });
